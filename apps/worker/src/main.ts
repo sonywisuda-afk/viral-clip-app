@@ -3,6 +3,14 @@ import { config } from 'dotenv';
 
 config({ path: path.resolve(__dirname, '../../../.env'), quiet: true });
 
+import { validateEnv } from './env';
+
+// Runs before ./queues/./workers are imported below, so a missing
+// DATABASE_URL/REDIS_URL/OPENAI_API_KEY/STORAGE_* fails immediately with a
+// clear message instead of failing later (or silently) once a Queue,
+// PrismaClient, or the OpenAI client actually tries to use it.
+validateEnv();
+
 import { detectClipsQueue, renderClipQueue } from './queues';
 import { createTranscribeWorker } from './workers/transcribe.worker';
 import { createDetectClipsWorker } from './workers/detect-clips.worker';

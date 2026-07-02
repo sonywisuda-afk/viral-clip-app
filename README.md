@@ -139,7 +139,7 @@ Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 
 ## API
 
-Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register` dan `/auth/login` butuh cookie sesi (login dulu):
+Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register`, `/auth/login`, dan `/health` butuh cookie sesi (login dulu):
 
 | Endpoint | Keterangan |
 |---|---|
@@ -151,3 +151,6 @@ Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register` dan `/auth
 | `GET /videos` | Semua video milik user yang sedang login (terbaru dulu), masing-masing dengan `clips` |
 | `GET /videos/:id` | Detail video + daftar `clips` (masing-masing dengan `downloadUrl` kalau sudah di-render). 404 kalau video bukan milik user yang sedang login |
 | `GET /clips/:id/download` | Stream file klip yang sudah di-render sebagai download. 404 kalau klip bukan milik user yang sedang login |
+| `GET /health` | Health check (tanpa auth) untuk load balancer/orchestrator — `200 {"status":"ok"}` kalau Postgres bisa dijangkau, `503` kalau tidak |
+
+`apps/api` juga fail-fast saat boot kalau env var wajib (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `STORAGE_*`) kosong/hilang, dan mengirim security response headers via `helmet()`. `apps/worker` melakukan validasi env var serupa saat start (`DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `STORAGE_*`).
