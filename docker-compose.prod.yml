@@ -1,0 +1,120 @@
+# Reference deployment stack - builds and runs apps/api, apps/worker, and
+# apps/web from their Dockerfiles alongside Postgres and Redis, wired
+# together over the compose network. Not used for local dev (see
+# docker-compose.yml / `pnpm dev` for that) - this is what "the whole thing
+# actually running as containers" looks like, and a starting point for
+# adapting to a real host/orchestrator.
+#
+#   docker compose -f docker-compose.prod.yml up --build
+#
+# Secrets (JWT_SECRET, STORAGE_*, OPENAI_API_KEY) come from .env via
+# env_file. DATABASE_URL/REDIS_URL/FFMPEG_PATH are overridden below to point
+# at the compose network's service names/the container's own ffmpeg instead
+# of whatever apps/api and apps/worker's own .env values are for local dev
+# (localhost, and a host-specific FFMPEG_PATH).
+#
+# Explicit project name - without it, compose derives the project name from
+# the directory (same as docker-compose.yml's default), and since both files
+# use the service names `postgres`/`redis`, running this alongside the dev
+# stack would make compose treat them as the same containers and `down`
+# this file would tear down your dev Postgres/Redis too.
+name: viral-clip-app-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-viralclip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-viralclip}
+      POSTGRES_DB: ${POSTGRES_DB:-viralclip}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-viralclip}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot job, not a long-running service - runs `prisma migrate deploy`
+  # against a fresh database before api/worker start. Without this, a brand
+  # new Postgres volume has no schema and the very first request that
+  # touches the DB fails with "table does not exist".
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/database/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+      REDIS_URL: redis://redis:6379
+      WEB_ORIGIN: http://localhost:3000
+    ports:
+      - '${API_PORT:-3001}:3001'
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+      REDIS_URL: redis://redis:6379
+      # Overrides whatever host-specific FFMPEG_PATH is in .env for local
+      # dev - the image already has a real ffmpeg on PATH (see
+      # apps/worker/Dockerfile).
+      FFMPEG_PATH: ffmpeg
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '3000:3000'
+
+volumes:
+  postgres-data:
+  redis-data:
