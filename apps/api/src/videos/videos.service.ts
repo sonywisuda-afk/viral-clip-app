@@ -11,6 +11,7 @@ import {
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { toSharedCaptionStyle, toSharedTranscriptSegment } from './transcript-segment.util';
 
 type VideoWithClips = Prisma.VideoGetPayload<{ include: { clips: true } }>;
 
@@ -89,7 +90,7 @@ export class VideosService {
       });
       await this.detectClipsQueue.add(QueueName.DETECT_CLIPS, {
         videoId: id,
-        segments: video.transcriptSegments,
+        segments: video.transcriptSegments.map(toSharedTranscriptSegment),
       });
     } else {
       const unrendered = video.clips.filter((clip) => !clip.outputUrl);
@@ -118,10 +119,11 @@ export class VideosService {
             startTime: clip.startTime,
             endTime: clip.endTime,
             transcript: filterSegmentsForClip(
-              video.transcriptSegments,
+              video.transcriptSegments.map(toSharedTranscriptSegment),
               clip.startTime,
               clip.endTime,
             ),
+            captionStyle: toSharedCaptionStyle(clip.captionStyle),
           }),
         ),
       );

@@ -11,11 +11,12 @@ import {
 import { getObjectStream, uploadObject } from '@viral-clip-app/storage';
 import { Worker, type Job } from 'bullmq';
 import { detectFaces, type FaceSample } from '../faceDetection';
-import { buildSrt, getVideoDimensions, renderClip, type ReframeOptions } from '../ffmpeg';
+import { getVideoDimensions, renderClip, type ReframeOptions } from '../ffmpeg';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 import { buildCropPath, buildSendCmdScript, computeCropDimensions } from '../reframe';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
+import { buildAss } from '../subtitles';
 
 // Runs face detection and builds the crop plan for a clip. Never throws:
 // a detection failure (missing/misbehaving Python subprocess, no face
@@ -65,13 +66,13 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
   return new Worker<RenderClipJobData, RenderClipJobResult>(
     QueueName.RENDER_CLIP,
     async (job: Job<RenderClipJobData>) => {
-      const { clipId, videoId, sourceUrl, startTime, endTime, transcript } = job.data;
+      const { clipId, videoId, sourceUrl, startTime, endTime, transcript, captionStyle } = job.data;
       console.log(
         `[render-clip] rendering clip ${clipId} for video ${videoId} (${startTime}s - ${endTime}s)`,
       );
 
       let sourcePath: string | null = null;
-      let srtPath: string | null = null;
+      let subtitlesPath: string | null = null;
       let outputPath: string | null = null;
       let sendCmdPath: string | null = null;
 
@@ -82,21 +83,30 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         const sourceStream = await getObjectStream(sourceUrl);
         await pipeline(sourceStream, createWriteStream(sourcePath));
 
-        const srtContent = buildSrt(transcript, startTime, endTime);
-        if (srtContent.length > 0) {
-          srtPath = await reserveScratchPath('captions', '.srt');
-          await writeFile(srtPath, srtContent);
-        }
-
+        // Computed before captions - buildAss needs the final (post-crop)
+        // output dimensions to size/position the subtitle text correctly.
         const reframe = await buildReframePlan(sourcePath, startTime, endTime);
         sendCmdPath = reframe.sendCmdPath;
+
+        const assContent = buildAss({
+          segments: transcript,
+          clipStart: startTime,
+          clipEnd: endTime,
+          style: captionStyle,
+          videoWidth: reframe.width,
+          videoHeight: reframe.height,
+        });
+        if (assContent.length > 0) {
+          subtitlesPath = await reserveScratchPath('captions', '.ass');
+          await writeFile(subtitlesPath, assContent);
+        }
 
         outputPath = await reserveScratchPath('output', '.mp4');
         await renderClip({
           inputPath: sourcePath,
           startTime,
           endTime,
-          srtPath,
+          subtitlesPath,
           outputPath,
           reframe,
         });
@@ -130,7 +140,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         throw error;
       } finally {
         if (sourcePath) await cleanupTempFile(sourcePath);
-        if (srtPath) await cleanupTempFile(srtPath);
+        if (subtitlesPath) await cleanupTempFile(subtitlesPath);
         if (outputPath) await cleanupTempFile(outputPath);
         if (sendCmdPath) await cleanupTempFile(sendCmdPath);
       }

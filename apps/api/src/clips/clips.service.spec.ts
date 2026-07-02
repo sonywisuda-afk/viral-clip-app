@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { CaptionStyle } from '@viral-clip-app/database';
 import { QueueName } from '@viral-clip-app/shared';
 import type { Queue } from 'bullmq';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -79,6 +80,7 @@ describe('ClipsService', () => {
       endTime: 20,
       viralityScore: 80,
       outputUrl: 'renders/clip-1.mp4',
+      captionStyle: 'DEFAULT',
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1' },
     };
@@ -91,7 +93,7 @@ describe('ClipsService', () => {
 
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
-        data: { startTime: 12, endTime: 22 },
+        data: { startTime: 12, endTime: 22, captionStyle: 'DEFAULT' },
       });
       expect(result).toEqual({
         id: 'clip-1',
@@ -100,6 +102,7 @@ describe('ClipsService', () => {
         endTime: 22,
         viralityScore: 80,
         downloadUrl: '/clips/clip-1/download',
+        captionStyle: 'DEFAULT',
         updatedAt: existingClip.updatedAt,
       });
     });
@@ -112,7 +115,19 @@ describe('ClipsService', () => {
 
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
-        data: { startTime: 10, endTime: 25 },
+        data: { startTime: 10, endTime: 25, captionStyle: 'DEFAULT' },
+      });
+    });
+
+    it('updates captionStyle independently of startTime/endTime', async () => {
+      prisma.clip.findUnique.mockResolvedValue(existingClip);
+      prisma.clip.update.mockResolvedValue({ ...existingClip, captionStyle: 'KARAOKE' });
+
+      await service.update('clip-1', 'user-1', { captionStyle: CaptionStyle.KARAOKE });
+
+      expect(prisma.clip.update).toHaveBeenCalledWith({
+        where: { id: 'clip-1' },
+        data: { startTime: 10, endTime: 20, captionStyle: 'KARAOKE' },
       });
     });
 
@@ -145,15 +160,16 @@ describe('ClipsService', () => {
       endTime: 20,
       viralityScore: 80,
       outputUrl: 'renders/clip-1.mp4',
+      captionStyle: CaptionStyle.KARAOKE,
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1', sourceUrl: 'videos/abc.mp4' },
     };
 
-    it('clears outputUrl, enqueues render-clip with the recomputed transcript, and returns the cleared dto', async () => {
+    it('clears outputUrl, enqueues render-clip with the recomputed transcript and captionStyle, and returns the cleared dto', async () => {
       prisma.clip.findUnique.mockResolvedValue(clip);
       const segments = [
-        { start: 0, end: 5, text: 'before' },
-        { start: 12, end: 18, text: 'inside' },
+        { start: 0, end: 5, text: 'before', words: null },
+        { start: 12, end: 18, text: 'inside', words: [{ word: 'inside', start: 12, end: 12.5 }] },
       ];
       prisma.transcriptSegment.findMany.mockResolvedValue(segments);
       const cleared = { ...clip, outputUrl: null, updatedAt: new Date('2026-01-02') };
@@ -171,7 +187,15 @@ describe('ClipsService', () => {
         sourceUrl: 'videos/abc.mp4',
         startTime: 10,
         endTime: 20,
-        transcript: [{ start: 12, end: 18, text: 'inside' }],
+        transcript: [
+          {
+            start: 12,
+            end: 18,
+            text: 'inside',
+            words: [{ word: 'inside', start: 12, end: 12.5 }],
+          },
+        ],
+        captionStyle: CaptionStyle.KARAOKE,
       });
       expect(result).toEqual({
         id: 'clip-1',
@@ -180,6 +204,7 @@ describe('ClipsService', () => {
         endTime: 20,
         viralityScore: 80,
         downloadUrl: null,
+        captionStyle: CaptionStyle.KARAOKE,
         updatedAt: cleared.updatedAt,
       });
     });
