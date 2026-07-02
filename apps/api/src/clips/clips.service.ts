@@ -1,8 +1,10 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import type { CaptionStyle } from '@viral-clip-app/database';
 import { filterSegmentsForClip, QueueName, type RenderClipJobData } from '@viral-clip-app/shared';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+import { toSharedCaptionStyle, toSharedTranscriptSegment } from '../videos/transcript-segment.util';
 import type { UpdateClipDto } from './dto/update-clip.dto';
 
 @Injectable()
@@ -34,14 +36,16 @@ export class ClipsService {
     return clip;
   }
 
-  // Manual trim from the timeline editor. Deliberately does not touch
-  // outputUrl or enqueue a render - re-rendering is a separate explicit
-  // action (see render() below) so dragging a handle doesn't burn FFmpeg
-  // compute on every intermediate value.
+  // Manual trim/style change from the timeline editor. Deliberately does not
+  // touch outputUrl or enqueue a render - re-rendering is a separate
+  // explicit action (see render() below) so dragging a trim handle or
+  // switching caption presets doesn't burn FFmpeg compute on every
+  // intermediate value.
   async update(id: string, requesterId: string, input: UpdateClipDto) {
     const clip = await this.findOwnedOrThrow(id, requesterId);
     const startTime = input.startTime ?? clip.startTime;
     const endTime = input.endTime ?? clip.endTime;
+    const captionStyle = input.captionStyle ?? clip.captionStyle;
 
     if (startTime >= endTime) {
       throw new BadRequestException('startTime must be before endTime');
@@ -49,7 +53,7 @@ export class ClipsService {
 
     const updated = await this.prisma.clip.update({
       where: { id },
-      data: { startTime, endTime },
+      data: { startTime, endTime, captionStyle },
     });
 
     return this.toDto(updated);
@@ -85,7 +89,12 @@ export class ClipsService {
       sourceUrl: clip.video.sourceUrl,
       startTime: clip.startTime,
       endTime: clip.endTime,
-      transcript: filterSegmentsForClip(segments, clip.startTime, clip.endTime),
+      transcript: filterSegmentsForClip(
+        segments.map(toSharedTranscriptSegment),
+        clip.startTime,
+        clip.endTime,
+      ),
+      captionStyle: toSharedCaptionStyle(clip.captionStyle),
     });
 
     return this.toDto(cleared);
@@ -98,6 +107,7 @@ export class ClipsService {
     endTime: number;
     viralityScore: number;
     outputUrl: string | null;
+    captionStyle: CaptionStyle;
     updatedAt: Date;
   }) {
     return {
@@ -107,6 +117,7 @@ export class ClipsService {
       endTime: clip.endTime,
       viralityScore: clip.viralityScore,
       downloadUrl: clip.outputUrl ? `/clips/${clip.id}/download` : null,
+      captionStyle: clip.captionStyle,
       updatedAt: clip.updatedAt,
     };
   }

@@ -287,8 +287,14 @@ describe('VideosService', () => {
         status: VideoStatus.FAILED,
         transcriptSegments: segments,
         clips: [
-          { id: 'clip-1', startTime: 10, endTime: 20, outputUrl: null },
-          { id: 'clip-2', startTime: 30, endTime: 40, outputUrl: 'renders/clip-2.mp4' },
+          { id: 'clip-1', startTime: 10, endTime: 20, outputUrl: null, captionStyle: 'DEFAULT' },
+          {
+            id: 'clip-2',
+            startTime: 30,
+            endTime: 40,
+            outputUrl: 'renders/clip-2.mp4',
+            captionStyle: 'KARAOKE',
+          },
         ],
       });
 
@@ -306,6 +312,7 @@ describe('VideosService', () => {
         startTime: 10,
         endTime: 20,
         transcript: [{ start: 12, end: 18, text: 'inside' }],
+        captionStyle: 'DEFAULT',
       });
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();

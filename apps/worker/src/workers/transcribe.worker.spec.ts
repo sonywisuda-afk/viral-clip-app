@@ -69,6 +69,10 @@ describe('transcribe worker', () => {
         { start: 0, end: 2, text: '  hi  ' },
         { start: 2, end: 4, text: 'there' },
       ],
+      words: [
+        { start: 0, end: 0.8, word: 'hi' },
+        { start: 2, end: 2.5, word: 'there' },
+      ],
     });
 
     const processor = getProcessor();
@@ -82,12 +86,12 @@ describe('transcribe worker', () => {
       file: fakeFile,
       model: 'whisper-1',
       response_format: 'verbose_json',
-      timestamp_granularities: ['segment'],
+      timestamp_granularities: ['word', 'segment'],
     });
 
     const segments = [
-      { start: 0, end: 2, text: 'hi' },
-      { start: 2, end: 4, text: 'there' },
+      { start: 0, end: 2, text: 'hi', words: [{ start: 0, end: 0.8, word: 'hi' }] },
+      { start: 2, end: 4, text: 'there', words: [{ start: 2, end: 2.5, word: 'there' }] },
     ];
     expect(transcriptSegmentCreateManyMock).toHaveBeenCalledWith({
       data: segments.map((s) => ({ videoId: 'video-1', ...s })),
@@ -101,6 +105,43 @@ describe('transcribe worker', () => {
       segments,
     });
     expect(result).toEqual({ videoId: 'video-1', segments });
+  });
+
+  it('buckets each word into the segment whose range contains its start time', async () => {
+    getObjectStreamMock.mockResolvedValue({});
+    toFileMock.mockResolvedValue({});
+    transcriptionsCreateMock.mockResolvedValue({
+      segments: [
+        { start: 0, end: 2, text: 'hi there' },
+        { start: 5, end: 7, text: 'unrelated' },
+      ],
+      // 'gap' starts before any segment and belongs to none - dropped, not
+      // mis-assigned to the nearest one.
+      words: [
+        { start: -1, end: -0.5, word: 'gap' },
+        { start: 0, end: 0.4, word: 'hi' },
+        { start: 0.5, end: 0.9, word: 'there' },
+      ],
+    });
+
+    const processor = getProcessor();
+    await processor({ data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' } });
+
+    expect(transcriptSegmentCreateManyMock).toHaveBeenCalledWith({
+      data: [
+        {
+          videoId: 'video-1',
+          start: 0,
+          end: 2,
+          text: 'hi there',
+          words: [
+            { start: 0, end: 0.4, word: 'hi' },
+            { start: 0.5, end: 0.9, word: 'there' },
+          ],
+        },
+        { videoId: 'video-1', start: 5, end: 7, text: 'unrelated', words: [] },
+      ],
+    });
   });
 
   it('marks the video FAILED and rethrows when transcription fails', async () => {

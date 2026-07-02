@@ -1,4 +1,4 @@
-import { VideoStatus } from '@viral-clip-app/database';
+import { CaptionStyle, VideoStatus } from '@viral-clip-app/database';
 import type { TranscriptSegment } from '@viral-clip-app/shared';
 import { Worker } from 'bullmq';
 
@@ -21,13 +21,16 @@ jest.mock('node:fs/promises', () => ({
   writeFile: (...args: unknown[]) => writeFileMock(...args),
 }));
 
-const buildSrtMock = jest.fn();
 const renderClipMock = jest.fn();
 const getVideoDimensionsMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
-  buildSrt: (...args: unknown[]) => buildSrtMock(...args),
   renderClip: (...args: unknown[]) => renderClipMock(...args),
   getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
+}));
+
+const buildAssMock = jest.fn();
+jest.mock('../subtitles', () => ({
+  buildAss: (...args: unknown[]) => buildAssMock(...args),
 }));
 
 const detectFacesMock = jest.fn();
@@ -84,6 +87,7 @@ interface RenderClipJobData {
   startTime: number;
   endTime: number;
   transcript: TranscriptSegment[];
+  captionStyle: CaptionStyle;
 }
 
 function getProcessor() {
@@ -100,6 +104,7 @@ const baseJobData: RenderClipJobData = {
   startTime: 10,
   endTime: 20,
   transcript: [{ start: 10, end: 12, text: 'hi' }],
+  captionStyle: CaptionStyle.DEFAULT,
 };
 
 describe('render-clip worker', () => {
@@ -120,10 +125,13 @@ describe('render-clip worker', () => {
     detectFacesMock.mockResolvedValue([{ t: 0, box: null }]);
     buildCropPathMock.mockReturnValue(null); // no face -> static center-crop by default
     buildSendCmdScriptMock.mockReturnValue('0 crop@reframe x 10, crop@reframe y 0;');
+    buildAssMock.mockReturnValue('');
   });
 
   it('downloads the source, renders with captions, uploads the result, and marks the video RENDERED once all clips are done', async () => {
-    buildSrtMock.mockReturnValue('1\n00:00:00,000 --> 00:00:02,000\nhi\n');
+    buildAssMock.mockReturnValue(
+      '[Script Info]\n...\nDialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,hi',
+    );
     clipFindManyMock.mockResolvedValue([
       { id: 'clip-1', outputUrl: 'renders/clip-1.mp4' },
       { id: 'clip-2', outputUrl: 'renders/clip-2.mp4' },
@@ -133,13 +141,21 @@ describe('render-clip worker', () => {
     const result = await processor({ data: baseJobData });
 
     expect(reserveScratchPathMock).toHaveBeenCalledWith('source', '.mp4');
-    expect(reserveScratchPathMock).toHaveBeenCalledWith('captions', '.srt');
+    expect(reserveScratchPathMock).toHaveBeenCalledWith('captions', '.ass');
     expect(reserveScratchPathMock).toHaveBeenCalledWith('output', '.mp4');
     expect(getObjectStreamMock).toHaveBeenCalledWith('videos/abc.mp4');
     expect(pipelineMock).toHaveBeenCalled();
+    expect(buildAssMock).toHaveBeenCalledWith({
+      segments: baseJobData.transcript,
+      clipStart: 10,
+      clipEnd: 20,
+      style: CaptionStyle.DEFAULT,
+      videoWidth: 136,
+      videoHeight: 240,
+    });
     expect(writeFileMock).toHaveBeenCalledWith(
       expect.stringContaining('captions'),
-      '1\n00:00:00,000 --> 00:00:02,000\nhi\n',
+      expect.stringContaining('Dialogue:'),
     );
     expect(renderClipMock).toHaveBeenCalledWith(
       expect.objectContaining({ startTime: 10, endTime: 20 }),
@@ -162,8 +178,18 @@ describe('render-clip worker', () => {
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
   });
 
+  it("passes the job's captionStyle through to buildAss", async () => {
+    clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
+
+    const processor = getProcessor();
+    await processor({ data: { ...baseJobData, captionStyle: CaptionStyle.KARAOKE } });
+
+    expect(buildAssMock).toHaveBeenCalledWith(
+      expect.objectContaining({ style: CaptionStyle.KARAOKE }),
+    );
+  });
+
   it('does not mark the video RENDERED when sibling clips are still pending', async () => {
-    buildSrtMock.mockReturnValue('');
     clipFindManyMock.mockResolvedValue([
       { id: 'clip-1', outputUrl: 'renders/clip-1.mp4' },
       { id: 'clip-2', outputUrl: null },
@@ -175,23 +201,21 @@ describe('render-clip worker', () => {
     expect(videoUpdateMock).not.toHaveBeenCalled();
   });
 
-  it('skips writing an SRT file when there is no overlapping transcript text', async () => {
-    buildSrtMock.mockReturnValue('');
+  it('skips writing a subtitle file when there is no overlapping transcript text', async () => {
     clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
 
     const processor = getProcessor();
     await processor({ data: baseJobData });
 
-    expect(reserveScratchPathMock).not.toHaveBeenCalledWith('captions', '.srt');
+    expect(reserveScratchPathMock).not.toHaveBeenCalledWith('captions', '.ass');
     expect(writeFileMock).not.toHaveBeenCalled();
-    expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ srtPath: null }));
-    // Only source + output scratch files created and cleaned up, no srt, no reframe-cmds.
+    expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ subtitlesPath: null }));
+    // Only source + output scratch files created and cleaned up, no captions, no reframe-cmds.
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(2);
   });
 
   describe('smart reframe', () => {
     it('falls back to a static center-crop when no face is detected anywhere in the clip', async () => {
-      buildSrtMock.mockReturnValue('');
       clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
       buildCropPathMock.mockReturnValue(null);
 
@@ -216,7 +240,6 @@ describe('render-clip worker', () => {
     });
 
     it('writes a sendcmd file and passes a moving reframe plan when a face is detected', async () => {
-      buildSrtMock.mockReturnValue('');
       clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
       const cropPath = [
         { t: 0, x: 10, y: 0 },
@@ -249,7 +272,6 @@ describe('render-clip worker', () => {
     });
 
     it('falls back to a static center-crop without failing the job when face detection itself throws', async () => {
-      buildSrtMock.mockReturnValue('');
       clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
       detectFacesMock.mockRejectedValue(new Error('python3 not found'));
 
@@ -267,7 +289,9 @@ describe('render-clip worker', () => {
   });
 
   it('marks the video FAILED, rethrows, and still cleans up scratch files when rendering fails', async () => {
-    buildSrtMock.mockReturnValue('1\n00:00:00,000 --> 00:00:02,000\nhi\n');
+    buildAssMock.mockReturnValue(
+      '[Script Info]\n...\nDialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,hi',
+    );
     renderClipMock.mockRejectedValue(new Error('ffmpeg exploded'));
 
     const processor = getProcessor();

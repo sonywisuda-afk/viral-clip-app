@@ -1,4 +1,4 @@
-import type { ClipCandidate, TranscriptSegment } from './video';
+import type { CaptionStyle, ClipCandidate, TranscriptSegment } from './video';
 
 export enum QueueName {
   TRANSCRIBE = 'transcribe',
@@ -33,6 +33,7 @@ export interface RenderClipJobData {
   startTime: number;
   endTime: number;
   transcript: TranscriptSegment[];
+  captionStyle: CaptionStyle;
 }
 
 export interface RenderClipJobResult {

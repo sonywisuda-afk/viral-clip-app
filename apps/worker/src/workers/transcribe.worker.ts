@@ -31,13 +31,21 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           file,
           model: 'whisper-1',
           response_format: 'verbose_json',
-          timestamp_granularities: ['segment'],
+          timestamp_granularities: ['word', 'segment'],
         });
 
+        // Whisper returns words as one flat, video-wide array rather than
+        // nested per segment - bucket each word into the segment whose
+        // [start, end) it falls in so render-clip's karaoke caption preset
+        // can access a segment's words alongside its text.
+        const words = transcription.words ?? [];
         const segments = (transcription.segments ?? []).map((segment) => ({
           start: segment.start,
           end: segment.end,
           text: segment.text.trim(),
+          words: words
+            .filter((word) => word.start >= segment.start && word.start < segment.end)
+            .map((word) => ({ word: word.word, start: word.start, end: word.end })),
         }));
 
         await prisma.$transaction([

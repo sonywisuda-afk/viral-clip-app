@@ -143,7 +143,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
         if (candidates.length > 0) {
           const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } });
           await Promise.all(
-            candidates.map((candidate) =>
+            candidates.map((candidate, index) =>
               renderClipQueue.add(QueueName.RENDER_CLIP, {
                 clipId: candidate.id,
                 videoId: candidate.videoId,
@@ -151,6 +151,11 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                 startTime: candidate.startTime,
                 endTime: candidate.endTime,
                 transcript: candidate.transcript,
+                // Newly-created clips always start at the schema default
+                // (CaptionStyle.DEFAULT) - picking a non-default preset is a
+                // manual PATCH /clips/:id + re-render, same flow as a manual
+                // trim (see ClipsService.update/.render).
+                captionStyle: clips[index].captionStyle,
               }),
             ),
           );

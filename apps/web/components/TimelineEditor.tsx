@@ -1,5 +1,6 @@
 'use client';
 
+import { CAPTION_STYLES, type CaptionStyle } from '@viral-clip-app/shared';
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { clipDownloadUrl, videoSourceUrl } from '../lib/api';
 import { useTimelineStore, type TimelineClip } from '../lib/timelineStore';
@@ -7,6 +8,14 @@ import { useTimelineStore, type TimelineClip } from '../lib/timelineStore';
 // Guards against a drag collapsing a clip to zero/negative length. The
 // backend also validates startTime < endTime independently (ClipsService.update).
 const MIN_CLIP_SECONDS = 1;
+
+// Human-readable labels for the CAPTION_STYLES preset enum - order matches
+// the <select> option order below.
+const CAPTION_STYLE_LABELS: Record<CaptionStyle, string> = {
+  DEFAULT: 'Default',
+  KARAOKE: 'Karaoke (word-synced highlight)',
+  BOLD_HIGHLIGHT: 'Bold highlight (keywords)',
+};
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -28,6 +37,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   const selectedClipId = useTimelineStore((s) => s.selectedClipId);
   const selectClip = useTimelineStore((s) => s.selectClip);
   const setClipRange = useTimelineStore((s) => s.setClipRange);
+  const setCaptionStyle = useTimelineStore((s) => s.setCaptionStyle);
   const saveClip = useTimelineStore((s) => s.saveClip);
   const renderClip = useTimelineStore((s) => s.renderClip);
 
@@ -35,7 +45,9 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
 
   // Caption overlay is a best-effort approximation of the FFmpeg libass
   // burn-in (bold white text, black outline, bottom-center) - not a pixel
-  // match. Redrawn every frame while playing so it tracks currentTime
+  // match, and doesn't attempt to preview the KARAOKE/BOLD_HIGHLIGHT presets'
+  // per-word styling (same "approximate is fine" call as Fase 1's plain
+  // preview). Redrawn every frame while playing so it tracks currentTime
   // smoothly during scrubbing, not just on the ~4/sec `timeupdate` event.
   useEffect(() => {
     let raf: number;
@@ -219,6 +231,20 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             Clip: {formatTime(selectedClip.startTime)} - {formatTime(selectedClip.endTime)} ·{' '}
             {Math.round(selectedClip.viralityScore)}/100
           </p>
+          <label className="mt-2 flex items-center gap-2 text-sm text-neutral-700">
+            Caption style:
+            <select
+              value={selectedClip.captionStyle}
+              onChange={(e) => setCaptionStyle(selectedClip.id, e.target.value as CaptionStyle)}
+              className="rounded-md border border-neutral-300 px-2 py-1 text-sm"
+            >
+              {CAPTION_STYLES.map((style) => (
+                <option key={style} value={style}>
+                  {CAPTION_STYLE_LABELS[style]}
+                </option>
+              ))}
+            </select>
+          </label>
           {selectedClip.saveError && (
             <p className="mt-1 text-sm text-red-600">{selectedClip.saveError}</p>
           )}
@@ -226,7 +252,9 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             <p className="mt-1 text-sm text-red-600">{selectedClip.renderError}</p>
           )}
           {selectedClip.dirty && (
-            <p className="mt-1 text-sm text-neutral-500">Unsaved trim - save before rendering.</p>
+            <p className="mt-1 text-sm text-neutral-500">
+              Unsaved changes - save before rendering.
+            </p>
           )}
           <div className="mt-2 flex items-center gap-3">
             <button
@@ -234,7 +262,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
               disabled={!selectedClip.dirty || selectedClip.saving}
               className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {selectedClip.saving ? 'Saving...' : 'Save trim'}
+              {selectedClip.saving ? 'Saving...' : 'Save'}
             </button>
             <button
               onClick={() => renderClip(selectedClip.id)}

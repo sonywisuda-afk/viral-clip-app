@@ -19,6 +19,13 @@ enum VideoStatus {
   FAILED
 }
 
+// Mirrors CaptionStyle in packages/shared/src/types/video.ts
+enum CaptionStyle {
+  DEFAULT
+  KARAOKE
+  BOLD_HIGHLIGHT
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -57,6 +64,13 @@ model TranscriptSegment {
   end       Float
   text      String
   speaker   String?
+  // Array of {word, start, end} (absolute seconds, same clock as start/end
+  // above) from Whisper's word-level timestamp_granularities - null for
+  // segments transcribed before this field existed (Fase 3 pasca-MVP; not
+  // backfilled, see CLAUDE.md). A null/empty value here just means the
+  // karaoke caption preset can't sync to this segment - render-clip falls
+  // back to plain text for it rather than failing.
+  words     Json?
   createdAt DateTime @default(now())
 
   @@index([videoId])
@@ -65,15 +79,16 @@ model TranscriptSegment {
 // One row per candidate produced by the detect-clips job; outputUrl is set
 // once the render-clip job finishes.
 model Clip {
-  id            String   @id @default(cuid())
+  id            String       @id @default(cuid())
   videoId       String
-  video         Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  video         Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
   startTime     Float
   endTime       Float
   viralityScore Float
   outputUrl     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  captionStyle  CaptionStyle @default(DEFAULT)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
 
   @@index([videoId])
 }

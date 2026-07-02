@@ -1,4 +1,4 @@
-import type { Clip, TranscriptSegment } from '@viral-clip-app/shared';
+import type { CaptionStyle, Clip, TranscriptSegment } from '@viral-clip-app/shared';
 import { create } from 'zustand';
 import { getVideo, renderClip as renderClipApi, updateClip as updateClipApi } from './api';
 
@@ -12,8 +12,10 @@ export interface TimelineClip {
   endTime: number;
   viralityScore: number;
   downloadUrl: string | null;
+  captionStyle: CaptionStyle;
   updatedAt: string;
-  // Local trim in progress, not yet persisted via PATCH /clips/:id.
+  // Local trim/style change in progress, not yet persisted via
+  // PATCH /clips/:id.
   dirty: boolean;
   saving: boolean;
   saveError: string | null;
@@ -34,6 +36,7 @@ interface TimelineState {
   setPlayhead(time: number): void;
   selectClip(id: string): void;
   setClipRange(id: string, startTime: number, endTime: number): void;
+  setCaptionStyle(id: string, captionStyle: CaptionStyle): void;
   saveClip(id: string): Promise<void>;
   renderClip(id: string): Promise<void>;
 }
@@ -46,6 +49,7 @@ function toTimelineClip(clip: Clip): TimelineClip {
     endTime: clip.endTime,
     viralityScore: clip.viralityScore,
     downloadUrl: clip.downloadUrl,
+    captionStyle: clip.captionStyle,
     updatedAt: clip.updatedAt,
     dirty: false,
     saving: false,
@@ -94,6 +98,14 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
   },
 
+  setCaptionStyle(id, captionStyle) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, captionStyle, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
   async saveClip(id) {
     const clip = get().clips.find((c) => c.id === id);
     if (!clip) return;
@@ -103,7 +115,11 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
 
     try {
-      const updated = await updateClipApi(id, { startTime: clip.startTime, endTime: clip.endTime });
+      const updated = await updateClipApi(id, {
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+        captionStyle: clip.captionStyle,
+      });
       set((state) => ({
         clips: state.clips.map((c) =>
           c.id === id
@@ -111,6 +127,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
                 ...c,
                 startTime: updated.startTime,
                 endTime: updated.endTime,
+                captionStyle: updated.captionStyle,
                 updatedAt: updated.updatedAt,
                 dirty: false,
                 saving: false,

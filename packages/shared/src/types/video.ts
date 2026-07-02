@@ -6,12 +6,36 @@ export enum VideoStatus {
   FAILED = 'FAILED',
 }
 
+export interface TranscriptWord {
+  word: string;
+  start: number;
+  end: number;
+}
+
 export interface TranscriptSegment {
   start: number;
   end: number;
   text: string;
   speaker?: string;
+  // Word-level timestamps from Whisper - undefined for segments transcribed
+  // before this field existed (Fase 3 pasca-MVP, not backfilled). Only the
+  // karaoke caption preset needs this; render-clip falls back to plain text
+  // for a segment that lacks it rather than failing.
+  words?: TranscriptWord[];
 }
+
+// Mirrors CaptionStyle in packages/database's Prisma schema.
+export enum CaptionStyle {
+  DEFAULT = 'DEFAULT',
+  KARAOKE = 'KARAOKE',
+  BOLD_HIGHLIGHT = 'BOLD_HIGHLIGHT',
+}
+
+export const CAPTION_STYLES: CaptionStyle[] = [
+  CaptionStyle.DEFAULT,
+  CaptionStyle.KARAOKE,
+  CaptionStyle.BOLD_HIGHLIGHT,
+];
 
 export interface ClipCandidate {
   id: string;
@@ -46,6 +70,7 @@ export interface Clip {
   endTime: number;
   viralityScore: number;
   downloadUrl: string | null;
+  captionStyle: CaptionStyle;
   updatedAt: string;
 }
 
@@ -58,4 +83,5 @@ export interface VideoWithClips extends Video {
 export interface UpdateClipInput {
   startTime?: number;
   endTime?: number;
+  captionStyle?: CaptionStyle;
 }
