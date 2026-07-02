@@ -155,3 +155,32 @@ Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register`, `/auth/lo
 | `GET /health` | Health check (tanpa auth) untuk load balancer/orchestrator — `200 {"status":"ok"}` kalau Postgres bisa dijangkau, `503` kalau tidak |
 
 `apps/api` juga fail-fast saat boot kalau env var wajib (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `STORAGE_*`) kosong/hilang, dan mengirim security response headers via `helmet()`. `apps/worker` melakukan validasi env var serupa saat start (`DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `STORAGE_*`).
+
+## Docker / Deploy
+
+Setiap app punya `Dockerfile` sendiri (`apps/api/Dockerfile`, `apps/worker/Dockerfile`, `apps/web/Dockerfile`), multi-stage, di-build dari **root repo** (bukan dari folder app-nya) karena ini pnpm workspace — `packages/shared`/`packages/database`/`packages/storage` adalah dependency source, bukan package published:
+
+```bash
+docker build -f apps/api/Dockerfile -t viral-clip-app-api .
+docker build -f apps/worker/Dockerfile -t viral-clip-app-worker .
+# NEXT_PUBLIC_API_URL di-inline ke bundle client saat build, bukan dibaca saat container jalan -
+# rebuild image kalau mau ganti API URL-nya.
+docker build -f apps/web/Dockerfile --build-arg NEXT_PUBLIC_API_URL=https://api.example.com -t viral-clip-app-web .
+```
+
+Tidak ada `.env` yang di-copy ke image manapun — semua config lewat environment variable asli yang dikasih saat `docker run`/lewat orchestrator. `apps/api` fail-fast dan `GET /health`-nya (dicek lewat Docker `HEALTHCHECK`) akan langsung ketahuan kalau ada yang kurang. `apps/worker`'s image sudah termasuk `ffmpeg` asli (`apk add ffmpeg`) — **jangan** override `FFMPEG_PATH` dengan path host kalau lagi jalan di container, biarkan default (`ffmpeg`, sudah ada di `PATH` image-nya).
+
+Database perlu di-migrate dulu sebelum `apps/api`/`apps/worker` jalan — ada `packages/database/Dockerfile` khusus untuk itu (one-shot, bukan service yang jalan terus):
+
+```bash
+docker build -f packages/database/Dockerfile -t viral-clip-app-migrate .
+docker run --rm -e DATABASE_URL=... viral-clip-app-migrate
+```
+
+[`docker-compose.prod.yml`](./docker-compose.prod.yml) merangkai semuanya (Postgres, Redis, migrate, api, worker, web) jadi referensi deployment yang bisa langsung dicoba:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build
+```
+
+File ini punya `name: viral-clip-app-prod` eksplisit supaya tidak bentrok dengan `docker-compose.yml` (dev, Postgres/Redis saja) kalau keduanya kebetulan jalan bersamaan di direktori yang sama — tanpa itu, compose menganggap service `postgres`/`redis` di kedua file sebagai container yang sama (nama project default dari nama folder), dan `down` salah satu bisa mematikan/menghapus punya yang lain.
