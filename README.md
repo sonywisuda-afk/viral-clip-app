@@ -1,5 +1,7 @@
 # viral-clip-app
 
+[![CI](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci.yml/badge.svg)](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci.yml)
+
 AI video repurposing platform (mirip OpusClip) — upload video panjang, otomatis dipotong jadi klip pendek dengan caption. Lihat [`CLAUDE.md`](./CLAUDE.md) untuk ringkasan arsitektur dan keputusan desain.
 
 ## Prerequisites
