@@ -1,10 +1,20 @@
-name: CI (all)
+name: CI (worker)
 
 on:
   push:
     branches: [master]
+    paths:
+      - 'apps/worker/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ci-worker.yml'
   pull_request:
     branches: [master]
+    paths:
+      - 'apps/worker/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/ci-worker.yml'
 
 jobs:
   build:
@@ -25,17 +35,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check formatting
-        run: pnpm format:check
-
-      - name: Lint
-        run: pnpm lint
-
       - name: Build packages/shared
         run: pnpm --filter @viral-clip-app/shared build
 
+      - name: Lint
+        run: pnpm --filter @viral-clip-app/worker lint
+
       - name: Typecheck
-        run: pnpm typecheck
+        run: pnpm --filter @viral-clip-app/worker typecheck
 
       - name: Build
-        run: pnpm build
+        run: pnpm --filter @viral-clip-app/worker build

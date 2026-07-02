@@ -1,6 +1,9 @@
 # viral-clip-app
 
 [![CI](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci.yml/badge.svg)](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci.yml)
+[![CI web](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci-web.yml/badge.svg)](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci-web.yml)
+[![CI api](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci-api.yml/badge.svg)](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci-api.yml)
+[![CI worker](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci-worker.yml/badge.svg)](https://github.com/sonywisuda-afk/viral-clip-app/actions/workflows/ci-worker.yml)
 [![License](https://img.shields.io/badge/license-proprietary-red.svg)](./LICENSE)
 
 AI video repurposing platform (mirip OpusClip) — upload video panjang, otomatis dipotong jadi klip pendek dengan caption. Lihat [`CLAUDE.md`](./CLAUDE.md) untuk ringkasan arsitektur dan keputusan desain.
