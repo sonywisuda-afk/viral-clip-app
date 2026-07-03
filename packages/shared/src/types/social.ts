@@ -49,5 +49,14 @@ export interface PublishRecord {
   platformPostId: string | null;
   errorMessage: string | null;
   publishedAt: string | null;
+  // Latest-known snapshot only (Fase 6e) - overwritten on every
+  // sync-publish-stats run, not a historical time series. All null until
+  // the first sync after publish, and permanently null for TIKTOK (Upload
+  // to Inbox mode has no fetchable public video id - see CLAUDE.md's
+  // Fase 6e section).
+  viewCount: number | null;
+  likeCount: number | null;
+  commentCount: number | null;
+  statsUpdatedAt: string | null;
   createdAt: string;
 }

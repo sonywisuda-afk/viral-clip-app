@@ -9,6 +9,10 @@ export enum QueueName {
   // Postgres for due SCHEDULED PublishRecords; see
   // apps/worker/src/workers/schedule-publish-clip.worker.ts.
   SCHEDULE_PUBLISH_CLIP = 'schedule-publish-clip',
+  // Fase 6e - a repeatable trigger (no per-firing payload) that refreshes
+  // view/like/comment counts for PUBLISHED PublishRecords; see
+  // apps/worker/src/workers/sync-publish-stats.worker.ts.
+  SYNC_PUBLISH_STATS = 'sync-publish-stats',
 }
 
 export interface TranscribeJobData {

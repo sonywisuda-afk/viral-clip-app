@@ -329,6 +329,10 @@ describe('ClipsService', () => {
       platformPostId: null,
       errorMessage: null,
       publishedAt: null,
+      viewCount: null,
+      likeCount: null,
+      commentCount: null,
+      statsUpdatedAt: null,
       createdAt: new Date('2026-01-01'),
       socialAccount: { platform: 'YOUTUBE' },
     };
@@ -365,6 +369,10 @@ describe('ClipsService', () => {
         platformPostId: null,
         errorMessage: null,
         publishedAt: null,
+        viewCount: null,
+        likeCount: null,
+        commentCount: null,
+        statsUpdatedAt: null,
         createdAt: createdRecord.createdAt.toISOString(),
       });
     });

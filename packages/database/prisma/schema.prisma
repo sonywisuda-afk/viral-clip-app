@@ -178,6 +178,15 @@ model PublishRecord {
   // id) - used to link back to it once published.
   platformPostId String?
   errorMessage   String?
+  // Latest-known snapshot only (Fase 6e), overwritten on every sync-publish-
+  // stats run - not a historical time series. All null until the first sync
+  // after publish, and permanently null for TikTok (Upload to Inbox mode
+  // has no fetchable public video id to query stats for - see CLAUDE.md's
+  // Fase 6e section).
+  viewCount      Int?
+  likeCount      Int?
+  commentCount   Int?
+  statsUpdatedAt DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 

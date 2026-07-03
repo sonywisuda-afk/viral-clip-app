@@ -1,0 +1,48 @@
+import { GRAPH_BASE_URL } from './instagram-graph';
+
+export interface InstagramMediaStats {
+  viewCount: number | null;
+  likeCount: number | null;
+  commentCount: number | null;
+}
+
+// Meta's Insights metric names for Reels have shifted across Graph API
+// versions in the past (e.g. "video_views" vs "plays") - these are the
+// current (v21.0, see instagram-graph.ts) names as of writing. If Meta
+// renames these again, this is the one place to update - see CLAUDE.md's
+// Fase 6e section for this caveat.
+const METRICS = ['plays', 'likes', 'comments'];
+
+// Used by sync-publish-stats.worker.ts (Fase 6e) to refresh view/like/
+// comment counts for a published Reel. Requires the instagram_manage_insights
+// scope (see instagram-oauth.client.ts's SCOPES).
+export async function fetchInstagramMediaStats(
+  accessToken: string,
+  mediaId: string,
+): Promise<InstagramMediaStats> {
+  const url = new URL(`${GRAPH_BASE_URL}/${mediaId}/insights`);
+  url.searchParams.set('metric', METRICS.join(','));
+  url.searchParams.set('access_token', accessToken);
+  const res = await fetch(url);
+  const body = (await res.json()) as {
+    data?: Array<{ name: string; values?: Array<{ value: number }> }>;
+    error?: { message?: string };
+  };
+  if (!res.ok || body.error) {
+    throw new Error(
+      `Instagram media insights failed: ${res.status} ${body.error?.message ?? ''}`.trim(),
+    );
+  }
+
+  function valueFor(name: string): number | null {
+    const metric = body.data?.find((m) => m.name === name);
+    const value = metric?.values?.[0]?.value;
+    return typeof value === 'number' ? value : null;
+  }
+
+  return {
+    viewCount: valueFor('plays'),
+    likeCount: valueFor('likes'),
+    commentCount: valueFor('comments'),
+  };
+}

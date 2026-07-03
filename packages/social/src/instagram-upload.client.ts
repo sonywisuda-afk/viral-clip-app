@@ -1,5 +1,4 @@
-const GRAPH_API_VERSION = 'v21.0';
-const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+import { GRAPH_BASE_URL } from './instagram-graph';
 
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;

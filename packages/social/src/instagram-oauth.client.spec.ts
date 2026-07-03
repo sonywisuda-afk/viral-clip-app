@@ -39,7 +39,7 @@ describe('InstagramOAuthClient', () => {
       expect(url.origin + url.pathname).toBe('https://www.facebook.com/v21.0/dialog/oauth');
       expect(url.searchParams.get('client_id')).toBe('app-id');
       expect(url.searchParams.get('scope')).toBe(
-        'instagram_basic,instagram_content_publish,pages_show_list,pages_read_engagement',
+        'instagram_basic,instagram_content_publish,instagram_manage_insights,pages_show_list,pages_read_engagement',
       );
       expect(url.searchParams.get('redirect_uri')).toBe(
         'http://localhost:3001/social/instagram/callback',
