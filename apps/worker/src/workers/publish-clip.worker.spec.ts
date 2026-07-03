@@ -1,4 +1,4 @@
-import { PublishStatus } from '@viral-clip-app/database';
+import { PublishStatus, SocialPlatform } from '@viral-clip-app/database';
 import { Worker } from 'bullmq';
 
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
@@ -11,11 +11,15 @@ jest.mock('@sentry/node', () => ({
 
 const resolveAccessTokenMock = jest.fn();
 const uploadYouTubeVideoMock = jest.fn();
+const uploadTikTokVideoMock = jest.fn();
 class FakeYouTubeOAuthClient {}
+class FakeTikTokOAuthClient {}
 jest.mock('@viral-clip-app/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   uploadYouTubeVideo: (...args: unknown[]) => uploadYouTubeVideoMock(...args),
+  uploadTikTokVideo: (...args: unknown[]) => uploadTikTokVideoMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
+  TikTokOAuthClient: FakeTikTokOAuthClient,
 }));
 
 const getObjectStreamMock = jest.fn();
@@ -65,6 +69,7 @@ const baseRecord = {
   },
   socialAccount: {
     id: 'account-1',
+    platform: SocialPlatform.YOUTUBE,
     accessToken: 'encrypted-access',
     refreshToken: 'encrypted-refresh',
     tokenExpiresAt: new Date('2099-01-01'),
@@ -92,6 +97,7 @@ describe('publish-clip worker', () => {
       videoId: 'yt-video-1',
       url: 'https://youtu.be/yt-video-1',
     });
+    uploadTikTokVideoMock.mockResolvedValue({ publishId: 'tiktok-publish-1' });
   });
 
   it('uploads the rendered clip to YouTube unlisted and marks the record PUBLISHED', async () => {
@@ -221,6 +227,47 @@ describe('publish-clip worker', () => {
     expect(publishRecordUpdateMock).toHaveBeenCalledWith({
       where: { id: 'record-1' },
       data: { status: PublishStatus.FAILED, errorMessage: 'permanently broken' },
+    });
+  });
+
+  describe('TikTok accounts', () => {
+    const tiktokRecord = {
+      ...baseRecord,
+      socialAccount: { ...baseRecord.socialAccount, platform: SocialPlatform.TIKTOK },
+    };
+
+    it('uploads to the TikTok inbox (not YouTube) and marks the record PUBLISHED with the publish_id', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(tiktokRecord);
+
+      const processor = getProcessor();
+      const result = await processor(baseJob());
+
+      expect(uploadTikTokVideoMock).toHaveBeenCalledWith({
+        accessToken: 'plaintext-access',
+        videoStream: { fake: 'readable' },
+      });
+      expect(uploadYouTubeVideoMock).not.toHaveBeenCalled();
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-1' },
+        data: {
+          status: PublishStatus.PUBLISHED,
+          platformPostId: 'tiktok-publish-1',
+          publishedAt: expect.any(Date),
+        },
+      });
+      expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'tiktok-publish-1' });
+    });
+
+    it('resolves the access token via the TikTok client, not YouTube', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(tiktokRecord);
+
+      const processor = getProcessor();
+      await processor(baseJob());
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        tiktokRecord.socialAccount,
+        expect.any(FakeTikTokOAuthClient),
+      );
     });
   });
 });

@@ -1,5 +1,6 @@
 import { OAuth2Client } from 'google-auth-library';
 import { OAuthNotConfiguredError } from './errors';
+import type { OAuthRefreshClient } from './resolve-access-token';
 
 // youtube.upload is what the publish-clip job (Fase 6b) actually needs;
 // requesting it since Fase 6a's connect flow avoids making users
@@ -32,7 +33,7 @@ function requireOAuth2Client(): OAuth2Client {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    throw new OAuthNotConfiguredError();
+    throw new OAuthNotConfiguredError('YouTube integration is not configured');
   }
   const apiBaseUrl = process.env.API_BASE_URL ?? `http://localhost:${process.env.API_PORT ?? 3001}`;
   return new OAuth2Client({
@@ -47,7 +48,7 @@ function requireOAuth2Client(): OAuth2Client {
   });
 }
 
-export class YouTubeOAuthClient {
+export class YouTubeOAuthClient implements OAuthRefreshClient {
   buildAuthorizeUrl(state: string): string {
     const client = requireOAuth2Client();
     return client.generateAuthUrl({

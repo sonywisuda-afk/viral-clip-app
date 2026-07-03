@@ -1,5 +1,4 @@
 import { decryptToken, encryptToken } from './token-encryption';
-import type { YouTubeOAuthClient } from './youtube-oauth.client';
 
 // A token is refreshed slightly before it actually expires so a caller
 // never ends up using something that's about to lapse mid-request (e.g.
@@ -22,6 +21,18 @@ export interface ResolvedAccessToken {
   updated?: StoredTokens;
 }
 
+// Every platform's OAuth client (YouTubeOAuthClient, TikTokOAuthClient, ...)
+// implements this so resolveAccessToken() below can stay platform-agnostic -
+// it's the one piece of it every provider's refresh flow has in common,
+// regardless of how differently each provider's actual token endpoint works.
+export interface OAuthRefreshClient {
+  refreshAccessToken(refreshToken: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: Date;
+  }>;
+}
+
 // Shared by apps/api's SocialAccountsService.getValidAccessToken() and
 // apps/worker's publish-clip job - both need the exact same "is this
 // close to expiring, and if so refresh it" decision, and having it
@@ -29,7 +40,7 @@ export interface ResolvedAccessToken {
 // CLAUDE.md's Fase 6b section for why this whole package exists).
 export async function resolveAccessToken(
   stored: StoredTokens,
-  client: YouTubeOAuthClient,
+  client: OAuthRefreshClient,
 ): Promise<ResolvedAccessToken> {
   if (stored.tokenExpiresAt.getTime() - Date.now() > REFRESH_BUFFER_MS) {
     return { accessToken: decryptToken(stored.accessToken), refreshed: false };
