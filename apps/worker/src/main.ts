@@ -24,6 +24,7 @@ import {
   publishClipQueue,
   renderClipQueue,
   schedulePublishClipQueue,
+  syncPublishStatsQueue,
 } from './queues';
 import { createTranscribeWorker } from './workers/transcribe.worker';
 import { createDetectClipsWorker } from './workers/detect-clips.worker';
@@ -31,14 +32,19 @@ import { createRenderClipWorker } from './workers/render-clip.worker';
 import { createPublishClipWorker } from './workers/publish-clip.worker';
 import {
   createSchedulePublishClipWorker,
-  scheduleRepeatingTrigger,
+  scheduleRepeatingTrigger as scheduleSchedulePublishClipTrigger,
 } from './workers/schedule-publish-clip.worker';
+import {
+  createSyncPublishStatsWorker,
+  scheduleRepeatingTrigger as scheduleSyncPublishStatsTrigger,
+} from './workers/sync-publish-stats.worker';
 
 async function main() {
-  // Registers (or re-confirms) the repeatable trigger before the worker
-  // that consumes it starts, so there's no window where the queue could
-  // fire before anything is listening.
-  await scheduleRepeatingTrigger();
+  // Registers (or re-confirms) each repeatable trigger before the worker
+  // that consumes it starts, so there's no window where a queue could fire
+  // before anything is listening.
+  await scheduleSchedulePublishClipTrigger();
+  await scheduleSyncPublishStatsTrigger();
 
   const workers = [
     createTranscribeWorker(),
@@ -46,6 +52,7 @@ async function main() {
     createRenderClipWorker(),
     createPublishClipWorker(),
     createSchedulePublishClipWorker(),
+    createSyncPublishStatsWorker(),
   ];
 
   console.log(`worker started, listening on ${workers.length} queues`);
@@ -58,6 +65,7 @@ async function main() {
       renderClipQueue.close(),
       publishClipQueue.close(),
       schedulePublishClipQueue.close(),
+      syncPublishStatsQueue.close(),
     ]);
     process.exit(0);
   };

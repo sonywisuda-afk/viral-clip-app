@@ -23,3 +23,10 @@ export const publishClipQueue = new Queue(QueueName.PUBLISH_CLIP, {
 export const schedulePublishClipQueue = new Queue(QueueName.SCHEDULE_PUBLISH_CLIP, {
   connection: createRedisConnection(),
 });
+
+// The repeatable trigger queue for sync-publish-stats.worker.ts (Fase 6e) -
+// that job is self-contained (fetches stats and updates Postgres directly,
+// no further job to hand off to), so this is its only queue.
+export const syncPublishStatsQueue = new Queue(QueueName.SYNC_PUBLISH_STATS, {
+  connection: createRedisConnection(),
+});

@@ -53,6 +53,31 @@ function publishedLabel(record: PublishRecord): string {
   return PUBLISH_STATUS_LABELS[PublishStatus.PUBLISHED];
 }
 
+function formatCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+// Fase 6e - snapshot-only stats (see CLAUDE.md), refreshed periodically by
+// apps/worker's sync-publish-stats job. TikTok's Upload to Inbox mode
+// (Fase 6d) means real stats only become fetchable once the user finishes
+// posting the draft themselves from their TikTok inbox - until then this
+// shows an explicit pending message (rather than nothing, which could look
+// like a stuck loading state) instead of the usual "not synced yet" null.
+function statsLine(record: PublishRecord): string | null {
+  if (record.viewCount === null) {
+    if (record.platform === 'TIKTOK') {
+      return 'Stats pending — finish posting in the TikTok app to see analytics';
+    }
+    return null;
+  }
+  const parts = [`${formatCount(record.viewCount)} views`];
+  if (record.likeCount !== null) parts.push(`${formatCount(record.likeCount)} likes`);
+  if (record.commentCount !== null) parts.push(`${formatCount(record.commentCount)} comments`);
+  return parts.join(' · ');
+}
+
 function isTerminal(status: VideoStatus): boolean {
   return status === VideoStatus.RENDERED || status === VideoStatus.FAILED;
 }
@@ -527,6 +552,12 @@ export default function Dashboard() {
                                                   : ''}
                                               </span>
                                             )}
+                                            {record.status === PublishStatus.PUBLISHED &&
+                                              statsLine(record) && (
+                                                <p className="mt-0.5 text-neutral-400">
+                                                  {statsLine(record)}
+                                                </p>
+                                              )}
                                           </>
                                         )}
                                       </li>

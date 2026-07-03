@@ -1,20 +1,21 @@
 import { OAuthNotConfiguredError } from './errors';
+import { GRAPH_API_VERSION, GRAPH_BASE_URL } from './instagram-graph';
 import type { OAuthRefreshClient } from './resolve-access-token';
 
-// Bump this as Meta deprecates old Graph API versions.
-const GRAPH_API_VERSION = 'v21.0';
-const GRAPH_BASE_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
 const AUTHORIZE_URL = `https://www.facebook.com/${GRAPH_API_VERSION}/dialog/oauth`;
 
 // instagram_content_publish is what publish-clip.worker.ts (Fase 6d) needs;
-// pages_show_list/pages_read_engagement are needed to look up which Facebook
-// Page (and its linked Instagram Business account) the user manages - see
-// CLAUDE.md's Fase 6d "Instagram" section for why a linked Page is required
-// at all (the classic Facebook Login flow, chosen over Meta's newer
-// standalone Instagram Login).
+// instagram_manage_insights is what sync-publish-stats.worker.ts (Fase 6e)
+// needs to read view/like/comment counts; pages_show_list/
+// pages_read_engagement are needed to look up which Facebook Page (and its
+// linked Instagram Business account) the user manages - see CLAUDE.md's
+// Fase 6d "Instagram" section for why a linked Page is required at all (the
+// classic Facebook Login flow, chosen over Meta's newer standalone
+// Instagram Login).
 const SCOPES = [
   'instagram_basic',
   'instagram_content_publish',
+  'instagram_manage_insights',
   'pages_show_list',
   'pages_read_engagement',
 ];

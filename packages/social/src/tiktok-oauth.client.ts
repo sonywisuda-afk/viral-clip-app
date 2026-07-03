@@ -5,8 +5,12 @@ import type { OAuthRefreshClient } from './resolve-access-token';
 // TikTok's audit for the "direct public post" capability (video.publish
 // scope), which is why Fase 6d built against Upload to Inbox instead of
 // Direct Post (see CLAUDE.md's Fase 6d section). user.info.basic is just
-// for the display name shown in the "Connect account" UI.
-const SCOPES = ['user.info.basic', 'video.upload'];
+// for the display name shown in the "Connect account" UI. video.list is
+// what sync-publish-stats.worker.ts (Fase 6e) needs to query view/like/
+// comment counts, once a post actually goes public (see CLAUDE.md's Fase
+// 6e section) - accounts connected before this scope was added need to
+// reconnect to pick it up.
+const SCOPES = ['user.info.basic', 'video.upload', 'video.list'];
 
 const AUTHORIZE_URL = 'https://www.tiktok.com/v2/auth/authorize/';
 const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/';

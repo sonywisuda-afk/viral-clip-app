@@ -24,6 +24,10 @@ export function toSharedPublishRecord(
     platformPostId: record.platformPostId,
     errorMessage: record.errorMessage,
     publishedAt: record.publishedAt?.toISOString() ?? null,
+    viewCount: record.viewCount,
+    likeCount: record.likeCount,
+    commentCount: record.commentCount,
+    statsUpdatedAt: record.statsUpdatedAt?.toISOString() ?? null,
     createdAt: record.createdAt.toISOString(),
   };
 }
