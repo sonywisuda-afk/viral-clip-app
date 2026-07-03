@@ -1,20 +1,38 @@
 import * as Sentry from '@sentry/node';
-import { PublishStatus } from '@viral-clip-app/database';
+import { PublishStatus, SocialPlatform } from '@viral-clip-app/database';
 import {
   QueueName,
   type PublishClipJobData,
   type PublishClipJobResult,
 } from '@viral-clip-app/shared';
-import { resolveAccessToken, uploadYouTubeVideo, YouTubeOAuthClient } from '@viral-clip-app/social';
+import {
+  resolveAccessToken,
+  TikTokOAuthClient,
+  uploadTikTokVideo,
+  uploadYouTubeVideo,
+  YouTubeOAuthClient,
+  type OAuthRefreshClient,
+} from '@viral-clip-app/social';
 import { getObjectStream } from '@viral-clip-app/storage';
 import { Worker, type Job } from 'bullmq';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 
-// No constructor deps (reads GOOGLE_OAUTH_CLIENT_ID/SECRET from process.env
-// directly, same as apps/api's instance) - one shared instance is enough,
-// same pattern as apps/api's SocialModule providing a single YouTubeOAuthClient.
+// No constructor deps for either client (both read their credentials from
+// process.env directly, same as apps/api's instances) - one shared instance
+// of each is enough, same pattern as apps/api's SocialModule providing a
+// single instance per platform.
 const youtubeOAuth = new YouTubeOAuthClient();
+const tiktokOAuth = new TikTokOAuthClient();
+
+function oauthClientFor(platform: SocialPlatform): OAuthRefreshClient {
+  switch (platform) {
+    case SocialPlatform.YOUTUBE:
+      return youtubeOAuth;
+    case SocialPlatform.TIKTOK:
+      return tiktokOAuth;
+  }
+}
 
 function buildDescription(hashtags: string[]): string {
   return hashtags.map((tag) => `#${tag}`).join(' ');
@@ -46,7 +64,8 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
           throw new Error(`Clip ${record.clipId} has no rendered output to publish`);
         }
 
-        const resolved = await resolveAccessToken(record.socialAccount, youtubeOAuth);
+        const platform = record.socialAccount.platform;
+        const resolved = await resolveAccessToken(record.socialAccount, oauthClientFor(platform));
         if (resolved.refreshed && resolved.updated) {
           await prisma.socialAccount.update({
             where: { id: record.socialAccountId },
@@ -55,29 +74,50 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
         }
 
         const videoStream = await getObjectStream(record.clip.outputUrl);
-        const upload = await uploadYouTubeVideo({
-          accessToken: resolved.accessToken,
-          title: record.clip.hookText || `Clip ${record.clip.id}`,
-          description: buildDescription(record.clip.hashtags),
-          videoStream,
-          // Fase 6b default (see CLAUDE.md) - "publish now" uploads a real
-          // video to the user's channel, and unlisted avoids a mis-picked
-          // clip going live publicly with no safety net, while still being
-          // an actual publish (unlike private, which would defeat the point).
-          privacyStatus: 'unlisted',
-        });
+        let platformPostId: string;
+        let logDetail: string;
+        if (platform === SocialPlatform.TIKTOK) {
+          // Upload to Inbox (draft) - see CLAUDE.md's Fase 6d section for
+          // why. publish_id just acknowledges TikTok received the video
+          // into the user's inbox, it isn't a public content id/URL - the
+          // user still has to open the TikTok app and finish posting
+          // themselves. There's no title/caption field to set here either
+          // (only Direct Post's API accepts one); hookText/hashtags are
+          // simply unused for a TikTok publish.
+          const upload = await uploadTikTokVideo({
+            accessToken: resolved.accessToken,
+            videoStream,
+          });
+          platformPostId = upload.publishId;
+          logDetail = `sent to TikTok inbox, publish_id ${upload.publishId}`;
+        } else {
+          const upload = await uploadYouTubeVideo({
+            accessToken: resolved.accessToken,
+            title: record.clip.hookText || `Clip ${record.clip.id}`,
+            description: buildDescription(record.clip.hashtags),
+            videoStream,
+            // Fase 6b default (see CLAUDE.md) - "publish now" uploads a
+            // real video to the user's channel, and unlisted avoids a
+            // mis-picked clip going live publicly with no safety net,
+            // while still being an actual publish (unlike private, which
+            // would defeat the point).
+            privacyStatus: 'unlisted',
+          });
+          platformPostId = upload.videoId;
+          logDetail = upload.url;
+        }
 
         await prisma.publishRecord.update({
           where: { id: publishRecordId },
           data: {
             status: PublishStatus.PUBLISHED,
-            platformPostId: upload.videoId,
+            platformPostId,
             publishedAt: new Date(),
           },
         });
 
-        console.log(`[publish-clip] record ${publishRecordId} -> ${upload.url}`);
-        return { publishRecordId, platformPostId: upload.videoId };
+        console.log(`[publish-clip] record ${publishRecordId} -> ${logDetail}`);
+        return { publishRecordId, platformPostId };
       } catch (error) {
         console.error(`[publish-clip] record ${publishRecordId} failed:`, error);
         Sentry.captureException(error, {

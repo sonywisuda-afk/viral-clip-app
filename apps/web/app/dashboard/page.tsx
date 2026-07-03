@@ -26,17 +26,31 @@ const POLL_INTERVAL_MS = 2000;
 
 const PLATFORM_LABELS: Record<string, string> = {
   YOUTUBE: 'YouTube',
+  TIKTOK: 'TikTok',
 };
 
 const PUBLISH_STATUS_LABELS: Record<PublishStatus, string> = {
-  // SCHEDULED renders its own "Scheduled for <date>" text (see
-  // renderPublishRecord) instead of this generic label.
+  // SCHEDULED renders its own "Scheduled for <date>" text (see the
+  // publishRecords list below) instead of this generic label.
   [PublishStatus.SCHEDULED]: 'Scheduled',
   [PublishStatus.QUEUED]: 'Queued to publish...',
   [PublishStatus.PUBLISHING]: 'Publishing...',
+  // Overridden for TIKTOK below - "PUBLISHED" there just means TikTok
+  // accepted the upload into the user's inbox, not that it's actually live
+  // (Upload to Inbox mode, see CLAUDE.md's Fase 6d section).
   [PublishStatus.PUBLISHED]: 'Published',
   [PublishStatus.FAILED]: 'Publish failed',
 };
+
+// TikTok's "Upload to Inbox" mode (Fase 6d) never makes a clip actually go
+// live via this API call alone - the user still has to open the TikTok app
+// and finish posting themselves, so "Published" would be misleading.
+function publishedLabel(record: PublishRecord): string {
+  if (record.platform === 'TIKTOK') {
+    return 'Sent to TikTok — open the TikTok app to finish posting';
+  }
+  return PUBLISH_STATUS_LABELS[PublishStatus.PUBLISHED];
+}
 
 function isTerminal(status: VideoStatus): boolean {
   return status === VideoStatus.RENDERED || status === VideoStatus.FAILED;
@@ -491,6 +505,7 @@ export default function Dashboard() {
                                           <>
                                             {PLATFORM_LABELS[record.platform] ?? record.platform}:{' '}
                                             {record.status === PublishStatus.PUBLISHED &&
+                                            record.platform === 'YOUTUBE' &&
                                             record.platformPostId ? (
                                               <a
                                                 href={`https://youtu.be/${record.platformPostId}`}
@@ -498,11 +513,13 @@ export default function Dashboard() {
                                                 rel="noreferrer"
                                                 className="underline"
                                               >
-                                                {PUBLISH_STATUS_LABELS[record.status]}
+                                                {publishedLabel(record)}
                                               </a>
                                             ) : (
                                               <span>
-                                                {PUBLISH_STATUS_LABELS[record.status]}
+                                                {record.status === PublishStatus.PUBLISHED
+                                                  ? publishedLabel(record)
+                                                  : PUBLISH_STATUS_LABELS[record.status]}
                                                 {record.status === PublishStatus.FAILED &&
                                                 record.errorMessage
                                                   ? ` - ${record.errorMessage}`

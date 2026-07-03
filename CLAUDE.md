@@ -32,7 +32,7 @@ packages/
   shared/     # Tipe TypeScript, DTO, konstanta, util yang dipakai lintas apps
   database/   # Prisma schema/client Postgres, dipakai apps/api dan apps/worker
   storage/    # Klien object storage S3-compatible (upload/download/delete), dipakai apps/api dan apps/worker
-  social/     # OAuth client, enkripsi token, upload klien per-platform (YouTube), dipakai apps/api dan apps/worker
+  social/     # OAuth client, enkripsi token, upload klien per-platform (YouTube, TikTok), dipakai apps/api dan apps/worker
 ```
 
 - `apps/web` dan `apps/api` hanya berkomunikasi lewat HTTP API — tidak ada import langsung antar keduanya.
@@ -152,6 +152,19 @@ Tombol "Publish to YouTube" di dashboard (Clip Gallery) untuk klip yang sudah se
 - **UI dashboard**: input `datetime-local` + tombol "Schedule" di samping "Publish now" yang sudah ada. Baris `PublishRecord` berstatus `SCHEDULED` ditampilkan beda dari status lain — "Scheduled for \<tanggal\>" plus tombol Cancel dan Reschedule (input `datetime-local` inline) — sementara status lain (`QUEUED`/`PUBLISHING`/`PUBLISHED`/`FAILED`) tetap pakai tampilan label singkat yang sudah ada dari Fase 6b. Dashboard's polling `GET /videos` yang sudah ada (2 detik) otomatis menangkap transisi `SCHEDULED` -> `QUEUED` begitu poller men-klaimnya, tanpa mekanisme polling baru.
 - **Diverifikasi lewat unit test terhadap logic klaim atomik dan validasi tanggal** (mock Prisma/BullMQ) — belum ada verifikasi E2E baru terhadap Postgres+Redis asli khusus untuk scheduling di luar yang sudah dicakup Fase 6b's publish-clip pipeline (poller ini cuma menambah satu langkah `SCHEDULED -> QUEUED` sebelum job yang sama persis berjalan).
 
+## Publish Center — Platform Kedua: TikTok (Fase 6d pasca-MVP)
+
+Tombol "Connect TikTok" di halaman `/accounts` dan opsi platform TikTok di tombol "Publish to \<platform\>" dashboard — `SocialAccount.platform` nambah `TIKTOK`, dan `publish-clip.worker.ts` bercabang upload ke YouTube atau TikTok tergantung platform akun yang dipilih.
+
+- **Mode "Upload to Inbox" (draft), bukan Direct Post — keputusan bisnis eksplisit, bukan default teknis.** TikTok Content Posting API punya dua target publish: Direct Post (publish sungguhan ke profil user, tapi butuh app di-audit dulu oleh TikTok — approval tidak dijamin dan bisa makan waktu) dan Upload to Inbox (kirim video sebagai draft ke inbox TikTok user, jalan langsung tanpa audit, tapi user tetap harus buka app TikTok dan post manual untuk benar-benar live). Proyek ini memilih Upload to Inbox supaya fitur publish TikTok bisa langsung dipakai tanpa bergantung pada approval TikTok yang tidak pasti — konsekuensinya, **"Publish to TikTok" TIDAK benar-benar mem-publish** seperti "Publish to YouTube"; UI secara eksplisit menampilkan "Sent to TikTok — open the TikTok app to finish posting" (bukan "Published") untuk `PublishRecord` TikTok yang statusnya `PUBLISHED`, supaya user tidak salah kira klipnya sudah live.
+- **Tidak ada SDK Node resmi untuk TikTok** (beda dari Google yang punya `google-auth-library`/`googleapis`) — `tiktok-oauth.client.ts` dan `tiktok-upload.client.ts` (keduanya di `packages/social`) hand-roll seluruh HTTP call lewat `fetch()` polos. Ini BUKAN pelanggaran terhadap prinsip "pakai official client library" dari Fase 6a/6b — prinsip itu berlaku ketika ada library resmi untuk dihindari hand-roll-nya; untuk TikTok, tidak ada alternatif sama sekali.
+- **`resolveAccessToken()` digeneralisasi** — sebelumnya (Fase 6b) parameternya secara eksplisit bertipe `YouTubeOAuthClient`. Sekarang menerima `OAuthRefreshClient`, interface minimal (`refreshAccessToken(refreshToken): Promise<{accessToken, refreshToken, expiresAt}>`) yang diimplementasikan baik `YouTubeOAuthClient` maupun `TikTokOAuthClient` — supaya logic "cek expiry, refresh kalau perlu" yang sama tetap dipakai bersama lintas platform, bukan didupilkasi atau di-`as any`-kan.
+- **`SocialAccountsService` dan `publish-clip.worker.ts` masing-masing punya `clientFor(platform)`/`oauthClientFor(platform)`** — satu `switch` kecil yang memetakan `SocialAccount.platform` ke instance client OAuth yang tepat (`YouTubeOAuthClient` atau `TikTokOAuthClient`), dipakai oleh `disconnect()` (revoke), `getValidAccessToken()`/`resolveAccessToken()` (refresh), dan upload. Dua tempat, bukan diekstrak ke `packages/social` — sesuai konvensi "ekstrak di duplikasi ke-3" proyek ini, switch 3 baris ini terlalu kecil untuk dijadikan abstraksi bersama.
+- **Scope OAuth cuma `user.info.basic` + `video.upload`** (bukan `video.publish`, yang butuh audit "direct public post") — `video.upload` adalah scope yang benar untuk Upload to Inbox dan tersedia untuk app yang belum diaudit (walau masih ada batasan sandbox: akun TikTok penguji biasanya perlu didaftarkan sebagai "target user" di TikTok Developer Portal selama app belum lolos App Review dasar).
+- **Upload TikTok single-chunk, buffer penuh di memori** (`total_chunk_count: 1`, bukan protokol multi-chunk PUT TikTok yang lengkap) — klip di proyek ini dibatasi ~60 detik oleh prompt LLM `detect-clips` (Fase MVP), jadi ukurannya selalu jauh di bawah batas satu PUT. Endpoint init TikTok butuh `video_size` diketahui persis di awal (beda dari `uploadYouTubeVideo()` yang bisa pipe stream langsung ke `googleapis`), jadi stream harus di-buffer penuh dulu sebelum panggilan init.
+- **Tidak ada title/caption yang bisa diisi via API untuk mode Inbox** — beda dari YouTube (`hookText`/`hashtags` dipetakan ke title/description), endpoint `inbox/video/init` TikTok cuma menerima `source_info`, tidak ada field caption sama sekali di mode ini (cuma tersedia di Direct Post). User yang mengisi caption sendiri saat menyelesaikan posting di app TikTok — `hookText`/`hashtags` klip tidak dipakai sama sekali untuk publish TikTok.
+- **Diverifikasi lewat unit test terhadap OAuth client, upload client, dan dispatch platform** (mock `fetch`/Prisma/BullMQ) — sama seperti batasan Fase 6a/6b, round-trip OAuth sungguhan ke server TikTok dan upload video asli ke inbox TikTok tidak bisa diverifikasi end-to-end tanpa TikTok Developer app + akun TikTok asli milik user.
+
 ## Keputusan Arsitektur
 
 - **BullMQ dipakai untuk semua kerja berat/async** (transcribe, detect-clips, render-clip). API layer tidak pernah menjalankan Whisper atau FFmpeg secara sinkron di request-response cycle.
@@ -197,7 +210,7 @@ Roadmap pasca-MVP (satu fase per PR):
    - 6a. ✅ **Data model + OAuth connect (YouTube)** — selesai. Lihat "Publish Center — Social Account Connect (Fase 6a pasca-MVP)" di atas. Belum ada aksi publish.
    - 6b. ✅ **Manual "publish now" (satu platform)** — selesai. Lihat "Publish Center — Manual "Publish Now" (Fase 6b pasca-MVP)" di atas.
    - 6c. ✅ **Scheduling** — selesai. Lihat "Publish Center — Scheduling (Fase 6c pasca-MVP)" di atas.
-   - 6d. ⏳ Platform kedua
+   - 6d. ✅ **Platform kedua (TikTok)** — selesai. Lihat "Publish Center — Platform Kedua: TikTok (Fase 6d pasca-MVP)" di atas.
    - 6e. ⏳ Analytics dasar (perlu job sync-stats periodik per platform)
 
 Update bagian ini setelah tiap fase selesai, dan tetap catat keputusan arsitektur baru (mis. strategi storage, provider hosting FFmpeg cluster, algoritma deteksi klip yang dipakai) di bagian yang relevan di atas.

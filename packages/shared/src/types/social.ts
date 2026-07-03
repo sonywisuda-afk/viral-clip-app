@@ -1,7 +1,8 @@
-// Mirrors SocialPlatform in packages/database's Prisma schema. Only YOUTUBE
-// for Fase 6a - see CLAUDE.md's "Publish Center" section.
+// Mirrors SocialPlatform in packages/database's Prisma schema. YOUTUBE
+// (Fase 6a), TIKTOK (Fase 6d) - see CLAUDE.md's "Publish Center" section.
 export enum SocialPlatform {
   YOUTUBE = 'YOUTUBE',
+  TIKTOK = 'TIKTOK',
 }
 
 // API/UI-facing DTO for a connected account - deliberately never includes
@@ -39,8 +40,10 @@ export interface PublishRecord {
   // Non-null only for a scheduled publish (Fase 6c) that hasn't fired yet -
   // null means either "publish now" or already past SCHEDULED.
   scheduledAt: string | null;
-  // Non-null only once status is PUBLISHED - the platform's own id/URL for
-  // the published content.
+  // Non-null only once status is PUBLISHED - the platform's own id for the
+  // uploaded content (a YouTube video id, or a TikTok publish_id - the
+  // latter isn't a public content id/URL, just an acknowledgement that the
+  // video was sent to the user's TikTok inbox, see CLAUDE.md's Fase 6d).
   platformPostId: string | null;
   errorMessage: string | null;
   publishedAt: string | null;

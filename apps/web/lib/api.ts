@@ -185,4 +185,9 @@ export function connectYouTubeUrl(): string {
   return `${API_URL}/social/youtube/connect`;
 }
 
+// Same reasoning as connectYouTubeUrl() above, for TikTok (Fase 6d).
+export function connectTikTokUrl(): string {
+  return `${API_URL}/social/tiktok/connect`;
+}
+
 export { API_URL };

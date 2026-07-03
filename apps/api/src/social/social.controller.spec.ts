@@ -1,16 +1,30 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { OAuthNotConfiguredError, type YouTubeOAuthClient } from '@viral-clip-app/social';
+import {
+  OAuthNotConfiguredError,
+  type TikTokOAuthClient,
+  type YouTubeOAuthClient,
+} from '@viral-clip-app/social';
 import type { Response } from 'express';
 import { SocialController } from './social.controller';
 import type { SocialAccountsService } from './social.service';
 
 describe('SocialController', () => {
   let controller: SocialController;
-  let socialAccounts: { listForUser: jest.Mock; disconnect: jest.Mock; connectYouTube: jest.Mock };
+  let socialAccounts: {
+    listForUser: jest.Mock;
+    disconnect: jest.Mock;
+    connectYouTube: jest.Mock;
+    connectTikTok: jest.Mock;
+  };
   let youtube: {
     buildAuthorizeUrl: jest.Mock;
     exchangeCode: jest.Mock;
     fetchChannelInfo: jest.Mock;
+  };
+  let tiktok: {
+    buildAuthorizeUrl: jest.Mock;
+    exchangeCode: jest.Mock;
+    fetchUserInfo: jest.Mock;
   };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
   const user = { id: 'user-1', email: 'a@example.com' };
@@ -20,16 +34,27 @@ describe('SocialController', () => {
   }
 
   beforeEach(() => {
-    socialAccounts = { listForUser: jest.fn(), disconnect: jest.fn(), connectYouTube: jest.fn() };
+    socialAccounts = {
+      listForUser: jest.fn(),
+      disconnect: jest.fn(),
+      connectYouTube: jest.fn(),
+      connectTikTok: jest.fn(),
+    };
     youtube = {
       buildAuthorizeUrl: jest.fn(),
       exchangeCode: jest.fn(),
       fetchChannelInfo: jest.fn(),
     };
+    tiktok = {
+      buildAuthorizeUrl: jest.fn(),
+      exchangeCode: jest.fn(),
+      fetchUserInfo: jest.fn(),
+    };
     jwt = { sign: jest.fn(), verify: jest.fn() };
     controller = new SocialController(
       socialAccounts as unknown as SocialAccountsService,
       youtube as unknown as YouTubeOAuthClient,
+      tiktok as unknown as TikTokOAuthClient,
       jwt as never,
     );
     process.env.WEB_ORIGIN = 'http://localhost:3000';
@@ -139,6 +164,74 @@ describe('SocialController', () => {
       expect(res.redirect).toHaveBeenCalledWith(
         'http://localhost:3000/accounts?error=connect_failed',
       );
+    });
+  });
+
+  describe('connectTikTok', () => {
+    it('signs a short-lived state JWT and redirects to the built authorize URL', () => {
+      jwt.sign.mockReturnValue('signed-state');
+      tiktok.buildAuthorizeUrl.mockReturnValue('https://www.tiktok.com/v2/auth/authorize/?...');
+      const res = fakeResponse();
+
+      controller.connectTikTok(user, res);
+
+      expect(jwt.sign).toHaveBeenCalledWith({ sub: 'user-1' }, { expiresIn: '10m' });
+      expect(tiktok.buildAuthorizeUrl).toHaveBeenCalledWith('signed-state');
+      expect(res.redirect).toHaveBeenCalledWith('https://www.tiktok.com/v2/auth/authorize/?...');
+    });
+
+    it('translates OAuthNotConfiguredError into a 503 rather than crashing', () => {
+      jwt.sign.mockReturnValue('signed-state');
+      tiktok.buildAuthorizeUrl.mockImplementation(() => {
+        throw new OAuthNotConfiguredError();
+      });
+      const res = fakeResponse();
+
+      expect(() => controller.connectTikTok(user, res)).toThrow(ServiceUnavailableException);
+    });
+  });
+
+  describe('tiktokCallback', () => {
+    it('exchanges the code, fetches user info, connects the account, and redirects on success', async () => {
+      jwt.verify.mockReturnValue({ sub: 'user-1' });
+      tiktok.exchangeCode.mockResolvedValue({ accessToken: 'access-1' });
+      tiktok.fetchUserInfo.mockResolvedValue({ openId: 'open-1', displayName: 'My TikTok' });
+      const res = fakeResponse();
+
+      await controller.tiktokCallback('the-code', 'signed-state', undefined, res);
+
+      expect(tiktok.exchangeCode).toHaveBeenCalledWith('the-code');
+      expect(tiktok.fetchUserInfo).toHaveBeenCalledWith('access-1');
+      expect(socialAccounts.connectTikTok).toHaveBeenCalledWith(
+        'user-1',
+        { accessToken: 'access-1' },
+        { openId: 'open-1', displayName: 'My TikTok' },
+      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/accounts?connected=tiktok');
+    });
+
+    it('redirects with connect_failed rather than throwing when the exchange/upsert fails', async () => {
+      jwt.verify.mockReturnValue({ sub: 'user-1' });
+      tiktok.exchangeCode.mockRejectedValue(new Error('token exchange failed'));
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const res = fakeResponse();
+
+      await controller.tiktokCallback('the-code', 'signed-state', undefined, res);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:3000/accounts?error=connect_failed',
+      );
+    });
+
+    it('redirects with the error code when TikTok reports one (e.g. user denied consent)', async () => {
+      const res = fakeResponse();
+
+      await controller.tiktokCallback(undefined, undefined, 'access_denied', res);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:3000/accounts?error=access_denied',
+      );
+      expect(jwt.verify).not.toHaveBeenCalled();
     });
   });
 });

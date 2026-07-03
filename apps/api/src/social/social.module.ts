@@ -1,6 +1,6 @@
 import { JwtModule } from '@nestjs/jwt';
 import { Module } from '@nestjs/common';
-import { YouTubeOAuthClient } from '@viral-clip-app/social';
+import { TikTokOAuthClient, YouTubeOAuthClient } from '@viral-clip-app/social';
 import { SocialController } from './social.controller';
 import { SocialAccountsService } from './social.service';
 
@@ -18,7 +18,7 @@ import { SocialAccountsService } from './social.service';
     }),
   ],
   controllers: [SocialController],
-  providers: [SocialAccountsService, YouTubeOAuthClient],
+  providers: [SocialAccountsService, YouTubeOAuthClient, TikTokOAuthClient],
   // ClipsModule (Fase 6b) needs SocialAccountsService.findOwnedOrThrow() to
   // validate the target account before enqueueing a publish-clip job.
   exports: [SocialAccountsService],

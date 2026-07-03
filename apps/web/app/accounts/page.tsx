@@ -4,11 +4,17 @@ import type { SocialAccount } from '@viral-clip-app/shared';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
-import { connectYouTubeUrl, disconnectSocialAccount, listSocialAccounts } from '../../lib/api';
+import {
+  connectTikTokUrl,
+  connectYouTubeUrl,
+  disconnectSocialAccount,
+  listSocialAccounts,
+} from '../../lib/api';
 import { useAuth } from '../../lib/useAuth';
 
 const PLATFORM_LABELS: Record<string, string> = {
   YOUTUBE: 'YouTube',
+  TIKTOK: 'TikTok',
 };
 
 // Read directly off window.location rather than next/navigation's
@@ -71,8 +77,7 @@ export default function AccountsPage() {
       <div className="mx-auto max-w-xl">
         <h1 className="text-2xl font-semibold">viral-clip-app</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          Connect social accounts for publishing (coming in a later fase - this just proves the
-          connection works).
+          Connect social accounts to publish clips to from the dashboard.
         </p>
 
         {checkingAuth ? null : !user ? (
@@ -100,12 +105,18 @@ export default function AccountsPage() {
             )}
             {loadError && <p className="mt-4 text-sm text-red-600">{loadError}</p>}
 
-            <div className="mt-6">
+            <div className="mt-6 flex gap-3">
               <a
                 href={connectYouTubeUrl()}
                 className="inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
               >
                 Connect YouTube
+              </a>
+              <a
+                href={connectTikTokUrl()}
+                className="inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
+              >
+                Connect TikTok
               </a>
             </div>
 

@@ -26,12 +26,12 @@ enum CaptionStyle {
   BOLD_HIGHLIGHT
 }
 
-// Mirrors SocialPlatform in packages/shared/src/types/social.ts. Only
-// YOUTUBE for Fase 6a - see CLAUDE.md's "Publish Center" section for why
-// YouTube was picked first (lowest-friction OAuth, no app-review gate for
-// basic upload scope, unlike TikTok/Instagram).
+// Mirrors SocialPlatform in packages/shared/src/types/social.ts. YOUTUBE
+// (Fase 6a) picked first for lowest-friction OAuth; TIKTOK (Fase 6d) added
+// second - see CLAUDE.md's "Publish Center" section for both.
 enum SocialPlatform {
   YOUTUBE
+  TIKTOK
 }
 
 // Mirrors PublishStatus in packages/shared/src/types/social.ts. SCHEDULED

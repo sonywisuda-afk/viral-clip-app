@@ -9,7 +9,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { OAuthNotConfiguredError, YouTubeOAuthClient } from '@viral-clip-app/social';
+import {
+  OAuthNotConfiguredError,
+  TikTokOAuthClient,
+  YouTubeOAuthClient,
+} from '@viral-clip-app/social';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -25,6 +29,7 @@ export class SocialController {
   constructor(
     private readonly socialAccounts: SocialAccountsService,
     private readonly youtube: YouTubeOAuthClient,
+    private readonly tiktok: TikTokOAuthClient,
     // Separate JwtModule instance from AuthModule's (see social.module.ts) -
     // same JWT_SECRET, unrelated purpose (signing the OAuth `state` param,
     // not session auth), short-lived (10m) so a state token can't be
@@ -97,6 +102,57 @@ export class SocialController {
       res.redirect(`${webOrigin}/accounts?connected=youtube`);
     } catch (err) {
       console.error('[social] YouTube OAuth callback failed:', err);
+      res.redirect(`${webOrigin}/accounts?error=connect_failed`);
+    }
+  }
+
+  // Same reasoning as the YouTube connect route above - a plain top-level
+  // navigation, not a fetch.
+  @Get('tiktok/connect')
+  @UseGuards(JwtAuthGuard)
+  connectTikTok(@CurrentUser() user: SafeUser, @Res() res: Response) {
+    const state = this.jwt.sign({ sub: user.id } satisfies OAuthState, { expiresIn: '10m' });
+    try {
+      res.redirect(this.tiktok.buildAuthorizeUrl(state));
+    } catch (error) {
+      if (error instanceof OAuthNotConfiguredError) {
+        throw new ServiceUnavailableException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  // Same reasoning as the YouTube callback route above - deliberately NOT
+  // behind JwtAuthGuard, identity comes from the signed `state` param.
+  @Get('tiktok/callback')
+  async tiktokCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
+    @Res() res: Response,
+  ) {
+    const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+
+    if (error || !code || !state) {
+      res.redirect(`${webOrigin}/accounts?error=${encodeURIComponent(error ?? 'missing_code')}`);
+      return;
+    }
+
+    let userId: string;
+    try {
+      userId = this.jwt.verify<OAuthState>(state).sub;
+    } catch {
+      res.redirect(`${webOrigin}/accounts?error=invalid_state`);
+      return;
+    }
+
+    try {
+      const tokens = await this.tiktok.exchangeCode(code);
+      const user = await this.tiktok.fetchUserInfo(tokens.accessToken);
+      await this.socialAccounts.connectTikTok(userId, tokens, user);
+      res.redirect(`${webOrigin}/accounts?connected=tiktok`);
+    } catch (err) {
+      console.error('[social] TikTok OAuth callback failed:', err);
       res.redirect(`${webOrigin}/accounts?error=connect_failed`);
     }
   }

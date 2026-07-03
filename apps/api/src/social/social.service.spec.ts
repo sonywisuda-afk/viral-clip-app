@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import { SocialPlatform } from '@viral-clip-app/database';
-import { decryptToken, encryptToken, type YouTubeOAuthClient } from '@viral-clip-app/social';
+import {
+  decryptToken,
+  encryptToken,
+  type TikTokOAuthClient,
+  type YouTubeOAuthClient,
+} from '@viral-clip-app/social';
 import type { PrismaService } from '../prisma/prisma.service';
 import { SocialAccountsService } from './social.service';
 
@@ -18,6 +23,7 @@ describe('SocialAccountsService', () => {
     };
   };
   let youtube: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
+  let tiktok: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
 
   beforeEach(() => {
     process.env = { ...originalEnv, TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('hex') };
@@ -31,9 +37,11 @@ describe('SocialAccountsService', () => {
       },
     };
     youtube = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
+    tiktok = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     service = new SocialAccountsService(
       prisma as unknown as PrismaService,
       youtube as unknown as YouTubeOAuthClient,
+      tiktok as unknown as TikTokOAuthClient,
     );
   });
 
@@ -142,10 +150,11 @@ describe('SocialAccountsService', () => {
     // time - jest evaluates describe() callback bodies up front, before
     // the outer beforeEach() above has set TOKEN_ENCRYPTION_KEY, so calling
     // encryptToken() here directly would throw before any test even runs.
-    function account() {
+    function account(platform: SocialPlatform = SocialPlatform.YOUTUBE) {
       return {
         id: 'acc-1',
         userId: 'user-1',
+        platform,
         accessToken: encryptToken('plain-access'),
         refreshToken: encryptToken('plain-refresh'),
       };
@@ -177,13 +186,24 @@ describe('SocialAccountsService', () => {
       await expect(service.disconnect('acc-1', 'user-1')).rejects.toThrow(NotFoundException);
       expect(prisma.socialAccount.delete).not.toHaveBeenCalled();
     });
+
+    it('dispatches to the TikTok client (not YouTube) for a TikTok account', async () => {
+      prisma.socialAccount.findUnique.mockResolvedValue(account(SocialPlatform.TIKTOK));
+      tiktok.revokeToken.mockResolvedValue(undefined);
+
+      await service.disconnect('acc-1', 'user-1');
+
+      expect(tiktok.revokeToken).toHaveBeenCalledWith('plain-access');
+      expect(youtube.revokeToken).not.toHaveBeenCalled();
+    });
   });
 
   describe('getValidAccessToken', () => {
-    function accountWithExpiry(expiresAt: Date) {
+    function accountWithExpiry(expiresAt: Date, platform: SocialPlatform = SocialPlatform.YOUTUBE) {
       return {
         id: 'acc-1',
         userId: 'user-1',
+        platform,
         accessToken: encryptToken('current-access'),
         refreshToken: encryptToken('current-refresh'),
         tokenExpiresAt: expiresAt,
@@ -219,6 +239,60 @@ describe('SocialAccountsService', () => {
       expect(updateCall.where).toEqual({ id: 'acc-1' });
       expect(decryptToken(updateCall.data.accessToken)).toBe('new-access');
       expect(decryptToken(updateCall.data.refreshToken)).toBe('new-refresh');
+    });
+
+    it('dispatches to the TikTok client (not YouTube) for a TikTok account', async () => {
+      prisma.socialAccount.findUnique.mockResolvedValue(
+        accountWithExpiry(new Date(Date.now() + 10_000), SocialPlatform.TIKTOK),
+      );
+      tiktok.refreshAccessToken.mockResolvedValue({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+
+      const token = await service.getValidAccessToken('acc-1', 'user-1');
+
+      expect(tiktok.refreshAccessToken).toHaveBeenCalledWith('current-refresh');
+      expect(youtube.refreshAccessToken).not.toHaveBeenCalled();
+      expect(token).toBe('new-access');
+    });
+  });
+
+  describe('connectTikTok', () => {
+    it('upserts on (userId, platform, platformAccountId) with encrypted tokens', async () => {
+      prisma.socialAccount.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({
+          id: 'acc-1',
+          ...create,
+          tokenExpiresAt: create.tokenExpiresAt,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      );
+
+      const result = await service.connectTikTok(
+        'user-1',
+        {
+          accessToken: 'plain-access',
+          refreshToken: 'plain-refresh',
+          expiresAt: new Date('2026-02-01T00:00:00.000Z'),
+        },
+        { openId: 'open-1', displayName: 'My TikTok' },
+      );
+
+      const call = prisma.socialAccount.upsert.mock.calls[0][0];
+      expect(call.where).toEqual({
+        userId_platform_platformAccountId: {
+          userId: 'user-1',
+          platform: SocialPlatform.TIKTOK,
+          platformAccountId: 'open-1',
+        },
+      });
+      expect(decryptToken(call.create.accessToken)).toBe('plain-access');
+      expect(decryptToken(call.create.refreshToken)).toBe('plain-refresh');
+      expect(call.create.displayName).toBe('My TikTok');
+      expect(result.id).toBe('acc-1');
+      expect(result.displayName).toBe('My TikTok');
     });
   });
 });

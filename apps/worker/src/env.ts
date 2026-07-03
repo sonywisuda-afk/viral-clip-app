@@ -9,14 +9,15 @@
 // Sentry.init() with an empty dsn just disables the SDK rather than
 // throwing.
 //
-// GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET/TOKEN_ENCRYPTION_KEY/
-// API_BASE_URL (Fase 6b) are also read by publish-clip.worker.ts via
-// @viral-clip-app/social's YouTubeOAuthClient/resolveAccessToken/
-// token-encryption - same optional-at-boot treatment as apps/api (see
-// CLAUDE.md's Fase 6a/6b sections): a publish-clip job just fails (and gets
-// reported to Sentry like any other job error) if they're unset, rather
-// than the whole worker refusing to start for everyone who hasn't set up
-// Google Cloud OAuth yet.
+// GOOGLE_OAUTH_CLIENT_ID/GOOGLE_OAUTH_CLIENT_SECRET/TIKTOK_CLIENT_KEY/
+// TIKTOK_CLIENT_SECRET/TOKEN_ENCRYPTION_KEY/API_BASE_URL (Fase 6b/6d) are
+// also read by publish-clip.worker.ts via @viral-clip-app/social's
+// YouTubeOAuthClient/TikTokOAuthClient/resolveAccessToken/token-encryption -
+// same optional-at-boot treatment as apps/api (see CLAUDE.md's Fase 6a/6b/6d
+// sections): a publish-clip job just fails (and gets reported to Sentry like
+// any other job error) if the relevant platform's credentials are unset,
+// rather than the whole worker refusing to start for everyone who hasn't
+// set up Google Cloud OAuth or a TikTok Developer app yet.
 const REQUIRED_ENV_VARS = [
   'DATABASE_URL',
   'REDIS_URL',

@@ -3,7 +3,7 @@
 // (e.g. apps/api's SocialController returning 503) catch this and
 // translate it themselves.
 export class OAuthNotConfiguredError extends Error {
-  constructor(message = 'YouTube integration is not configured') {
+  constructor(message = 'Social platform integration is not configured') {
     super(message);
     this.name = 'OAuthNotConfiguredError';
   }

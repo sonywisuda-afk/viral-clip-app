@@ -4,7 +4,10 @@ import {
   encryptToken,
   decryptToken,
   resolveAccessToken,
+  TikTokOAuthClient,
   YouTubeOAuthClient,
+  type TikTokTokens,
+  type TikTokUser,
   type YouTubeChannel,
   type YouTubeTokens,
 } from '@viral-clip-app/social';
@@ -16,7 +19,21 @@ export class SocialAccountsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly youtube: YouTubeOAuthClient,
+    private readonly tiktok: TikTokOAuthClient,
   ) {}
+
+  // Both revokeToken() and resolveAccessToken() (via OAuthRefreshClient)
+  // only need the platform's client, not the whole SocialAccountsService -
+  // this is the one place that maps a stored SocialAccount.platform back to
+  // the concrete OAuth client that owns it.
+  private clientFor(platform: SocialPlatform): YouTubeOAuthClient | TikTokOAuthClient {
+    switch (platform) {
+      case SocialPlatform.YOUTUBE:
+        return this.youtube;
+      case SocialPlatform.TIKTOK:
+        return this.tiktok;
+    }
+  }
 
   async listForUser(userId: string): Promise<SocialAccount[]> {
     const accounts = await this.prisma.socialAccount.findMany({
@@ -71,14 +88,49 @@ export class SocialAccountsService {
     return toDto(account);
   }
 
+  // Upserts on (userId, platform, platformAccountId) - same reconnect
+  // behavior as connectYouTube(), just keyed on TikTok's open_id instead of
+  // a YouTube channelId.
+  async connectTikTok(
+    userId: string,
+    tokens: TikTokTokens,
+    user: TikTokUser,
+  ): Promise<SocialAccount> {
+    const account = await this.prisma.socialAccount.upsert({
+      where: {
+        userId_platform_platformAccountId: {
+          userId,
+          platform: SocialPlatform.TIKTOK,
+          platformAccountId: user.openId,
+        },
+      },
+      create: {
+        userId,
+        platform: SocialPlatform.TIKTOK,
+        platformAccountId: user.openId,
+        displayName: user.displayName,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+      update: {
+        displayName: user.displayName,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+    });
+    return toDto(account);
+  }
+
   async disconnect(id: string, userId: string): Promise<void> {
     const account = await this.findOwnedOrThrow(id, userId);
     try {
-      await this.youtube.revokeToken(decryptToken(account.accessToken));
+      await this.clientFor(account.platform).revokeToken(decryptToken(account.accessToken));
     } catch (error) {
       // Best-effort - the local row is still removed even if the token was
-      // already invalid/expired on Google's side (e.g. user revoked access
-      // from their Google account settings directly).
+      // already invalid/expired on the platform's side (e.g. user revoked
+      // access from their Google/TikTok account settings directly).
       console.warn(`[social] failed to revoke token for account ${id}:`, error);
     }
     await this.prisma.socialAccount.delete({ where: { id } });
@@ -92,7 +144,7 @@ export class SocialAccountsService {
   // API-surface needs (e.g. a "verify this account still works" check).
   async getValidAccessToken(id: string, userId: string): Promise<string> {
     const account = await this.findOwnedOrThrow(id, userId);
-    const resolved = await resolveAccessToken(account, this.youtube);
+    const resolved = await resolveAccessToken(account, this.clientFor(account.platform));
 
     if (resolved.refreshed && resolved.updated) {
       await this.prisma.socialAccount.update({ where: { id }, data: resolved.updated });
