@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { transcriptWordSchema } from './transcript-word';
 
 // The clip-scoring module's OWN transcript shape - deliberately narrower than
 // packages/shared's DB-hydrated TranscriptSegment (which also carries
@@ -7,12 +8,6 @@ import { z } from 'zod';
 // (apps/worker) is responsible for narrowing a full TranscriptSegment down
 // to this shape, so the module itself never needs to know a TranscriptSegment
 // row exists.
-export const transcriptWordSchema = z.object({
-  word: z.string(),
-  start: z.number(),
-  end: z.number(),
-});
-
 export const clipScoringSegmentSchema = z.object({
   start: z.number(),
   end: z.number(),
@@ -67,7 +62,6 @@ export const clipScoringOutputSchema = z.object({
   candidates: z.array(clipScoringCandidateSchema),
 });
 
-export type TranscriptWordInput = z.infer<typeof transcriptWordSchema>;
 export type ClipScoringSegment = z.infer<typeof clipScoringSegmentSchema>;
 export type ClipScoringInput = z.infer<typeof clipScoringInputSchema>;
 export type ClipScores = z.infer<typeof clipScoresSchema>;

@@ -54,7 +54,7 @@ jest.mock('../assets/stockAssetService', () => ({
 }));
 
 const buildAssMock = jest.fn();
-jest.mock('../subtitles', () => ({
+jest.mock('@speedora/subtitles', () => ({
   buildAss: (...args: unknown[]) => buildAssMock(...args),
 }));
 

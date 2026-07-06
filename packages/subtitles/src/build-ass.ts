@@ -1,5 +1,4 @@
-import { CaptionStyle } from '@speedora/database';
-import type { TranscriptSegment, TranscriptWord } from '@speedora/shared';
+import { buildAssInputSchema, type BuildAssInput, type SubtitleSegment } from '@speedora/contracts';
 
 // ASS colours are &HAABBGGRR (alpha, then blue/green/red), 00 alpha = opaque.
 const BASE_COLOR = '&H00FFFFFF'; // opaque white - unhighlighted text
@@ -48,7 +47,7 @@ function highlightKeywords(text: string): string {
 // cumulative from the Dialogue line's own Start time - not absolute video
 // time. A gap between two words (a pause) becomes its own zero-text \k tag
 // so the fill timing doesn't drift ahead of the audio.
-function karaokeLine(words: TranscriptWord[], lineStart: number): string {
+function karaokeLine(words: NonNullable<SubtitleSegment['words']>, lineStart: number): string {
   let line = '';
   let cursor = lineStart;
   for (const word of words) {
@@ -73,13 +72,13 @@ function karaokeLine(words: TranscriptWord[], lineStart: number): string {
 // - referencing 'Karaoke' with no \k tags would just paint it solid accent
 // colour, not the intended neutral fallback look.
 function buildDialogueEvent(
-  segment: TranscriptSegment,
-  style: CaptionStyle,
+  segment: SubtitleSegment,
+  style: BuildAssInput['style'],
 ): { text: string; styleName: 'Default' | 'Karaoke' } {
-  if (style === CaptionStyle.KARAOKE && segment.words && segment.words.length > 0) {
+  if (style === 'KARAOKE' && segment.words && segment.words.length > 0) {
     return { text: karaokeLine(segment.words, segment.start), styleName: 'Karaoke' };
   }
-  if (style === CaptionStyle.BOLD_HIGHLIGHT) {
+  if (style === 'BOLD_HIGHLIGHT') {
     return { text: highlightKeywords(segment.text), styleName: 'Default' };
   }
   return { text: sanitizeAssText(segment.text), styleName: 'Default' };
@@ -92,15 +91,15 @@ function buildDialogueEvent(
 // buildSrt used to have) when the clip has no overlapping transcript text,
 // so the caller can skip writing a file and omit the subtitles filter
 // entirely - libass chokes on a subtitle file with zero events.
-export function buildAss(options: {
-  segments: TranscriptSegment[];
-  clipStart: number;
-  clipEnd: number;
-  style: CaptionStyle;
-  videoWidth: number;
-  videoHeight: number;
-}): string {
-  const { segments, clipStart, clipEnd, style, videoWidth, videoHeight } = options;
+//
+// Input is validated against @speedora/contracts's buildAssInputSchema on
+// entry - defense in depth on top of TypeScript, same reasoning as
+// clip-scoring's output validation, even though (unlike clip-scoring) there
+// is no untrusted LLM JSON here - the adapter's caption-style cast is the
+// one place a mismatch could slip through unnoticed otherwise.
+export function buildAss(options: BuildAssInput): string {
+  const { segments, clipStart, clipEnd, style, videoWidth, videoHeight } =
+    buildAssInputSchema.parse(options);
   const duration = clipEnd - clipStart;
 
   const fontSize = Math.max(12, Math.round(videoHeight * 0.06));
@@ -110,7 +109,7 @@ export function buildAss(options: {
 
   const events = segments
     .map((segment) => {
-      const shifted: TranscriptSegment = {
+      const shifted: SubtitleSegment = {
         ...segment,
         start: segment.start - clipStart,
         end: segment.end - clipStart,

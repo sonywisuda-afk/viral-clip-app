@@ -1,13 +1,10 @@
-import type { TranscriptWord } from '@speedora/shared';
+import type { CutRange, TranscriptWordInput } from '@speedora/contracts';
 
 // Seconds, clip-relative (0 = clip start) - same convention as
 // FaceSample.t/buildAss's internal shift. Callers pass words already
 // shifted by -clipStart, so this module has no notion of absolute source
 // time at all and stays simple, pure TypeScript to test.
-export interface CutRange {
-  start: number;
-  end: number;
-}
+export type { CutRange };
 
 // A gap between two words shorter than this is a natural speech pause, not
 // dead air worth cutting - only long silences get removed.
@@ -45,7 +42,7 @@ function round3(value: number): number {
 // MIN_SILENCE_GAP_SECONDS) become cut ranges, trimmed down to
 // SILENCE_EDGE_PADDING_SECONDS at each edge instead of removed entirely.
 // words must already be clip-relative and need not be pre-sorted.
-export function computeSilenceCuts(words: TranscriptWord[], clipDuration: number): CutRange[] {
+export function computeSilenceCuts(words: TranscriptWordInput[], clipDuration: number): CutRange[] {
   // No word-level data at all (older video transcribed before Fase 3 - see
   // CLAUDE.md - or a segment Whisper returned with no words) means there's
   // no basis to tell silence apart from untranscribed speech/music. Without
@@ -82,7 +79,7 @@ export function computeSilenceCuts(words: TranscriptWord[], clipDuration: number
 // Each um/uh-family word becomes its own cut range, start-to-end exactly -
 // unlike silence gaps, no edge padding: the word itself (not a pause around
 // it) is what's being removed.
-export function computeFillerCuts(words: TranscriptWord[]): CutRange[] {
+export function computeFillerCuts(words: TranscriptWordInput[]): CutRange[] {
   return words
     .filter((word) => FILLER_WORDS.has(normalizeWord(word.word)))
     .map((word) => ({ start: round3(word.start), end: round3(word.end) }));

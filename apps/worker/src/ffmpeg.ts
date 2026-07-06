@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { computeCutJunctionTimestamps, type CutRange } from './cutlist';
+import { computeCutJunctionTimestamps, type CutRange } from '@speedora/cutlist';
 
 const execFileAsync = promisify(execFile);
 const FFMPEG_PATH = process.env.FFMPEG_PATH ?? 'ffmpeg';

@@ -3,6 +3,14 @@ import { readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
+import type { CaptionStyleValue, SubtitleSegment } from '@speedora/contracts';
+import {
+  computeFillerCuts,
+  computeSilenceCuts,
+  mergeCutRanges,
+  totalCutSeconds,
+  type CutRange,
+} from '@speedora/cutlist';
 import { VideoStatus } from '@speedora/database';
 import {
   QueueName,
@@ -11,6 +19,7 @@ import {
   type TranscriptWord,
 } from '@speedora/shared';
 import { getObjectStream, uploadObject } from '@speedora/storage';
+import { buildAss } from '@speedora/subtitles';
 import { Worker, type Job } from 'bullmq';
 import { stockAssetService } from '../assets/stockAssetService';
 import {
@@ -19,13 +28,6 @@ import {
   downloadStockAsset,
   findBRollMoments,
 } from '../broll';
-import {
-  computeFillerCuts,
-  computeSilenceCuts,
-  mergeCutRanges,
-  totalCutSeconds,
-  type CutRange,
-} from '../cutlist';
 import { detectFaces, type FaceSample } from '../faceDetection';
 import {
   fadeOutBRoll,
@@ -45,12 +47,11 @@ import {
   findEmphasisWords,
 } from '../reframe';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
-import { buildAss } from '../subtitles';
 
 // Re-anchors a clip's transcript words onto the clip's own timeline (0 =
-// this clip's start) - the convention shared by cutlist.ts's cut detection,
-// buildAss's internal segment/word shift, FaceSample.t, and now
-// findEmphasisWords/buildCropPath's zoom timing below.
+// this clip's start) - the convention shared by @speedora/cutlist's cut
+// detection, @speedora/subtitles's internal segment/word shift, FaceSample.t,
+// and now findEmphasisWords/buildCropPath's zoom timing below.
 function toClipRelativeWords(
   transcript: RenderClipJobData['transcript'],
   startTime: number,
@@ -60,8 +61,21 @@ function toClipRelativeWords(
     .map((word) => ({ ...word, start: word.start - startTime, end: word.end - startTime }));
 }
 
+// Narrows a DB-shaped TranscriptSegment (which also carries speaker/emotion
+// labels @speedora/subtitles never reads) down to that module's own,
+// smaller input contract - same pattern as detect-clips.worker.ts's
+// toScoringInput() for @speedora/clip-scoring.
+function toSubtitleSegments(transcript: RenderClipJobData['transcript']): SubtitleSegment[] {
+  return transcript.map((segment) => ({
+    start: segment.start,
+    end: segment.end,
+    text: segment.text,
+    words: segment.words,
+  }));
+}
+
 // Silence gaps and um/uh-family filler words to cut, computed from the
-// clip's own transcript words - see cutlist.ts. Deliberately a *second*
+// clip's own transcript words - see @speedora/cutlist. Deliberately a *second*
 // ffmpeg pass over the already-rendered (cropped + captioned) clip rather
 // than folded into renderClip's own filtergraph: cuts are removed on the
 // same clip-relative timeline renderClip's output already uses, so the
@@ -254,10 +268,15 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         brollPaths = finalPaths;
 
         const assContent = buildAss({
-          segments: transcript,
+          segments: toSubtitleSegments(transcript),
           clipStart: startTime,
           clipEnd: endTime,
-          style: captionStyle,
+          // CaptionStyle (packages/database's Prisma enum, re-exported by
+          // packages/shared) and CaptionStyleValue (packages/contracts'
+          // plain string-literal union) share the exact same runtime string
+          // values by convention - this cast is safe, not a type escape
+          // hatch, and is the one place that convention is load-bearing.
+          style: captionStyle as CaptionStyleValue,
           // outputWidth/outputHeight, NOT width/height - captions must be
           // sized against the clip's constant FINAL frame, not the crop
           // filter's t=0 declared size, which may already be a zoomed-in

@@ -15,17 +15,35 @@ This documents a pattern for adding new analysis/calculation logic to Speedora w
 ## Package layout
 
 - **`packages/contracts`** — Zod schemas (+ inferred TS types) for each module's input/output. Pure schema definitions, zero logic, zero dependencies on Prisma/BullMQ/`packages/database`. One file per module (e.g. `clip-scoring.ts`).
-- **`packages/<module-name>`** (e.g. `packages/clip-scoring`) — the stateless module itself: one exported function, `(input, deps?) => Promise<Output>`. External side effects the module genuinely needs (an LLM call, for example) are passed in via a `deps` parameter rather than constructed from `process.env` inside the module, so tests can inject a fake without any module-level mocking.
+- **`packages/<module-name>`** (e.g. `packages/clip-scoring`) — the stateless module itself. Usually one exported function, `(input, deps?) => Promise<Output>`; a module with several independent pure operations used by different callers (e.g. `packages/cutlist`) can export several functions instead of forcing them into one call — the rule is statelessness and no DB access, not a fixed function count. External side effects the module genuinely needs (an LLM call, for example) are passed in via a `deps` parameter rather than constructed from `process.env` inside the module, so tests can inject a fake without any module-level mocking.
 - **The adapter** — lives where the orchestration already lives (an `apps/worker/src/workers/*.worker.ts` file, or an `apps/api` service). Responsible for: reading DB/job data, narrowing it down to the module's own (deliberately minimal) input contract, calling the module, and persisting/enqueuing the result.
 
-## Worked example: clip scoring
+## Worked examples
+
+### Clip scoring (one-function module, calls an external LLM)
 
 - Contract: [`packages/contracts/src/clip-scoring.ts`](./packages/contracts/src/clip-scoring.ts)
 - Module: [`packages/clip-scoring/src/score-clip-candidates.ts`](./packages/clip-scoring/src/score-clip-candidates.ts) — takes transcript segments, returns scored/sanitized clip candidates. Calls OpenAI (injected via `deps.openai`), does its own filtering/sanitization/Smart-Start-End snapping. No Prisma, no BullMQ, no Sentry.
 - Adapter: [`apps/worker/src/workers/detect-clips.worker.ts`](./apps/worker/src/workers/detect-clips.worker.ts) — narrows `TranscriptSegment[]` (which also carries `speaker`/`emotion` the module never needs) down to the module's input shape, calls `scoreClipCandidates`, then persists `Clip` rows, updates `Video.status`, and enqueues `render-clip` jobs.
 - Tests: [`packages/clip-scoring/src/score-clip-candidates.spec.ts`](./packages/clip-scoring/src/score-clip-candidates.spec.ts) tests the module purely with JSON fixtures and a faked OpenAI client — no DB/queue mocking at all. [`apps/worker/src/workers/detect-clips.worker.spec.ts`](./apps/worker/src/workers/detect-clips.worker.spec.ts) mocks the module directly and tests only the orchestration (persistence, status transitions, enqueue, Sentry).
 
-Use this pair of files as the template for the next module.
+### Cutlist (multi-function module, pure math, no external calls at all)
+
+- Contract: [`packages/contracts/src/cutlist.ts`](./packages/contracts/src/cutlist.ts) — just the shared `CutRange` shape; there's no untrusted external input here (unlike an LLM response), so there's no single input/output object to validate.
+- Module: [`packages/cutlist/src/cutlist.ts`](./packages/cutlist/src/cutlist.ts) — `computeSilenceCuts`/`computeFillerCuts`/`mergeCutRanges`/`totalCutSeconds`/`computeCutJunctionTimestamps`, five independent pure functions used by two different consumers (`render-clip.worker.ts` and `ffmpeg.ts`), so it stays a small function library rather than one combined entry point.
+- Consumers: `apps/worker/src/workers/render-clip.worker.ts` (combines silence+filler+merge into its own `computeClipCuts` helper, already working on clip-relative words it derives itself) and `apps/worker/src/ffmpeg.ts` (`computeCutJunctionTimestamps`, for Smart Transitions). Neither is a classic "adapter" in the DB sense for this module — `ffmpeg.ts` is itself a near-stateless helper (shells out to the `ffmpeg` binary, no DB).
+
+### Subtitles (fixing a real DB-type leak during migration)
+
+- Contract: [`packages/contracts/src/subtitles.ts`](./packages/contracts/src/subtitles.ts) — `CaptionStyle` is duplicated as a plain string-literal Zod enum here, same reasoning as clip-scoring's `CLIP_INTENTS`.
+- Module: [`packages/subtitles/src/build-ass.ts`](./packages/subtitles/src/build-ass.ts) — previously lived at `apps/worker/src/subtitles.ts` and imported `CaptionStyle` directly from `@speedora/database` (the Prisma-generated enum) even though it never touched Prisma otherwise — the one real "pure module coupled to the DB package" case found when auditing for this migration. Fixed by depending on the contract's own enum instead.
+- Adapter: `apps/worker/src/workers/render-clip.worker.ts`'s `toSubtitleSegments()` narrows `TranscriptSegment[]` the same way `detect-clips.worker.ts` does, and casts the job's `CaptionStyle` enum value to the contract's string-literal type at the one call site that needs it (the two are guaranteed to share runtime string values by convention).
+
+### Shared sub-schemas
+
+`packages/contracts/src/transcript-word.ts` holds the one `TranscriptWordInput` shape used by clip-scoring, cutlist, and subtitles — extracted once a second module needed the exact same shape, rather than each contract file defining its own copy (the same "extract at 2nd/3rd duplication" convention the rest of this codebase already follows).
+
+Use these as templates for the next module — pick the clip-scoring shape if the module makes one external call and produces one JSON result; pick the cutlist shape if it's a small library of independent pure functions.
 
 ## Checklist for adding a new stateless module
 
