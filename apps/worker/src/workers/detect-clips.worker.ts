@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node';
 import { scoreClipCandidates } from '@speedora/clip-scoring';
 import type { ClipScoringInput } from '@speedora/contracts';
 import { updateVideoStatus, VideoStatus, type Prisma } from '@speedora/database';
+import { suggestEmojis } from '@speedora/emoji-suggester';
 import {
   filterSegmentsForClip,
   QueueName,
@@ -39,6 +40,21 @@ function toScoringInput(segments: TranscriptSegment[]): ClipScoringInput {
   };
 }
 
+// Fase 23 (DB+JSON-contract roadmap, Fase 4 - a brand-new feature built
+// purely via the checklist) - @speedora/emoji-suggester's whole input is
+// one plain string, so the adapter's job is just narrowing this candidate's
+// overlapping transcript segments down to their joined text.
+function emojiSuggestionsFor(
+  segments: TranscriptSegment[],
+  startTime: number,
+  endTime: number,
+): string[] {
+  const text = filterSegmentsForClip(segments, startTime, endTime)
+    .map((segment) => segment.text)
+    .join(' ');
+  return suggestEmojis({ text }).emojis;
+}
+
 export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClipsJobResult> {
   return new Worker<DetectClipsJobData, DetectClipsJobResult>(
     QueueName.DETECT_CLIPS,
@@ -70,6 +86,11 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                 keywords: candidate.keywords,
                 intent: candidate.intent,
                 ctaText: candidate.ctaText,
+                emojiSuggestions: emojiSuggestionsFor(
+                  segments,
+                  candidate.startTime,
+                  candidate.endTime,
+                ),
               },
             }),
           ),
@@ -96,6 +117,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           keywords: clip.keywords,
           intent: clip.intent,
           ctaText: clip.ctaText,
+          emojiSuggestions: clip.emojiSuggestions,
         }));
 
         console.log(`[detect-clips] video ${videoId} -> ${candidates.length} candidates`);

@@ -258,6 +258,7 @@ export class ClipsService {
     keywords: string[];
     intent: string | null;
     ctaText: string | null;
+    emojiSuggestions: string[];
     publishRecords: Parameters<typeof toSharedPublishRecord>[0][];
     updatedAt: Date;
   }) {
@@ -277,6 +278,7 @@ export class ClipsService {
       keywords: clip.keywords,
       intent: clip.intent,
       ctaText: clip.ctaText,
+      emojiSuggestions: clip.emojiSuggestions,
       publishRecords: clip.publishRecords.map(toSharedPublishRecord) satisfies PublishRecord[],
       updatedAt: clip.updatedAt,
     };

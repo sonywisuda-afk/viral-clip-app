@@ -99,6 +99,11 @@ export interface ClipCandidate {
   keywords: string[];
   intent: string | null;
   ctaText: string | null;
+  // Fase 23 (DB+JSON-contract roadmap) - deterministic keyword-pattern
+  // suggestions from @speedora/emoji-suggester, computed from this clip's
+  // own transcript text. Never empty/null-vs-array ambiguity: always an
+  // array (possibly empty), same convention as hashtags/topics/keywords.
+  emojiSuggestions: string[];
 }
 
 export interface Video {
@@ -142,6 +147,8 @@ export interface Clip {
   keywords: string[];
   intent: string | null;
   ctaText: string | null;
+  // Fase 23 (DB+JSON-contract roadmap) - see ClipCandidate above.
+  emojiSuggestions: string[];
   // Publish attempts to connected social accounts (Fase 6b) - empty until
   // the user hits "Publish now" at least once. Small array in practice (at
   // most one per connected platform account), so returned inline rather

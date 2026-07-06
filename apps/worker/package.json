@@ -19,6 +19,7 @@
     "@speedora/contracts": "workspace:*",
     "@speedora/cutlist": "workspace:*",
     "@speedora/database": "workspace:^",
+    "@speedora/emoji-suggester": "workspace:*",
     "@speedora/reframe": "workspace:*",
     "@speedora/shared": "workspace:*",
     "@speedora/social": "workspace:*",

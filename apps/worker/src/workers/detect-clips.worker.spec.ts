@@ -175,6 +175,31 @@ describe('detect-clips worker (adapter)', () => {
     );
   });
 
+  it("computes emoji suggestions (Fase 23) from the candidate's own overlapping transcript text and persists them", async () => {
+    const segments: TranscriptSegment[] = [
+      { start: 0, end: 3, text: 'before clip, not counted' },
+      { start: 10, end: 20, text: 'this is amazing news' },
+      { start: 20, end: 30, text: 'up 40% this quarter' },
+      { start: 35, end: 40, text: 'after clip, not counted' },
+    ];
+    scoreClipCandidatesMock.mockResolvedValue({
+      candidates: [
+        scoredCandidate({ startTime: 10, endTime: 30, viralityScore: 90, hookText: 'hook' }),
+      ],
+    });
+    videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
+
+    const processor = getProcessor();
+    const result = (await processor({ data: { videoId: 'video-1', segments } })) as {
+      candidates: Array<{ emojiSuggestions: string[] }>;
+    };
+
+    expect(clipCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ emojiSuggestions: ['🔥', '📈'] }),
+    });
+    expect(result.candidates[0].emojiSuggestions).toEqual(['🔥', '📈']);
+  });
+
   it('does not enqueue render-clip or fetch the video when there are no candidates', async () => {
     scoreClipCandidatesMock.mockResolvedValue({ candidates: [] });
 

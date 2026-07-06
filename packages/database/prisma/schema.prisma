@@ -263,6 +263,13 @@ model Clip {
   // Call-to-action text detected in the clip, if any (e.g. "follow for
   // part 2", "link in bio") - null/empty when the clip has none.
   ctaText       String?
+  // Fase 23 (DB+JSON-contract roadmap, Fase 4 - new feature built purely via
+  // the checklist) - deterministic keyword-pattern suggestions (see
+  // @speedora/emoji-suggester), computed from this clip's own transcript
+  // text at detect-clips time. Purely metadata (like hookText/hashtags),
+  // never burned into the rendered video - defaults to an empty array
+  // rather than nullable so callers never have to null-check it.
+  emojiSuggestions String[] @default([])
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
