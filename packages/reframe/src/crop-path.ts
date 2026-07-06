@@ -1,5 +1,9 @@
-import type { TranscriptWord } from '@speedora/shared';
-import type { FaceSample } from './faceDetection';
+import type {
+  CropDimensions,
+  CropWindow,
+  FaceSample,
+  TranscriptWordInput,
+} from '@speedora/contracts';
 
 export const TARGET_ASPECT_RATIO = 9 / 16;
 
@@ -26,27 +30,12 @@ const ZOOM_HOLD_SECONDS = 0.4;
 const ZOOM_RELEASE_SECONDS = 0.5;
 
 // Same pattern BOLD_HIGHLIGHT captions already emphasize (see
-// subtitles.ts's KEYWORD_PATTERN) - numbers/percentages, ALL-CAPS words, and
-// quoted phrases tend to carry emphasis on their own, without needing an
-// LLM call or a keyword list to curate. Reused rather than duplicated a
-// 3rd time once this became the 2nd use - see findEmphasisWords below.
+// @speedora/subtitles's KEYWORD_PATTERN) - numbers/percentages, ALL-CAPS
+// words, and quoted phrases tend to carry emphasis on their own, without
+// needing an LLM call or a keyword list to curate. Reused rather than
+// duplicated a 3rd time once this became the 2nd use - see
+// findEmphasisWords below.
 const EMPHASIS_PATTERN = /\d|^[A-Z]{2,}$|^["“'].+["”']$/;
-
-export interface CropDimensions {
-  width: number;
-  height: number;
-}
-
-// One point in the final crop-window path sent to ffmpeg via sendcmd -
-// width/height vary (Fase 11's zoom) alongside the x/y panning that already
-// existed, all on the same clip-relative timeline.
-export interface CropWindow {
-  t: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
 
 function roundToEven(value: number): number {
   return Math.round(value / 2) * 2;
@@ -85,12 +74,12 @@ export function computeCropDimensions(sourceWidth: number, sourceHeight: number)
 // Words worth a brief zoom punch-in when they're spoken - see
 // EMPHASIS_PATTERN above. words must carry clip-relative timestamps (same
 // convention as everywhere else per-word timing is used - FaceSample.t,
-// buildAss's internal shift, cutlist.ts).
-export function findEmphasisWords(words: TranscriptWord[]): TranscriptWord[] {
+// @speedora/subtitles's internal shift, @speedora/cutlist).
+export function findEmphasisWords(words: TranscriptWordInput[]): TranscriptWordInput[] {
   return words.filter((word) => {
     // Only strips sentence punctuation, NOT quote characters - unlike
-    // subtitles.ts's highlightKeywords, which strips both and so never
-    // actually reaches its own quoted-phrase branch (the quotes it's
+    // @speedora/subtitles's highlightKeywords, which strips both and so
+    // never actually reaches its own quoted-phrase branch (the quotes it's
     // checking for are gone by the time it checks). Preserved here so a
     // quoted word/phrase can actually trigger a zoom punch-in.
     const stripped = word.word.trim().replace(/^[.,!?;:]+|[.,!?;:]+$/g, '');
@@ -152,7 +141,7 @@ function interpolateAt(
 // cover zoom too).
 export function buildCropPath(
   samples: FaceSample[],
-  emphasisWords: TranscriptWord[],
+  emphasisWords: TranscriptWordInput[],
   crop: CropDimensions,
   sourceWidth: number,
   sourceHeight: number,

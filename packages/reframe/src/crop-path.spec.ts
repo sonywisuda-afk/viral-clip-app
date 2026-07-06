@@ -1,13 +1,12 @@
-import type { TranscriptWord } from '@speedora/shared';
+import type { FaceSample, TranscriptWordInput } from '@speedora/contracts';
 import {
   buildCropPath,
   buildSendCmdScript,
   computeCropDimensions,
   findEmphasisWords,
-} from './reframe';
-import type { FaceSample } from './faceDetection';
+} from './crop-path';
 
-function word(text: string, start: number, end: number): TranscriptWord {
+function word(text: string, start: number, end: number): TranscriptWordInput {
   return { word: text, start, end };
 }
 

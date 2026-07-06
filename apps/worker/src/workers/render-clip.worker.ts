@@ -18,6 +18,14 @@ import {
   type RenderClipJobResult,
   type TranscriptWord,
 } from '@speedora/shared';
+import {
+  buildCropPath,
+  buildSendCmdScript,
+  computeCropDimensions,
+  detectFaces,
+  findEmphasisWords,
+  type FaceSample,
+} from '@speedora/reframe';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { buildAss } from '@speedora/subtitles';
 import { Worker, type Job } from 'bullmq';
@@ -28,7 +36,7 @@ import {
   downloadStockAsset,
   findBRollMoments,
 } from '../broll';
-import { detectFaces, type FaceSample } from '../faceDetection';
+import { faceDetectionDeps } from '../faceDetectionDeps';
 import {
   fadeOutBRoll,
   getVideoDimensions,
@@ -40,12 +48,6 @@ import {
 } from '../ffmpeg';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
-import {
-  buildCropPath,
-  buildSendCmdScript,
-  computeCropDimensions,
-  findEmphasisWords,
-} from '../reframe';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
 
 // Re-anchors a clip's transcript words onto the clip's own timeline (0 =
@@ -113,7 +115,7 @@ async function buildReframePlan(
 
   let samples: FaceSample[] = [];
   try {
-    samples = await detectFaces(sourcePath, startTime, endTime);
+    samples = await detectFaces({ sourcePath, startTime, endTime }, faceDetectionDeps);
   } catch (error) {
     console.warn('[render-clip] face detection failed, falling back to center-crop:', error);
   }

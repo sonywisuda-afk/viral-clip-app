@@ -59,15 +59,12 @@ jest.mock('@speedora/subtitles', () => ({
 }));
 
 const detectFacesMock = jest.fn();
-jest.mock('../faceDetection', () => ({
-  detectFaces: (...args: unknown[]) => detectFacesMock(...args),
-}));
-
 const computeCropDimensionsMock = jest.fn();
 const buildCropPathMock = jest.fn();
 const buildSendCmdScriptMock = jest.fn();
 const findEmphasisWordsMock = jest.fn();
-jest.mock('../reframe', () => ({
+jest.mock('@speedora/reframe', () => ({
+  detectFaces: (...args: unknown[]) => detectFacesMock(...args),
   computeCropDimensions: (...args: unknown[]) => computeCropDimensionsMock(...args),
   buildCropPath: (...args: unknown[]) => buildCropPathMock(...args),
   buildSendCmdScript: (...args: unknown[]) => buildSendCmdScriptMock(...args),
@@ -377,7 +374,10 @@ describe('render-clip worker', () => {
       await processor({ data: baseJobData });
 
       expect(getVideoDimensionsMock).toHaveBeenCalledWith(expect.stringContaining('source'));
-      expect(detectFacesMock).toHaveBeenCalledWith(expect.stringContaining('source'), 10, 20);
+      expect(detectFacesMock).toHaveBeenCalledWith(
+        { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
+        expect.objectContaining({ pythonPath: expect.any(String) }),
+      );
       expect(renderClipMock).toHaveBeenCalledWith(
         expect.objectContaining({
           reframe: {
