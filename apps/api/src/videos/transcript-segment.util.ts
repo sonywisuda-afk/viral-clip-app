@@ -4,11 +4,13 @@ import type {
   TranscriptSegment as TranscriptSegmentRow,
 } from '@speedora/database';
 import type {
+  ActiveSpeakerSample,
   AudioFeatures,
   CameraMotionFeatures,
   CameraMotionSample,
   CaptionStyle,
   ClipScores,
+  DiarizationFeatures,
   EditingRhythmFeatures,
   FaceLandmarkFeatures,
   FaceLandmarkSample,
@@ -21,6 +23,7 @@ import type {
   FusionRecommendation,
   GestureFeatures,
   GestureSample,
+  LipSyncVerification,
   OcrFeatures,
   OcrSample,
   MotionEnergyFeatures,
@@ -28,9 +31,14 @@ import type {
   OcrTextTrack,
   SceneCutEvent,
   SceneFeatures,
+  SpeakerFaceAssociation,
+  SpeakerTimelineEntry,
+  SpeakerTimelineFeatures,
   TranscriptionProvider,
   TranscriptSegment,
   TranscriptWord,
+  VoiceActivityFeatures,
+  VoiceActivitySegment,
 } from '@speedora/shared';
 
 // Prisma types a Json column as the opaque JsonValue union - this narrows it
@@ -151,6 +159,22 @@ export function toSharedEditingRhythmFeatures(
   return (editingRhythmFeatures as EditingRhythmFeatures | null) ?? null;
 }
 
+// Same "Json column is opaque" situation as the functions above, for
+// Video.voiceActivitySegments/voiceActivityFeatures (Speaker Intelligence
+// roadmap, Milestone A) - the first Video-level (not Clip-level) pair of
+// these, see schema.prisma's own comment on why.
+export function toSharedVoiceActivitySegments(
+  voiceActivitySegments: unknown,
+): VoiceActivitySegment[] | null {
+  return (voiceActivitySegments as VoiceActivitySegment[] | null) ?? null;
+}
+
+export function toSharedVoiceActivityFeatures(
+  voiceActivityFeatures: unknown,
+): VoiceActivityFeatures | null {
+  return (voiceActivityFeatures as VoiceActivityFeatures | null) ?? null;
+}
+
 export function toSharedFacialFeatures(facialFeatures: unknown): FacialEmotionFeatures | null {
   return (facialFeatures as FacialEmotionFeatures | null) ?? null;
 }
@@ -185,6 +209,51 @@ export function toSharedTrackingQualityMetrics(
   trackingQualityMetrics: unknown,
 ): FaceTrackingQualityMetrics | null {
   return (trackingQualityMetrics as FaceTrackingQualityMetrics | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.activeSpeakerSamples/speakerFaceAssociations/lipSyncVerifications
+// (Speaker Intelligence roadmap, Milestone A). All three are plain JSON
+// arrays (never JsonNull once faceLandmarks succeeds - see schema.prisma's
+// own comment), same "null exactly when faceLandmarks is null" convention
+// as faceLandmarkFeatures/trackingQualityMetrics above.
+export function toSharedActiveSpeakerSamples(
+  activeSpeakerSamples: unknown,
+): ActiveSpeakerSample[] | null {
+  return (activeSpeakerSamples as ActiveSpeakerSample[] | null) ?? null;
+}
+
+export function toSharedSpeakerFaceAssociations(
+  speakerFaceAssociations: unknown,
+): SpeakerFaceAssociation[] | null {
+  return (speakerFaceAssociations as SpeakerFaceAssociation[] | null) ?? null;
+}
+
+export function toSharedLipSyncVerifications(
+  lipSyncVerifications: unknown,
+): LipSyncVerification[] | null {
+  return (lipSyncVerifications as LipSyncVerification[] | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Video.diarizationFeatures and Clip.speakerTimeline/speakerTimelineFeatures
+// (Speaker Intelligence roadmap, Milestone B).
+export function toSharedDiarizationFeatures(
+  diarizationFeatures: unknown,
+): DiarizationFeatures | null {
+  return (diarizationFeatures as DiarizationFeatures | null) ?? null;
+}
+
+export function toSharedSpeakerTimeline(
+  speakerTimeline: unknown,
+): SpeakerTimelineEntry[] | null {
+  return (speakerTimeline as SpeakerTimelineEntry[] | null) ?? null;
+}
+
+export function toSharedSpeakerTimelineFeatures(
+  speakerTimelineFeatures: unknown,
+): SpeakerTimelineFeatures | null {
+  return (speakerTimelineFeatures as SpeakerTimelineFeatures | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

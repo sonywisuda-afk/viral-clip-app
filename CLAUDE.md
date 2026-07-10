@@ -71,6 +71,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/ocr.md`](docs/ai/ocr.md) | On-screen text detection, tracking, classification, evaluation tooling, Review UI |
 | [`docs/ai/fusion.md`](docs/ai/fusion.md) | The Fusion Engine — current pipeline, weights, prediction/recommendation |
 | [`docs/ai/scoring.md`](docs/ai/scoring.md) | How `viralityScore`/`ClipScores`/`highlightScore` relate (they are three different systems) |
+| [`docs/ai/speaker-intelligence.md`](docs/ai/speaker-intelligence.md) | Speaker Intelligence roadmap (VAD, Active Speaker Detection, Face-Voice Association, Speaker Timeline/Scoring) — contracts-only status vs. what's already covered by Face/Audio/Gesture Intelligence |
 
 ## Status
 
@@ -109,11 +110,21 @@ High-level state of each major initiative (see the linked docs for what's actual
   has 0 usable samples to calibrate against yet (`apps/worker/src/scripts/
   check-calibration-coverage.ts` is the reusable check — rerun it as production data accumulates).
   See `ai/fusion.md`.
+- **Speaker Intelligence roadmap** (VAD, Active Speaker Detection, Face-Voice Association, Lip
+  Sync Verification, Speaker Timeline, Speaker Quality/Confidence/Importance/Engagement/
+  Attention/Highlight scoring, Conversation Type Classification) — **contracts only**
+  (`packages/contracts/src/{voice-activity,speaker-diarization,vocal-emotion,active-speaker,
+  speaker-timeline,speaker-quality,speaking-style,conversation-intelligence,speaker-scoring}.ts`),
+  no detectors/wiring built yet. Speaker Diarization and Vocal Emotion Detection (already shipped
+  in `apps/worker`) were formalized into real Zod contracts in the same pass, closing a gap where
+  they were the only two Python-subprocess detectors using an unchecked cast instead of
+  `OutputSchema.parse()`. See `ai/speaker-intelligence.md`.
 - **Open**: Visual Composition (rule-of-thirds, shot framing), real dissolve-transition detection,
   Eye Contact/Gesture/OCR/etc. weight calibration against real engagement data,
-  pitch/F0 audio tracking, and the eventual Multi-Modal Fusion Engine (whether it enriches
-  `clip-scoring`'s LLM-selected candidates or replaces selection with a continuous importance
-  timeline is an explicit open architectural question — see `ai/fusion.md`).
+  pitch/F0 audio tracking, every Speaker Intelligence detector above, and the eventual Multi-Modal
+  Fusion Engine (whether it enriches `clip-scoring`'s LLM-selected candidates or replaces
+  selection with a continuous importance timeline is an explicit open architectural question — see
+  `ai/fusion.md`).
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

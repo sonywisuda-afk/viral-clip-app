@@ -2,8 +2,14 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
-import { analyzeAudioLoudness, computeSpeakingRate } from '@speedora/audio-intelligence';
-import { updateVideoStatus, VideoStatus } from '@speedora/database';
+import {
+  analyzeAudioLoudness,
+  computeSpeakingRate,
+  deriveVoiceActivityFeatures,
+  detectVoiceActivity,
+} from '@speedora/audio-intelligence';
+import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
+import { deriveDiarizationFeatures } from '@speedora/speaker-diarization';
 import {
   QueueName,
   TranscriptionProvider,
@@ -14,7 +20,12 @@ import { getObjectStream } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
 import type OpenAI from 'openai';
 import { audioIntelligenceDeps } from '../audioIntelligenceDeps';
-import { assignSpeakerLabels, diarizeSpeakers, type SpeakerTurn } from '../diarization';
+import {
+  assignSpeakerLabels,
+  diarizeSpeakers,
+  toFriendlySpeakerTurns,
+  type SpeakerTurn,
+} from '../diarization';
 import { type AudioWindow, extractAudio, getMediaDurationSeconds } from '../ffmpeg';
 import { groq, GROQ_WHISPER_MODEL } from '../groq';
 import { openai, OPENAI_WHISPER_MODEL } from '../openai';
@@ -23,6 +34,7 @@ import { detectClipsQueue } from '../queues';
 import { createRedisConnection } from '../redis';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
 import { detectVocalEmotions } from '../vocalEmotion';
+import { voiceActivityDeps } from '../voiceActivityDeps';
 
 // Picks the Whisper client + model for a video's chosen provider, and fails
 // clearly (rather than letting the SDK call fail confusingly deep inside a
@@ -283,6 +295,18 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           );
         }
         const speakerLabels = assignSpeakerLabels(mergedSegments, speakerTurns);
+        // Speaker Intelligence roadmap, Milestone B (Turn/Silence/Overlap
+        // Detection) - relabels the raw turns diarizeSpeakers() returned
+        // with the SAME friendly labels just assigned to segments above,
+        // then derives speakerCount/segments/durations/turnCount/
+        // switchCount/overlappingSpeech/silences from them. Null (not an
+        // all-zero object) when diarization found no turns at all - same
+        // "optional signal, nothing fabricated" convention as every other
+        // detector in this block.
+        const diarizationFeatures =
+          speakerTurns.length > 0
+            ? deriveDiarizationFeatures(toFriendlySpeakerTurns(mergedSegments, speakerTurns))
+            : null;
 
         // Vocal emotion detection reuses the SAME full-track audio file
         // diarization just extracted above (no reason to extract it twice -
@@ -322,6 +346,31 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           );
         }
 
+        // Speaker Intelligence roadmap, Milestone A (Voice Activity
+        // Detection) - reuses the SAME full-track audio file diarization/
+        // vocal-emotion/loudness already extracted above. Unlike those,
+        // its output doesn't map onto TranscriptSegment rows at all (see
+        // schema.prisma's Video.voiceActivitySegments comment) - persisted
+        // directly on Video below. Never fails the job, same "optional
+        // signal" pattern as every other detector in this block.
+        let voiceActivitySegments: Awaited<ReturnType<typeof detectVoiceActivity>> | null = null;
+        try {
+          voiceActivitySegments = await detectVoiceActivity(
+            { audioPath: diarizeAudioPath, durationSeconds },
+            voiceActivityDeps,
+          );
+        } catch (error) {
+          console.warn(
+            `[transcribe] voice activity detection failed for video ${videoId}, continuing ` +
+              'without VAD data:',
+            error,
+          );
+        }
+        const voiceActivityFeatures = deriveVoiceActivityFeatures(
+          voiceActivitySegments ?? [],
+          durationSeconds,
+        );
+
         // Whisper returns words as one flat, per-chunk array rather than
         // nested per segment - bucket each word into the segment whose
         // [start, end) it falls in so render-clip's karaoke caption preset
@@ -358,7 +407,13 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           }),
           prisma.video.update({
             where: { id: videoId },
-            data: { status: VideoStatus.TRANSCRIBED, transcribeProgress: null },
+            data: {
+              status: VideoStatus.TRANSCRIBED,
+              transcribeProgress: null,
+              voiceActivitySegments: voiceActivitySegments ?? Prisma.JsonNull,
+              voiceActivityFeatures,
+              diarizationFeatures: diarizationFeatures ?? Prisma.JsonNull,
+            },
           }),
           prisma.videoStatusEvent.create({
             data: { videoId, toStatus: VideoStatus.TRANSCRIBED, errorMessage: null },

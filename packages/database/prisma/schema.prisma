@@ -162,6 +162,33 @@ model Video {
   // available PremiumCredit to have been consumed by this video first (see
   // premiumCredit below); GROQ needs no payment at all.
   transcriptionProvider TranscriptionProvider @default(GROQ)
+  // Speaker Intelligence roadmap, Milestone A (Voice Activity Detection) -
+  // the FIRST whole-video intelligence signal stored as its own JSON blob
+  // on Video, rather than distributed onto per-TranscriptSegment columns
+  // (unlike diarization/vocal-emotion/loudness, which map cleanly onto
+  // Whisper's own segment boundaries - see docs/ai/audio.md). VAD's
+  // classified timeline (silence/speech/non_speech intervals) does NOT
+  // align to segment boundaries - a silence can span multiple segments or
+  // fall entirely between them - so it needs its own continuous timeline,
+  // same "raw + features" pair convention as Clip's other AI-signal columns
+  // (see database.md), just scoped to Video instead of Clip since VAD runs
+  // once per video (same scope as diarizeSpeakers), not once per rendered
+  // clip. Both null until detectVoiceActivity has run for this video, or
+  // when it fails (never fails the transcribe job - same "optional signal"
+  // fallback as diarization/vocal-emotion above).
+  voiceActivitySegments Json?
+  voiceActivityFeatures Json?
+  // Speaker Intelligence roadmap, Milestone B (Turn/Silence/Overlap
+  // Detection) - @speedora/speaker-diarization's deriveDiarizationFeatures()
+  // output (speakerCount, per-turn segments, per-speaker total duration,
+  // turnCount/switchCount, overlappingSpeech, silences), computed once per
+  // video from diarizeSpeakers()'s own raw turn list right after diarization
+  // runs (that list was previously discarded once assignSpeakerLabels
+  // mapped it onto TranscriptSegment rows - see docs/ai/audio.md). Null
+  // when diarization itself never produced any turns (no
+  // HUGGINGFACE_TOKEN, gated-model rejection, or genuine detection
+  // failure) - same "optional signal" fallback as voiceActivitySegments.
+  diarizationFeatures   Json?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
@@ -184,17 +211,17 @@ model Video {
 // recordVideoStatusEvent() helpers - see CLAUDE.md's Fase 3 section and
 // ARCHITECTURE.md.
 model VideoStatusEvent {
-  id        String      @id @default(cuid())
-  videoId   String
-  video     Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
-  toStatus  VideoStatus
+  id           String      @id @default(cuid())
+  videoId      String
+  video        Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  toStatus     VideoStatus
   // Only set when toStatus is FAILED - the caught error's message, so a
   // failure can be diagnosed from a DB query alone without needing Sentry
   // access. Message text only (never the full error object/stack), same
   // "tags only" discipline already used at these call sites'
   // Sentry.captureException calls.
   errorMessage String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime    @default(now())
 
   @@index([videoId, createdAt])
 }
@@ -203,27 +230,27 @@ model VideoStatusEvent {
 // A clip's transcript is derived by querying segments within its time range,
 // rather than duplicating segment data per clip.
 model TranscriptSegment {
-  id        String   @id @default(cuid())
-  videoId   String
-  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
-  start     Float
-  end       Float
-  text      String
-  speaker   String?
+  id                         String   @id @default(cuid())
+  videoId                    String
+  video                      Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  start                      Float
+  end                        Float
+  text                       String
+  speaker                    String?
   // Top-1 label from a vocal (audio-based) emotion classifier - one of
   // "neu"/"hap"/"ang"/"sad" (superb/wav2vec2-base-superb-er's IEMOCAP
   // taxonomy - see CLAUDE.md's "Vocal Emotion Detection" section for why
   // this is a deliberately narrow, explicitly-heuristic signal, not a
   // trained/calibrated prediction). Null for segments too short to classify
   // meaningfully, or when detection wasn't run/failed for this video.
-  emotion   String?
+  emotion                    String?
   // Array of {word, start, end} (absolute seconds, same clock as start/end
   // above) from Whisper's word-level timestamp_granularities - null for
   // segments transcribed before this field existed (Fase 3 pasca-MVP; not
   // backfilled, see CLAUDE.md). A null/empty value here just means the
   // karaoke caption preset can't sync to this segment - render-clip falls
   // back to plain text for it rather than failing.
-  words     Json?
+  words                      Json?
   // Fase 25 (Audio Intelligence, Phase A of the AI Fusion roadmap) - mean
   // RMS/peak level in dB over this segment's own audio slice (see
   // @speedora/audio-intelligence's analyzeAudioLoudness), computed via
@@ -234,14 +261,14 @@ model TranscriptSegment {
   // values are NOT calibrated/comparable across different source
   // recordings - only meaningful relative to other segments of the SAME
   // video.
-  rmsDb     Float?
-  peakDb    Float?
+  rmsDb                      Float?
+  peakDb                     Float?
   // Words per second within this segment - pure math from Whisper's own
   // segment boundaries + word count, no audio analysis involved at all
   // (see @speedora/audio-intelligence's computeSpeakingRate). Null only
   // when this segment has no word-level data (see `words` above).
   speakingRateWordsPerSecond Float?
-  createdAt DateTime @default(now())
+  createdAt                  DateTime @default(now())
 
   @@index([videoId])
 }
@@ -249,14 +276,14 @@ model TranscriptSegment {
 // One row per candidate produced by the detect-clips job; outputUrl is set
 // once the render-clip job finishes.
 model Clip {
-  id            String       @id @default(cuid())
-  videoId       String
-  video         Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
-  startTime     Float
-  endTime       Float
-  viralityScore Float
-  outputUrl     String?
-  captionStyle  CaptionStyle @default(DEFAULT)
+  id                      String       @id @default(cuid())
+  videoId                 String
+  video                   Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  startTime               Float
+  endTime                 Float
+  viralityScore           Float
+  outputUrl               String?
+  captionStyle            CaptionStyle @default(DEFAULT)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the
@@ -264,8 +291,8 @@ model Clip {
   // nothing without failing the whole job - see detectCandidates() in
   // detect-clips.worker.ts); hashtags defaults to an empty array rather
   // than nullable so callers never have to null-check it.
-  hookText      String?
-  hashtags      String[]     @default([])
+  hookText                String?
+  hashtags                String[]     @default([])
   // Fase 8 (Content Intelligence) - same detect-clips LLM call as
   // viralityScore/hookText/hashtags above, extended with a multi-metric
   // breakdown and explainable-AI reasoning instead of one opaque number.
@@ -274,35 +301,35 @@ model Clip {
   // addition doesn't need its own migration. Shape: { hookStrength,
   // educationalValue, curiosity, emotion, storytelling, novelty,
   // trustAuthority }, each 0-100 - see packages/shared's ClipScores.
-  scores        Json?
+  scores                  Json?
   // 1-2 sentence explanation of why this clip was picked - the
   // "explainable AI" requirement: a user should never have to take
   // viralityScore on faith.
-  reason        String?
-  topics        String[]     @default([])
-  keywords      String[]     @default([])
+  reason                  String?
+  topics                  String[]     @default([])
+  keywords                String[]     @default([])
   // e.g. "educate" | "entertain" | "persuade" | "inspire" | "story" | "other" -
   // free-form string, not a Postgres enum, since this is an LLM-classified
   // label (see CaptionStyle vs. this: CaptionStyle is a fixed, code-driven
   // set of render presets, this is open-ended content classification that
   // may need new values without a schema migration).
-  intent        String?
+  intent                  String?
   // Call-to-action text detected in the clip, if any (e.g. "follow for
   // part 2", "link in bio") - null/empty when the clip has none.
-  ctaText       String?
+  ctaText                 String?
   // Fase 23 (DB+JSON-contract roadmap, Fase 4 - new feature built purely via
   // the checklist) - deterministic keyword-pattern suggestions (see
   // @speedora/emoji-suggester), computed from this clip's own transcript
   // text at detect-clips time. Purely metadata (like hookText/hashtags),
   // never burned into the rendered video - defaults to an empty array
   // rather than nullable so callers never have to null-check it.
-  emojiSuggestions String[] @default([])
+  emojiSuggestions        String[]     @default([])
   // Fase 26 (Scene Intelligence, AI Fusion roadmap Phase B) - clip-relative
   // (0 = clip start) timestamps of detected hard shot/scene cuts within
   // this clip, from @speedora/scene-intelligence's ffmpeg-based detector.
   // Empty array (not null) when analysis found no cuts or failed to run -
   // same "always an array" convention as topics/keywords/emojiSuggestions.
-  sceneCuts     Float[]      @default([])
+  sceneCuts               Float[]      @default([])
   // Batch SC-1 (Scene Intelligence taxonomy expansion, on top of Fase 26) -
   // one JSON array of @speedora/scene-intelligence's classifySceneCutTypes()
   // output ({t, type: 'hard_cut'|'fade'|'dissolve'}[], clip-relative
@@ -311,7 +338,7 @@ model Clip {
   // empty array) when classification wasn't run or failed entirely for the
   // clip, distinct from an empty array (no cuts to classify at all) - same
   // convention as facialEmotions below.
-  sceneCutEvents Json?
+  sceneCutEvents          Json?
   // Batch SC-2 (Scene Intelligence taxonomy expansion, continuing Batch
   // SC-1) - one JSON array of @speedora/scene-intelligence's
   // analyzeMotionEnergy() output ({t, motionEnergy}[], clip-relative
@@ -321,14 +348,14 @@ model Clip {
   // pair, not a bare number. Defaults to an empty JSON array (never null) -
   // analyzeMotionEnergy() itself never fails the job, same "always an
   // array" convention as sceneCuts.
-  motionEnergy         Json         @default("[]")
+  motionEnergy            Json         @default("[]")
   // Batch SC-2 - derived summary (see audioFeatures/sceneFeatures below) -
   // always computed (deriveMotionEnergyFeatures() never returns null, only
   // all-null fields for an empty `motionEnergy`), same "always populated"
   // convention as sceneFeatures/audioFeatures despite the nullable column
   // type (Prisma Json columns are declared nullable here purely so the
   // adapter isn't forced to fabricate a value before the first render).
-  motionEnergyFeatures Json?
+  motionEnergyFeatures    Json?
   // Batch SC-3 (Scene Intelligence taxonomy expansion, continuing Batch
   // SC-1/SC-2) - one JSON array of @speedora/scene-intelligence's
   // detectCameraMotion() output ({t, dx, dy, scale, rotation, ecc}[],
@@ -339,11 +366,11 @@ model Clip {
   // below (distinct from sceneCuts/motionEnergy's "always an array"
   // convention, which only applies to ffmpeg-based detectors that catch
   // their own failures).
-  cameraMotion Json?
+  cameraMotion            Json?
   // Batch SC-3 - derived summary (see motionEnergyFeatures above) - null
   // exactly when `cameraMotion` above is null, same convention as
   // facialFeatures/gestureFeatures.
-  cameraMotionFeatures Json?
+  cameraMotionFeatures    Json?
   // Taxonomy category F (Editing Rhythm, requested by user after Batch
   // SC-3) - @speedora/editing-rhythm's deriveEditingRhythmFeatures()
   // output (tempoScore/pacingScore/accelerationScore). NO separate "raw"
@@ -355,7 +382,7 @@ model Clip {
   // when render-clip runs (never null in practice), same "always populated
   // despite a nullable column type" convention as sceneFeatures/
   // audioFeatures above.
-  editingRhythmFeatures Json?
+  editingRhythmFeatures   Json?
   // Fase 27 (Facial Intelligence, AI Fusion roadmap Phase C) - one JSON
   // array of @speedora/facial-intelligence's per-sample output ({t, emotion,
   // score}[], clip-relative seconds), same "one JSON blob, not a column per
@@ -363,7 +390,7 @@ model Clip {
   // Null (not an empty array) when the analysis wasn't run or failed
   // entirely for the clip - distinct from a sample within the array having
   // emotion/score null (no face found in that one sampled frame).
-  facialEmotions Json?
+  facialEmotions          Json?
   // Fase 28 (Mini Fusion Engine v1 prep, AI Fusion roadmap Checkpoint 1) -
   // dense derived summaries per signal (see packages/contracts/src/
   // intelligence-signal.ts's raw/features convention and each module's own
@@ -374,9 +401,9 @@ model Clip {
   // Null when the underlying raw signal itself is empty/unavailable for
   // this clip (nothing to derive a summary from), not a fabricated
   // all-zero object.
-  audioFeatures  Json?
-  sceneFeatures  Json?
-  facialFeatures Json?
+  audioFeatures           Json?
+  sceneFeatures           Json?
+  facialFeatures          Json?
   // Fase 29/31 (Mini Fusion Engine v1 -> v2, AI Fusion roadmap - extends
   // Checkpoint 1/2) - @speedora/fusion-engine's computeHighlightScore()
   // output, computed from whichever of audioFeatures/sceneFeatures/
@@ -395,17 +422,17 @@ model Clip {
   // "explainable AI" requirement as Fase 8's `reason`. All four are always
   // populated once computeHighlightScore runs, even when highlightScore
   // itself ends up null.
-  highlightScore         Float?
-  highlightBreakdown     Json?
+  highlightScore          Float?
+  highlightBreakdown      Json?
   highlightExplainability Json?
-  highlightConfidence    Float?
-  highlightReason        String?
+  highlightConfidence     Float?
+  highlightReason         String?
   // Rank among sibling clips of the same video by highlightScore, computed
   // once by @speedora/fusion-engine's rankClips() after every clip in the
   // video has finished rendering (see render-clip.worker.ts) - null until
   // then, and for videos with only one clip this is still populated (rank
   // 1) once that one clip is done, for consistency.
-  highlightRank          Int?
+  highlightRank           Int?
   // Fase 30 (Gesture Intelligence, AI Fusion roadmap Checkpoint 2) - same
   // raw/features split as Scene/Facial Intelligence (Fase 26/28):
   // @speedora/gesture-intelligence's per-sample output ({t, gesture,
@@ -413,8 +440,8 @@ model Clip {
   // ({dominantGesture, gestureTransitions, peakConfidence, stability}).
   // gestures null (not []) when the whole analysis failed to run;
   // gestureFeatures null exactly when gestures is null.
-  gestures        Json?
-  gestureFeatures Json?
+  gestures                Json?
+  gestureFeatures         Json?
   // Fase 32 (Mini Fusion Engine v2's 'llm' signal + Prediction/
   // Recommendation stages) - llmFeatures is the SAME object as `scores`
   // above (Fase 8's ClipScores), just snapshotted at render-clip time as
@@ -440,8 +467,8 @@ model Clip {
   // expression classification vs. landmark geometry). faceLandmarks null
   // (not []) when the whole analysis failed to run; faceLandmarkFeatures
   // null exactly when faceLandmarks is null.
-  faceLandmarks         Json?
-  faceLandmarkFeatures  Json?
+  faceLandmarks           Json?
+  faceLandmarkFeatures    Json?
   // AI Fusion roadmap's Face Intelligence initiative, Batch 4.5 (Quality
   // Metrics & Telemetry) - explicitly NOT a scoring signal (user's own
   // framing: "bukan menambah AI baru"). Purely explainability/audit
@@ -451,7 +478,28 @@ model Clip {
   // deriveTrackingQualityMetrics). Not consumed by @speedora/fusion-engine
   // at all, unlike every other *Features column above. Null when
   // faceLandmarks itself is null (nothing to derive telemetry from).
-  trackingQualityMetrics Json?
+  trackingQualityMetrics  Json?
+  // Speaker Intelligence roadmap, Milestone A - Active Speaker Detection,
+  // Speaker-Face Association, Lip Sync Verification
+  // (@speedora/active-speaker-intelligence). All three are pure
+  // aggregations over faceLandmarks + this clip's own transcript segments'
+  // audio timing (no new subprocess) - see docs/ai/speaker-intelligence.md.
+  // Not yet consumed by @speedora/fusion-engine (same "collect first,
+  // calibrate later" treatment editingRhythm/gesture/faceGeometry got
+  // before they were wired in - see ai/fusion.md). Null when faceLandmarks
+  // itself is null (nothing to derive these from).
+  activeSpeakerSamples    Json?
+  speakerFaceAssociations Json?
+  lipSyncVerifications    Json?
+  // Speaker Intelligence roadmap, Milestone B - @speedora/speaker-diarization's
+  // buildSpeakerTimeline()/detectSpeakerTransitions() output, fusing this
+  // clip's own transcript-derived speaker turns with the Milestone A
+  // signals just above (speakerFaceAssociations/activeSpeakerSamples) into
+  // one unified per-clip timeline. Null when there are no speaker turns
+  // covering this clip's time range at all (diarization never ran/found
+  // nothing here) - not a fabricated empty timeline.
+  speakerTimeline         Json?
+  speakerTimelineFeatures Json?
   // AI Fusion roadmap's OCR initiative, Batch OCR-1 - @speedora/ocr-
   // intelligence's detectOcrText() per-sample output (Tesseract: text +
   // bounding box + confidence per detected on-screen text region, per
@@ -461,7 +509,7 @@ model Clip {
   // what a derived-features summary would even mean here, so it's added
   // in that batch instead of as a premature placeholder now. Null (not
   // []) when the whole analysis failed to run.
-  ocrText Json?
+  ocrText                 Json?
   // AI Fusion roadmap's OCR initiative, Batch OCR-2 - the "store
   // everything" layer between raw (ocrText) and aggregate (ocrFeatures):
   // @speedora/ocr-intelligence's trackOcrText()+classifyOcrTrack() output,
@@ -474,10 +522,10 @@ model Clip {
   // ocrTracks, same "raw/features" relationship as every other module's
   // pair, with this extra middle layer specific to OCR's multi-region-
   // per-frame shape). Both null exactly when ocrText is null.
-  ocrTracks   Json?
-  ocrFeatures Json?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  ocrTracks               Json?
+  ocrFeatures             Json?
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
 
   publishRecords PublishRecord[]
 

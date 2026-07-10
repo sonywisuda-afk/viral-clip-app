@@ -16,6 +16,7 @@ import { toSharedPublishRecord } from '../social/publish-record.util';
 import { SocialAccountsService } from '../social/social.service';
 import { StorageService } from '../storage/storage.service';
 import {
+  toSharedActiveSpeakerSamples,
   toSharedAudioFeatures,
   toSharedCaptionStyle,
   toSharedClipScores,
@@ -35,11 +36,15 @@ import {
   toSharedCameraMotion,
   toSharedCameraMotionFeatures,
   toSharedEditingRhythmFeatures,
+  toSharedLipSyncVerifications,
   toSharedMotionEnergy,
   toSharedMotionEnergyFeatures,
   toSharedOcrTracks,
   toSharedSceneCutEvents,
   toSharedSceneFeatures,
+  toSharedSpeakerFaceAssociations,
+  toSharedSpeakerTimeline,
+  toSharedSpeakerTimelineFeatures,
   toSharedTrackingQualityMetrics,
   toSharedTranscriptSegment,
 } from '../videos/transcript-segment.util';
@@ -302,6 +307,11 @@ export class ClipsService {
     faceLandmarks: unknown;
     faceLandmarkFeatures: unknown;
     trackingQualityMetrics: unknown;
+    activeSpeakerSamples: unknown;
+    speakerFaceAssociations: unknown;
+    lipSyncVerifications: unknown;
+    speakerTimeline: unknown;
+    speakerTimelineFeatures: unknown;
     ocrText: unknown;
     ocrTracks: unknown;
     ocrFeatures: unknown;
@@ -349,6 +359,11 @@ export class ClipsService {
       faceLandmarks: toSharedFaceLandmarks(clip.faceLandmarks),
       faceLandmarkFeatures: toSharedFaceLandmarkFeatures(clip.faceLandmarkFeatures),
       trackingQualityMetrics: toSharedTrackingQualityMetrics(clip.trackingQualityMetrics),
+      activeSpeakerSamples: toSharedActiveSpeakerSamples(clip.activeSpeakerSamples),
+      speakerFaceAssociations: toSharedSpeakerFaceAssociations(clip.speakerFaceAssociations),
+      lipSyncVerifications: toSharedLipSyncVerifications(clip.lipSyncVerifications),
+      speakerTimeline: toSharedSpeakerTimeline(clip.speakerTimeline),
+      speakerTimelineFeatures: toSharedSpeakerTimelineFeatures(clip.speakerTimelineFeatures),
       ocrText: toSharedOcrText(clip.ocrText),
       ocrTracks: toSharedOcrTracks(clip.ocrTracks),
       ocrFeatures: toSharedOcrFeatures(clip.ocrFeatures),

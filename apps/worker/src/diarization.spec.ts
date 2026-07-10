@@ -12,7 +12,7 @@ jest.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => (execFileMock as unknown as (...a: unknown[]) => void)(...args),
 }));
 
-import { assignSpeakerLabels, diarizeSpeakers } from './diarization';
+import { assignSpeakerLabels, diarizeSpeakers, toFriendlySpeakerTurns } from './diarization';
 
 describe('diarizeSpeakers', () => {
   beforeEach(() => {
@@ -104,5 +104,46 @@ describe('assignSpeakerLabels', () => {
     ];
 
     expect(assignSpeakerLabels(segments, [])).toEqual([undefined, undefined]);
+  });
+});
+
+describe('toFriendlySpeakerTurns', () => {
+  it('relabels raw turns with the SAME friendly labels assignSpeakerLabels would assign', () => {
+    const segments = [
+      { start: 0, end: 2 },
+      { start: 2, end: 4 },
+      { start: 4, end: 6 },
+    ];
+    const turns = [
+      { start: 0, end: 2, speaker: 'SPEAKER_01' },
+      { start: 2, end: 4, speaker: 'SPEAKER_00' },
+      { start: 4, end: 6, speaker: 'SPEAKER_01' },
+    ];
+
+    expect(toFriendlySpeakerTurns(segments, turns)).toEqual([
+      { start: 0, end: 2, speaker: 'Speaker A' },
+      { start: 2, end: 4, speaker: 'Speaker B' },
+      { start: 4, end: 6, speaker: 'Speaker A' },
+    ]);
+  });
+
+  it('drops a raw turn that no segment ever picked as its best-overlap speaker', () => {
+    // SPEAKER_00 briefly overlaps the segment but loses to SPEAKER_01's
+    // larger overlap - assignSpeakerLabels never surfaces SPEAKER_00 at
+    // all, so toFriendlySpeakerTurns must not invent a label for its turn
+    // either (nothing in the persisted transcript would ever show it).
+    const segments = [{ start: 0, end: 10 }];
+    const turns = [
+      { start: 0, end: 3, speaker: 'SPEAKER_00' },
+      { start: 3, end: 10, speaker: 'SPEAKER_01' },
+    ];
+
+    expect(toFriendlySpeakerTurns(segments, turns)).toEqual([
+      { start: 3, end: 10, speaker: 'Speaker A' },
+    ]);
+  });
+
+  it('returns an empty array when diarization found no turns at all', () => {
+    expect(toFriendlySpeakerTurns([{ start: 0, end: 5 }], [])).toEqual([]);
   });
 });

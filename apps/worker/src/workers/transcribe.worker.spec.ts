@@ -1,4 +1,4 @@
-import { VideoStatus } from '@speedora/database';
+import { Prisma, VideoStatus } from '@speedora/database';
 import { QueueName, TranscriptionProvider } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
@@ -42,9 +42,11 @@ jest.mock('../ffmpeg', () => ({
 
 const diarizeSpeakersMock = jest.fn();
 const assignSpeakerLabelsMock = jest.fn();
+const toFriendlySpeakerTurnsMock = jest.fn();
 jest.mock('../diarization', () => ({
   diarizeSpeakers: (...args: unknown[]) => diarizeSpeakersMock(...args),
   assignSpeakerLabels: (...args: unknown[]) => assignSpeakerLabelsMock(...args),
+  toFriendlySpeakerTurns: (...args: unknown[]) => toFriendlySpeakerTurnsMock(...args),
 }));
 
 const detectVocalEmotionsMock = jest.fn();
@@ -52,15 +54,20 @@ jest.mock('../vocalEmotion', () => ({
   detectVocalEmotions: (...args: unknown[]) => detectVocalEmotionsMock(...args),
 }));
 
-// Only analyzeAudioLoudness (the ffmpeg-subprocess half) is mocked -
-// computeSpeakingRate is pure/deterministic and runs for real, same
-// precedent as render-clip.worker.spec.ts leaving @speedora/cutlist's pure
-// functions unmocked to verify real integration math.
+// Only analyzeAudioLoudness/detectVoiceActivity (the subprocess-backed
+// halves) are mocked - computeSpeakingRate/deriveVoiceActivityFeatures are
+// pure/deterministic and run for real, same precedent as
+// render-clip.worker.spec.ts leaving @speedora/cutlist's pure functions
+// unmocked to verify real integration math.
 const analyzeAudioLoudnessMock = jest.fn();
+const detectVoiceActivityMock = jest.fn().mockResolvedValue([]);
 jest.mock('@speedora/audio-intelligence', () => ({
   ...jest.requireActual('@speedora/audio-intelligence'),
   analyzeAudioLoudness: (...args: unknown[]) => analyzeAudioLoudnessMock(...args),
+  detectVoiceActivity: (...args: unknown[]) => detectVoiceActivityMock(...args),
 }));
+
+jest.mock('../voiceActivityDeps', () => ({ voiceActivityDeps: {} }));
 
 const createReadStreamMock = jest.fn((p: string) => ({ readStreamFor: p }));
 jest.mock('node:fs', () => ({
@@ -147,6 +154,7 @@ describe('transcribe worker', () => {
     // exercise the diarization-succeeds path.
     diarizeSpeakersMock.mockResolvedValue([]);
     assignSpeakerLabelsMock.mockReturnValue([]);
+    toFriendlySpeakerTurnsMock.mockReturnValue([]);
     // No emotion labels by default - individual tests override this to
     // exercise the emotion-detection-succeeds path.
     detectVocalEmotionsMock.mockResolvedValue([]);
@@ -232,7 +240,18 @@ describe('transcribe worker', () => {
     });
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
-      data: { status: VideoStatus.TRANSCRIBED, transcribeProgress: null },
+      data: {
+        status: VideoStatus.TRANSCRIBED,
+        transcribeProgress: null,
+        voiceActivitySegments: [],
+        voiceActivityFeatures: {
+          speechRatio: null,
+          silenceRatio: null,
+          silenceSegmentCount: null,
+          longestSilenceSeconds: null,
+        },
+        diarizationFeatures: Prisma.JsonNull,
+      },
     });
     expect(detectClipsQueueAdd).toHaveBeenCalledWith(QueueName.DETECT_CLIPS, {
       videoId: 'video-1',
@@ -573,7 +592,18 @@ describe('transcribe worker', () => {
     expect(groqTranscriptionsCreateMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
-      data: { status: VideoStatus.TRANSCRIBED, transcribeProgress: null },
+      data: {
+        status: VideoStatus.TRANSCRIBED,
+        transcribeProgress: null,
+        voiceActivitySegments: [],
+        voiceActivityFeatures: {
+          speechRatio: null,
+          silenceRatio: null,
+          silenceSegmentCount: null,
+          longestSilenceSeconds: null,
+        },
+        diarizationFeatures: Prisma.JsonNull,
+      },
     });
   });
 

@@ -5,6 +5,7 @@ import {
   updateVideoStatus,
   VideoStatus,
   type Prisma,
+  type Video,
 } from '@speedora/database';
 import {
   filterSegmentsForClip,
@@ -21,6 +22,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
 import {
+  toSharedActiveSpeakerSamples,
   toSharedAudioFeatures,
   toSharedCaptionStyle,
   toSharedClipScores,
@@ -34,20 +36,27 @@ import {
   toSharedHighlightExplainability,
   toSharedHighlightPrediction,
   toSharedHighlightRecommendation,
+  toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
   toSharedCameraMotion,
   toSharedCameraMotionFeatures,
+  toSharedDiarizationFeatures,
   toSharedEditingRhythmFeatures,
   toSharedMotionEnergy,
   toSharedMotionEnergyFeatures,
   toSharedOcrTracks,
   toSharedSceneCutEvents,
   toSharedSceneFeatures,
+  toSharedSpeakerFaceAssociations,
+  toSharedSpeakerTimeline,
+  toSharedSpeakerTimelineFeatures,
   toSharedTrackingQualityMetrics,
   toSharedTranscriptionProvider,
   toSharedTranscriptSegment,
+  toSharedVoiceActivityFeatures,
+  toSharedVoiceActivitySegments,
 } from './transcript-segment.util';
 
 const NO_PREMIUM_CREDIT_MESSAGE =
@@ -76,7 +85,20 @@ export class VideosService {
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
   ) {}
 
-  async upload(ownerId: string, file: Express.Multer.File, provider: TranscriptionProvider) {
+  // Explicit Promise<Video> return type (rather than inferred) - Video now
+  // has a Json? column (voiceActivitySegments, Speaker Intelligence
+  // roadmap Milestone A), and an un-annotated inferred return type here
+  // pulls Prisma's opaque internal Json runtime type into this method's
+  // declaration emit, breaking `nest build` (TS2742) - same root cause as
+  // the Clip Json-field leaks documented in prisma.md, just surfacing here
+  // as "annotate the return type" instead of "destructure out of a spread"
+  // since this method returns a bare tx.video.create() result, not a
+  // spread object.
+  async upload(
+    ownerId: string,
+    file: Express.Multer.File,
+    provider: TranscriptionProvider,
+  ): Promise<Video> {
     // Cheap check before ever touching storage - fails fast rather than
     // wasting a (potentially large) upload on a request that's going to be
     // rejected anyway. The real, race-safe guarantee is consumeCredit()'s
@@ -123,7 +145,12 @@ export class VideosService {
   // synchronously" split as every other stage (see CLAUDE.md's Keputusan
   // Arsitektur). sourceUrl starts as '' (see schema.prisma's comment on
   // Video.sourceUrl) since there's no object storage key yet.
-  async importFromYoutube(ownerId: string, url: string, provider: TranscriptionProvider) {
+  // Same TS2742 reasoning as upload()'s own comment above.
+  async importFromYoutube(
+    ownerId: string,
+    url: string,
+    provider: TranscriptionProvider,
+  ): Promise<Video> {
     if (provider === TranscriptionProvider.OPENAI) {
       const { available } = await this.payments.getAvailability(ownerId);
       if (!available) {
@@ -364,9 +391,22 @@ export class VideosService {
   // Don't leak the server's local filesystem path; the client should hit
   // the download endpoint instead.
   private mapVideoWithClips(video: VideoWithClips) {
-    const { clips, ...rest } = video;
+    const {
+      clips,
+      voiceActivitySegments,
+      voiceActivityFeatures,
+      diarizationFeatures,
+      ...rest
+    } = video;
     return {
       ...rest,
+      // Narrowed explicitly, same "un-narrowed Json field breaks
+      // declaration emit up the call chain" reasoning as every clip.*
+      // field below (Speaker Intelligence roadmap, Milestone A/B - these
+      // are the Video-level, not Clip-level, signals).
+      voiceActivitySegments: toSharedVoiceActivitySegments(voiceActivitySegments),
+      voiceActivityFeatures: toSharedVoiceActivityFeatures(voiceActivityFeatures),
+      diarizationFeatures: toSharedDiarizationFeatures(diarizationFeatures),
       clips: clips.map(
         ({
           outputUrl,
@@ -387,6 +427,11 @@ export class VideosService {
           faceLandmarks,
           faceLandmarkFeatures,
           trackingQualityMetrics,
+          activeSpeakerSamples,
+          speakerFaceAssociations,
+          lipSyncVerifications,
+          speakerTimeline,
+          speakerTimelineFeatures,
           ocrText,
           ocrTracks,
           ocrFeatures,
@@ -420,6 +465,11 @@ export class VideosService {
           faceLandmarks: toSharedFaceLandmarks(faceLandmarks),
           faceLandmarkFeatures: toSharedFaceLandmarkFeatures(faceLandmarkFeatures),
           trackingQualityMetrics: toSharedTrackingQualityMetrics(trackingQualityMetrics),
+          activeSpeakerSamples: toSharedActiveSpeakerSamples(activeSpeakerSamples),
+          speakerFaceAssociations: toSharedSpeakerFaceAssociations(speakerFaceAssociations),
+          lipSyncVerifications: toSharedLipSyncVerifications(lipSyncVerifications),
+          speakerTimeline: toSharedSpeakerTimeline(speakerTimeline),
+          speakerTimelineFeatures: toSharedSpeakerTimelineFeatures(speakerTimelineFeatures),
           ocrText: toSharedOcrText(ocrText),
           ocrTracks: toSharedOcrTracks(ocrTracks),
           ocrFeatures: toSharedOcrFeatures(ocrFeatures),

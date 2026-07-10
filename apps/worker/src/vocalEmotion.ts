@@ -2,21 +2,19 @@ import { execFile } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
+import {
+  detectVocalEmotionsOutputSchema,
+  type EmotionSegment,
+  type VocalEmotionResult,
+} from '@speedora/contracts';
 import { cleanupTempFile, reserveScratchPath } from './storage';
 
 const execFileAsync = promisify(execFile);
 const PYTHON_PATH = process.env.PYTHON_PATH ?? 'python3';
 const SCRIPT_PATH = path.join(__dirname, '../scripts/detect_vocal_emotion.py');
 
-export interface EmotionSegment {
-  start: number;
-  end: number;
-}
-
-export interface EmotionResult {
-  emotion: string;
-  score: number;
-}
+export type { EmotionSegment };
+export type EmotionResult = NonNullable<VocalEmotionResult>;
 
 // Shells out to scripts/detect_vocal_emotion.py exactly like
 // diarization.ts/faceDetection.ts shell out to their own scripts -
@@ -44,7 +42,7 @@ export async function detectVocalEmotions(
   try {
     await writeFile(segmentsPath, JSON.stringify(segments));
     const { stdout } = await execFileAsync(PYTHON_PATH, [SCRIPT_PATH, audioPath, segmentsPath]);
-    return JSON.parse(stdout) as Array<EmotionResult | null>;
+    return detectVocalEmotionsOutputSchema.parse(JSON.parse(stdout));
   } finally {
     await cleanupTempFile(segmentsPath);
   }

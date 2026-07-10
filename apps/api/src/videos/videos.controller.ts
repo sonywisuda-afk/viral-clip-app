@@ -14,6 +14,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Video } from '@speedora/database';
 import { TranscriptionProvider } from '@speedora/shared';
 import { getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
@@ -42,7 +43,7 @@ export class VideosController {
     )
     file: Express.Multer.File,
     @Body() dto: UploadVideoDto,
-  ) {
+  ): Promise<Video> {
     return this.videosService.upload(
       user.id,
       file,
@@ -56,7 +57,7 @@ export class VideosController {
   // Video immediately with status IMPORTING, same "poll GET /videos/:id"
   // contract the frontend already uses for every other stage.
   @Post('import-youtube')
-  importYoutube(@CurrentUser() user: SafeUser, @Body() dto: ImportYoutubeDto) {
+  importYoutube(@CurrentUser() user: SafeUser, @Body() dto: ImportYoutubeDto): Promise<Video> {
     return this.videosService.importFromYoutube(
       user.id,
       dto.url,

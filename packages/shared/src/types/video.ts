@@ -218,6 +218,35 @@ export interface EditingRhythmFeatures {
   accelerationScore: number | null;
 }
 
+// Speaker Intelligence roadmap, Milestone A (Voice Activity Detection) -
+// mirrors @speedora/contracts' VoiceActivitySegment/VoiceActivityFeatures
+// shapes rather than importing them, same duplication precedent as
+// CameraMotionSample/EditingRhythmFeatures above. Stored on Video (not
+// Clip) - see schema.prisma's Video.voiceActivitySegments comment for why.
+export const VOICE_ACTIVITY_CATEGORIES = [
+  'speech',
+  'non_speech',
+  'silence',
+  'noise',
+  'music',
+  'crowd',
+] as const;
+export type VoiceActivityCategory = (typeof VOICE_ACTIVITY_CATEGORIES)[number];
+
+export interface VoiceActivitySegment {
+  start: number;
+  end: number;
+  category: VoiceActivityCategory;
+  confidence: number | null;
+}
+
+export interface VoiceActivityFeatures {
+  speechRatio: number | null;
+  silenceRatio: number | null;
+  silenceSegmentCount: number | null;
+  longestSilenceSeconds: number | null;
+}
+
 export interface FacialEmotionFeatures {
   dominantEmotion: string | null;
   emotionTransitions: number;
@@ -489,6 +518,84 @@ export interface FaceTrackingQualityMetrics {
   kalmanCorrectionRatio: number | null;
   trackingConfidence: number | null;
   tracks: TrackSegmentQuality[];
+}
+
+// Speaker Intelligence roadmap, Milestone A - mirrors
+// @speedora/contracts' active-speaker.ts shapes rather than importing them,
+// same duplication precedent as FaceLandmarkSample/Features above.
+export interface ActiveSpeakerSample {
+  t: number;
+  activeTrackId: number | null;
+  confidence: number | null;
+}
+
+export type SpeakerFaceMatchStatus = 'matched' | 'unknown';
+
+export interface SpeakerFaceAssociation {
+  speaker: string;
+  faceTrackId: number | null;
+  status: SpeakerFaceMatchStatus;
+  confidence: number;
+}
+
+export interface LipSyncVerification {
+  faceTrackId: number;
+  lipMotionScore: number | null;
+  audioSyncScore: number | null;
+  delayMs: number | null;
+  frameOffset: number | null;
+  verified: boolean | null;
+}
+
+// Speaker Intelligence roadmap, Milestone B - mirrors
+// @speedora/contracts' speaker-diarization.ts/speaker-timeline.ts shapes
+// rather than importing them, same duplication precedent as
+// ActiveSpeakerSample above.
+export interface SpeakerSegment {
+  speaker: string;
+  start: number;
+  end: number;
+  durationSeconds: number;
+}
+
+export interface OverlappingSpeechInterval {
+  start: number;
+  end: number;
+  speakers: string[];
+}
+
+export interface SilenceInterval {
+  start: number;
+  end: number;
+}
+
+export interface DiarizationFeatures {
+  speakerCount: number;
+  segments: SpeakerSegment[];
+  speakerDurationsSeconds: Record<string, number>;
+  turnCount: number;
+  switchCount: number;
+  overlappingSpeech: OverlappingSpeechInterval[];
+  silences: SilenceInterval[];
+}
+
+export interface SpeakerTimelineEntry {
+  speaker: string;
+  start: number;
+  end: number;
+  faceTrackId: number | null;
+  isActiveOnScreen: boolean | null;
+}
+
+export interface SpeakerTransition {
+  t: number;
+  fromSpeaker: string | null;
+  toSpeaker: string;
+}
+
+export interface SpeakerTimelineFeatures {
+  transitions: SpeakerTransition[];
+  transitionCount: number;
 }
 
 // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's

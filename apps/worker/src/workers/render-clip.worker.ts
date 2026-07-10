@@ -3,7 +3,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
-import type { CaptionStyleValue, OcrTextTrack, SubtitleSegment } from '@speedora/contracts';
+import type {
+  CaptionStyleValue,
+  OcrTextTrack,
+  SpeakerTurn,
+  SubtitleSegment,
+} from '@speedora/contracts';
 import {
   computeFillerCuts,
   computeSilenceCuts,
@@ -11,10 +16,16 @@ import {
   totalCutSeconds,
   type CutRange,
 } from '@speedora/cutlist';
+import {
+  associateSpeakersWithFaces,
+  detectActiveSpeaker,
+  verifyLipSync,
+} from '@speedora/active-speaker-intelligence';
 import { deriveAudioFeatures } from '@speedora/audio-intelligence';
 import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
 import { deriveEditingRhythmFeatures } from '@speedora/editing-rhythm';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
+import { buildSpeakerTimeline, detectSpeakerTransitions } from '@speedora/speaker-diarization';
 import {
   QueueName,
   type RenderClipJobData,
@@ -131,6 +142,25 @@ function toAudioActivityWindows(
       start: segment.start - startTime,
       end: segment.end - startTime,
       hasAudio: segment.rmsDb! >= SILENCE_RMS_DB_THRESHOLD,
+    }));
+}
+
+// Speaker Intelligence roadmap, Milestone A - re-anchors transcript
+// segments' speaker labels onto the clip's timeline (same shift as
+// toAudioActivityWindows) into @speedora/active-speaker-intelligence's
+// SpeakerTurn[] input contract. Segments with no speaker label at all are
+// dropped, not fabricated - same "a gap in coverage stays a gap" convention
+// as toAudioActivityWindows above.
+function toSpeakerTurns(
+  transcript: RenderClipJobData['transcript'],
+  startTime: number,
+): SpeakerTurn[] {
+  return transcript
+    .filter((segment) => segment.speaker !== undefined)
+    .map((segment) => ({
+      speaker: segment.speaker!,
+      start: segment.start - startTime,
+      end: segment.end - startTime,
     }));
 }
 
@@ -563,6 +593,45 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         const trackingQualityMetrics = faceLandmarks
           ? deriveTrackingQualityMetrics(faceLandmarks)
           : null;
+        // Speaker Intelligence roadmap, Milestone A - pure aggregations
+        // over faceLandmarks + this clip's own transcript audio timing/
+        // speaker labels (no new subprocess) - null exactly when
+        // faceLandmarks is null, same convention as trackingQualityMetrics
+        // above. Not yet consumed by computeHighlightScore below, same
+        // "collected, not yet wired into Fusion" status as
+        // trackingQualityMetrics (though unlike that column, these ARE
+        // intended to eventually feed scoring - see
+        // docs/ai/speaker-intelligence.md's speakerFusionFeaturesSchema).
+        const speakerTurnsInClip = toSpeakerTurns(transcript, startTime);
+        const activeSpeakerSamples = faceLandmarks
+          ? detectActiveSpeaker(faceLandmarks, toAudioActivityWindows(transcript, startTime))
+          : null;
+        const speakerFaceAssociations = activeSpeakerSamples
+          ? associateSpeakersWithFaces(speakerTurnsInClip, activeSpeakerSamples)
+          : null;
+        const lipSyncVerifications = faceLandmarks
+          ? verifyLipSync(faceLandmarks, toAudioActivityWindows(transcript, startTime))
+          : null;
+        // Speaker Intelligence roadmap, Milestone B - fuses this clip's own
+        // speaker turns with the Milestone A signals just above into one
+        // unified timeline. Unlike activeSpeakerSamples/
+        // speakerFaceAssociations, this does NOT depend on faceLandmarks
+        // having succeeded - it degrades to faceTrackId/isActiveOnScreen
+        // all-null entries (via buildSpeakerTimeline's own null-safe
+        // lookups) rather than being null itself, since "who's talking
+        // when" is meaningful even with zero face-tracking data. Null only
+        // when there are no speaker turns covering this clip's time range
+        // at all.
+        const speakerTimeline =
+          speakerTurnsInClip.length > 0
+            ? buildSpeakerTimeline(
+                speakerTurnsInClip,
+                speakerFaceAssociations ?? [],
+                activeSpeakerSamples ?? [],
+              )
+            : null;
+        const speakerTimelineFeatures =
+          speakerTurnsInClip.length > 0 ? detectSpeakerTransitions(speakerTurnsInClip) : null;
         // OCR initiative Batch OCR-2 - cross-frame tracking + rule-based
         // classification over Batch OCR-1's own raw ocrText (see
         // @speedora/ocr-intelligence's own module comments for why this
@@ -735,6 +804,11 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             faceLandmarks: faceLandmarks ?? Prisma.JsonNull,
             faceLandmarkFeatures: faceLandmarkFeatures ?? Prisma.JsonNull,
             trackingQualityMetrics: trackingQualityMetrics ?? Prisma.JsonNull,
+            activeSpeakerSamples: activeSpeakerSamples ?? Prisma.JsonNull,
+            speakerFaceAssociations: speakerFaceAssociations ?? Prisma.JsonNull,
+            lipSyncVerifications: lipSyncVerifications ?? Prisma.JsonNull,
+            speakerTimeline: speakerTimeline ?? Prisma.JsonNull,
+            speakerTimelineFeatures: speakerTimelineFeatures ?? Prisma.JsonNull,
             ocrText: ocrText ?? Prisma.JsonNull,
             ocrTracks: ocrTracks ?? Prisma.JsonNull,
             ocrFeatures: ocrFeatures ?? Prisma.JsonNull,

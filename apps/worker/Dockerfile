@@ -75,7 +75,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # pytesseract - AI Fusion roadmap's OCR initiative, Batch OCR-1
 # (detect_ocr_text.py) - a thin subprocess wrapper around the tesseract-ocr
 # binary installed above, not an OCR engine itself.
-RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-headless yt-dlp scipy pytesseract
+# webrtcvad - Speaker Intelligence roadmap, Milestone A (Voice Activity
+# Detection, detect_voice_activity.py) - a small classic DSP/GMM-based
+# library (NOT a neural model), explicit user choice over Silero VAD
+# specifically to avoid adding torch as a dependency for this one detector.
+# Also needs soundfile (audio decoding, same as diarize_speakers.py/
+# detect_vocal_emotion.py) - NOTE: soundfile/pyannote.audio/transformers/
+# torch are NOT currently in this image's pip install at all, a pre-existing
+# gap predating this change (Speaker Diarization and Vocal Emotion Detection
+# are exercised in local dev but this Docker image has never actually
+# installed their dependencies) - not fixed here, flagged for a separate pass.
+RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-headless yt-dlp scipy pytesseract webrtcvad
 # MediaPipe's Tasks API (mediapipe.tasks.python.vision.FaceDetector) needs
 # this model file locally - it isn't bundled in the pip package, and isn't
 # committed to the repo either (see .gitignore) since it's a binary asset

@@ -274,6 +274,9 @@ importers:
       '@sentry/node':
         specifier: ^10.63.0
         version: 10.63.0(@opentelemetry/core@2.9.0(@opentelemetry/api@1.9.1))
+      '@speedora/active-speaker-intelligence':
+        specifier: workspace:*
+        version: link:../../packages/active-speaker-intelligence
       '@speedora/audio-intelligence':
         specifier: workspace:*
         version: link:../../packages/audio-intelligence
@@ -319,6 +322,9 @@ importers:
       '@speedora/social':
         specifier: workspace:*
         version: link:../../packages/social
+      '@speedora/speaker-diarization':
+        specifier: workspace:*
+        version: link:../../packages/speaker-diarization
       '@speedora/storage':
         specifier: workspace:^
         version: link:../../packages/storage
@@ -353,6 +359,28 @@ importers:
       tsx:
         specifier: ^4.10.5
         version: 4.22.4
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+  packages/active-speaker-intelligence:
+    dependencies:
+      '@speedora/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@speedora/facial-intelligence':
+        specifier: workspace:*
+        version: link:../facial-intelligence
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.2
+        version: 29.5.14
+      jest:
+        specifier: ^29.5.0
+        version: 29.7.0(@types/node@20.19.43)(ts-node@10.9.2(@types/node@20.19.43)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.1.0
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.7))(jest-util@29.7.0)(jest@29.7.0)(typescript@5.9.3)
       typescript:
         specifier: ^5.4.5
         version: 5.9.3
@@ -655,6 +683,25 @@ importers:
       '@types/node':
         specifier: ^20.12.12
         version: 20.19.43
+      jest:
+        specifier: ^29.5.0
+        version: 29.7.0(@types/node@20.19.43)(ts-node@10.9.2(@types/node@20.19.43)(typescript@5.9.3))
+      ts-jest:
+        specifier: ^29.1.0
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.7))(jest-util@29.7.0)(jest@29.7.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+  packages/speaker-diarization:
+    dependencies:
+      '@speedora/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/jest':
+        specifier: ^29.5.2
+        version: 29.5.14
       jest:
         specifier: ^29.5.0
         version: 29.7.0(@types/node@20.19.43)(ts-node@10.9.2(@types/node@20.19.43)(typescript@5.9.3))
