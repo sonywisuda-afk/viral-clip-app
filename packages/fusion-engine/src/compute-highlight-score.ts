@@ -119,6 +119,33 @@ function describeFeature(item: WeightedFeature): string {
       return `${intensity} pacing variability (stddev ${item.value.toFixed(2)} wps)`;
     case 'cutsPerMinute':
       return `${intensity} visual dynamism (${item.value.toFixed(1)} cuts/min)`;
+    case 'averageMotionEnergy':
+      return `${intensity} motion energy (avg ${item.value.toFixed(1)} YDIF)`;
+    case 'dynamicRatio':
+      return `${(item.value * 100).toFixed(0)}% of sampled frames classified as dynamic (vs. static)`;
+    case 'panScore':
+      return `${(item.value * 100).toFixed(0)}% of sampled frames showed panning camera motion`;
+    case 'tiltScore':
+      return `${(item.value * 100).toFixed(0)}% of sampled frames showed tilting camera motion`;
+    case 'zoomScore':
+      return `${(item.value * 100).toFixed(0)}% of sampled frames showed zoom motion`;
+    case 'shakeScore':
+      return `${(item.value * 100).toFixed(0)}% of sampled frame-pairs showed erratic/shaky motion`;
+    case 'dominantMotionTypeWeight':
+      return `dominant camera motion was ${item.label}`;
+    case 'tempoScore':
+      return `${intensity} overall editing tempo`;
+    case 'pacingScore':
+      return `${intensity} pacing regularity (how evenly cuts were spaced)`;
+    case 'accelerationScore': {
+      // item.value is the RAW -1..1 balance (not the normalized 0-1
+      // reading) - describe it in its own natural units.
+      if (item.value > 0.15) return 'editing activity built toward the end of the clip';
+      if (item.value < -0.15) {
+        return 'editing activity was concentrated toward the start of the clip';
+      }
+      return 'editing activity was evenly paced across the clip';
+    }
     case 'dominantEmotionWeight':
       return `dominant facial expression was ${item.label}`;
     case 'dominantGestureWeight':
@@ -127,6 +154,86 @@ function describeFeature(item: WeightedFeature): string {
       return `${intensity} ${item.signal} classification confidence (${(item.value * 100).toFixed(0)}%)`;
     case 'stability':
       return `${intensity} ${item.signal} stability`;
+    case 'blinkRate':
+      return `${intensity} blink rate (${(item.value * 100).toFixed(0)}% of sampled frames)`;
+    case 'averageSmile':
+      return `${intensity} smile intensity`;
+    case 'averageMouthOpen':
+      return `${intensity} mouth-open intensity`;
+    case 'positionScore':
+      return `${intensity} face framing/centering`;
+    case 'sizeScore':
+      return `${intensity} face size in frame`;
+    case 'visibilityScore':
+      return `speaker's face visible in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'averageAbsoluteYaw':
+      return `${intensity} horizontal head turn away from camera`;
+    case 'averageAbsolutePitch':
+      return `${intensity} vertical head tilt away from camera`;
+    case 'eyeContactRate':
+      return `eye contact with camera in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'dominantLookingDirectionWeight':
+      return `dominant gaze direction was ${item.label}`;
+    case 'averageSharpness':
+      return `${intensity} image sharpness`;
+    case 'averageBrightness':
+      return `${intensity} lighting quality (avg ${item.value.toFixed(0)}/255)`;
+    case 'occlusionRate':
+      // item.value is the raw occlusionRate itself (higher = MORE
+      // occluded) - invert for the human-readable "unobstructed" framing.
+      return `face unobstructed in ${((1 - item.value) * 100).toFixed(0)}% of sampled frames`;
+    case 'speakerChangeCount':
+      return `visible speaker changed ${item.value.toFixed(0)} time${item.value === 1 ? '' : 's'}`;
+    case 'dominantSpeakerConsistency':
+      return `${intensity} dominant-speaker consistency (${(item.value * 100).toFixed(0)}% same face)`;
+    case 'speakerAudioSyncRate':
+      return `mouth movement matched audio in ${(item.value * 100).toFixed(0)}% of checked frames`;
+    case 'averageLipVelocity':
+      return `${intensity} lip movement activity`;
+    case 'speakingIntensity':
+      return `${intensity} mouth-opening intensity while actively speaking`;
+    case 'pauseCount':
+      return `${item.value.toFixed(0)} sustained mouth-activity pause${item.value === 1 ? '' : 's'}`;
+    case 'articulationRate':
+      return `${intensity} articulation rate (mouth movement variation)`;
+    case 'averageMouthWidth':
+      return `${intensity} mouth width`;
+    case 'averageCheekRaise':
+      return `${intensity} cheek raise`;
+    case 'averageEyeSquint':
+      return `${intensity} eye squint`;
+    case 'genuineSmileRate':
+      return `${(item.value * 100).toFixed(0)}% of smiling frames also showed cheek-raise + eye-squint (a genuine-smile marker)`;
+    case 'blinkFrequencyPerMinute':
+      return `${item.value.toFixed(1)} blinks/minute`;
+    case 'prolongedClosureCount':
+      return `${item.value.toFixed(0)} sustained eye-closure moment${item.value === 1 ? '' : 's'}`;
+    case 'gazeStabilityScore':
+      return `${intensity} gaze stability`;
+    case 'averageBrowActivity':
+      return `${intensity} eyebrow movement`;
+    case 'averageHeadMovementRate':
+      return `${intensity} head movement`;
+    case 'dominantAffectWeight':
+      return `overall affect read as ${item.label}`;
+    case 'affectConfidence':
+      return `${(item.value * 100).toFixed(0)}% of affect signals available`;
+    case 'subtitleCoverageRate':
+      return `on-screen subtitles visible in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'slidePresenceRate':
+      return `a slide/document visible in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'captionRate':
+      return `a caption overlay visible in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'logoPresenceRate':
+      return `a logo/watermark visible in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'priceMentionRate':
+      return `a price mention visible in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'nameMentionRate':
+      return `a name tag visible in ${(item.value * 100).toFixed(0)}% of sampled frames`;
+    case 'dominantTextCategoryWeight':
+      return `dominant on-screen text was a ${item.label}`;
+    case 'averageTextBlockCount':
+      return `${intensity} on-screen text density (avg ${item.value.toFixed(1)} block${item.value === 1 ? '' : 's'}/frame)`;
     default: {
       const llmLabel = LLM_FEATURE_LABELS[item.feature];
       return llmLabel

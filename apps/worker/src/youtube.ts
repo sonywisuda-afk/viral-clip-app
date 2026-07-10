@@ -1,25 +1,51 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 
-const execFileAsync = promisify(execFile);
 // Same "assume on PATH, allow an override" pattern as FFMPEG_PATH/FFPROBE_PATH
 // in ffmpeg.ts - yt-dlp is a separate binary (Python-packaged, installed via
 // pip alongside mediapipe in the worker image - see Dockerfile), not an npm
 // dependency.
 const YTDLP_PATH = process.env.YTDLP_PATH ?? 'yt-dlp';
 
+// yt-dlp's own progress line ("[download]  12.3% of ...") is meant for a
+// human terminal, not a parser - it's carriage-return-overwritten and its
+// exact wording isn't a stable contract. --progress-template lets yt-dlp
+// emit a line we control instead; PROGRESS_LINE_PREFIX is that marker, kept
+// out-of-band from any of yt-dlp's own log output so a parser can't
+// mistake something else for a progress update.
+const PROGRESS_LINE_PREFIX = 'SPEEDORA_PROGRESS ';
+const PROGRESS_LINE_REGEX = /^SPEEDORA_PROGRESS\s+([\d.]+)%/;
+
 // Downloads to an exact path (not a template) - callers pass a path from
 // reserveScratchPath() ending in '.mp4', and --merge-output-format mp4
 // guarantees yt-dlp actually writes (merging via ffmpeg if the best video/
 // audio streams weren't already a single file) a real mp4 container there,
 // so there's no need to discover the extension yt-dlp picked on its own.
-export async function downloadYoutubeVideo(url: string, outputPath: string): Promise<void> {
-  await execFileAsync(
-    YTDLP_PATH,
-    [
+//
+// Uses spawn (streamed stdout), not execFile (buffered until exit) - the
+// whole point of onProgress is real percentages while a large download is
+// still in flight (see import-youtube.worker.ts's importProgress writes),
+// which a buffered call can't provide.
+export function downloadYoutubeVideo(
+  url: string,
+  outputPath: string,
+  onProgress?: (percent: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(YTDLP_PATH, [
       '--no-playlist',
       '--quiet',
       '--no-warnings',
+      // Forces yt-dlp to still emit progress output despite --quiet above -
+      // discovered directly by testing --progress-template combined with
+      // --quiet: without this flag, --quiet silently swallows the custom
+      // progress-template lines too, not just yt-dlp's own log noise.
+      '--progress',
+      // One full line per update (LF-terminated) rather than yt-dlp's
+      // default carriage-return-overwritten single line - a stream reader
+      // needs discrete, parseable lines.
+      '--newline',
+      '--progress-template',
+      `download:${PROGRESS_LINE_PREFIX}%(progress._percent_str)s`,
       // yt-dlp spawns its own ffmpeg subprocess to do the merge above and
       // only looks on the system PATH for it - it has no idea FFMPEG_PATH
       // (this project's own "assume on PATH, allow an override" env var)
@@ -45,11 +71,36 @@ export async function downloadYoutubeVideo(url: string, outputPath: string): Pro
       '-o',
       outputPath,
       url,
-    ],
-    // yt-dlp's own logging is suppressed above, but a long/high-res
-    // download can still legitimately produce more combined stdout+stderr
-    // than Node's 1MB default exec buffer - bump it rather than risk a
-    // false "maxBuffer exceeded" failure on an otherwise-successful download.
-    { maxBuffer: 1024 * 1024 * 50 },
-  );
+    ]);
+
+    // Buffered only for the error message on a non-zero exit - unlike the
+    // old execFile call, stdout is consumed line-by-line as it arrives
+    // (below), never held in full, so a long download can't blow past any
+    // buffer limit the way the old maxBuffer override was guarding against.
+    let stderrOutput = '';
+    let stdoutBuffer = '';
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutBuffer += chunk.toString();
+      let newlineIndex: number;
+      while ((newlineIndex = stdoutBuffer.indexOf('\n')) !== -1) {
+        const line = stdoutBuffer.slice(0, newlineIndex);
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        const match = line.match(PROGRESS_LINE_REGEX);
+        if (match) onProgress?.(parseFloat(match[1]));
+      }
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrOutput += chunk.toString();
+    });
+
+    child.on('error', reject);
+    child.on('close', (exitCode) => {
+      if (exitCode === 0) {
+        resolve();
+      } else {
+        reject(new Error(`yt-dlp exited with code ${exitCode}: ${stderrOutput.trim()}`));
+      }
+    });
+  });
 }

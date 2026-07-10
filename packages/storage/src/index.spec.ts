@@ -160,6 +160,35 @@ describe('packages/storage', () => {
     expect(options).toEqual({ expiresIn: 900 });
   });
 
+  it('retries once on a fresh client when a call fails with a connection-level error', async () => {
+    const staleError = new Error('socket hang up') as NodeJS.ErrnoException;
+    staleError.code = 'ECONNRESET';
+    const fakeStream = { fake: 'stream' };
+    sendMock.mockRejectedValueOnce(staleError).mockResolvedValueOnce({ Body: fakeStream });
+    const { S3Client } = await import('@aws-sdk/client-s3');
+    const { getObjectStream } = await import('./index');
+
+    const result = await getObjectStream('renders/clip.mp4');
+
+    expect(result).toBe(fakeStream);
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    // The second attempt must run on a brand-new client - the stale
+    // connection pool is the thing being recovered from.
+    expect(S3Client).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry non-connection errors (e.g. NoSuchKey)', async () => {
+    const notFound = new Error('The specified key does not exist.');
+    notFound.name = 'NoSuchKey';
+    sendMock.mockRejectedValue(notFound);
+    const { getObjectStream } = await import('./index');
+
+    await expect(getObjectStream('renders/missing.mp4')).rejects.toThrow(
+      'The specified key does not exist.',
+    );
+    expect(sendMock).toHaveBeenCalledTimes(1);
+  });
+
   it('reuses the same S3Client instance across multiple calls (lazy singleton)', async () => {
     sendMock.mockResolvedValue({});
     const { S3Client } = await import('@aws-sdk/client-s3');

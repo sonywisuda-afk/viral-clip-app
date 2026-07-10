@@ -1,0 +1,73 @@
+# Database
+
+PostgreSQL via Prisma (`packages/database`), the single source of truth for job/pipeline state —
+Redis never persists anything durable. Used by both `apps/api` and `apps/worker`; see `prisma.md`
+for client-usage conventions.
+
+## Core models (`packages/database/prisma/schema.prisma`)
+
+- **`User`** — email/password auth.
+- **`Video`** — one uploaded/imported video. `status` (state machine, see `architecture.md`),
+  `transcribeProgress`/`importProgress` (real-time progress checkpoints), `sourceUrl`/
+  `importSourceUrl` (object key / original YouTube URL), `transcriptionProvider`
+  (`GROQ`/`OPENAI`).
+- **`TranscriptSegment`** — per-video (not duplicated per-clip); a clip's transcript is derived by
+  querying segments within its `startTime`/`endTime` range (`filterSegmentsForClip`, `packages/
+  shared`). Carries `words` (word-level timestamps), `speaker` (Diarization label), `emotion`
+  (Vocal Emotion label), `rmsDb`/`peakDb`/`speakingRateWordsPerSecond` (Audio Intelligence) — see
+  `ai/audio.md`.
+- **`Clip`** — one candidate/rendered clip. `startTime`/`endTime`/`outputUrl`/`captionStyle`/
+  `hookText`/`hashtags`/`emojiSuggestions` from the MVP+early phases, plus a large set of AI
+  Intelligence columns (see below) and Fusion Engine output
+  (`highlightScore`/`highlightConfidence`/`highlightBreakdown`/`highlightExplainability`/
+  `highlightPrediction`/`highlightRecommendation`/`highlightRank`).
+- **`VideoStatusEvent`** — append-only audit trail of every `Video.status` transition (`toStatus`,
+  `errorMessage`, `createdAt`; no `fromStatus` — transitions are always sequential per video, so
+  the prior status is just the previous row). Written exclusively through `@speedora/database`'s
+  `updateVideoStatus()`/`recordVideoStatusEvent()`.
+- **`SocialAccount`**, **`PublishRecord`**, **`PremiumCredit`** — see `backend.md`.
+
+## `Clip`'s AI Intelligence columns
+
+Each AI signal generally has a raw timeline column (`Json?`, samples/events) and a derived
+`*Features` summary column (`Json?`) — see `coding-standards.md` for the null/empty-array
+conventions that distinguish "didn't run" from "ran, found nothing". One exception:
+`editingRhythmFeatures` has no raw counterpart — it's a composite computed from other columns'
+already-derived features, not a fresh detector.
+
+| Signal | Raw column(s) | Derived column |
+|---|---|---|
+| Scene cuts | `sceneCuts` (`Float[]`), `sceneCutEvents` (`Json?`, fade/hard-cut classification) | `sceneFeatures` |
+| Motion energy | `motionEnergy` (`Json`, always an array) | `motionEnergyFeatures` |
+| Camera motion | `cameraMotion` (`Json?`) | `cameraMotionFeatures` |
+| Editing rhythm | — (composite, no raw) | `editingRhythmFeatures` |
+| Facial emotion | `facialEmotions` (`Json?`) | `facialFeatures` |
+| Face landmarks (blink/smile/gaze/tracking/lip activity/affect) | `faceLandmarks` (`Json?`) | `faceLandmarkFeatures` |
+| Face tracking telemetry (not a scoring signal) | — | `trackingQualityMetrics` |
+| Gestures | `gestures` (`Json?`) | `gestureFeatures` |
+| OCR | `ocrText` (`Json`, always an array) → `ocrTracks` (`Json?`, tracked+classified) | `ocrFeatures` |
+| Audio (per-segment, on `TranscriptSegment`) | `rmsDb`/`peakDb`/`speakingRateWordsPerSecond` | `audioFeatures` (aggregated per-clip) |
+| LLM (`ClipScores`, from `detect-clips`) | `scores` (Fase 8 output) | `llmFeatures` (the subset actually consumed by the Fusion Engine at render time) |
+
+See `ai/vision.md`, `ai/audio.md`, `ai/ocr.md`, `ai/fusion.md` for what each module actually
+computes.
+
+## Retry inference (`VideosService.retry`)
+
+No separate "which stage failed" marker — the retry logic infers the stage from what data already
+exists, because `transcribe`/`detect-clips` each persist their output and advance `Video.status`
+atomically in the same step; if a job's `catch` block ran, that stage's data was never written at
+all:
+
+- No `TranscriptSegment` rows yet → retry `transcribe`.
+- Segments exist but no `Clip` rows → retry `detect-clips`.
+- `Clip` rows exist but some lack `outputUrl` → retry `render-clip` **only** for those clips (each
+  clip renders independently; one failing clip doesn't imply its siblings need retrying).
+- `Video.sourceUrl === ''` with an `importSourceUrl` set → retry `import-youtube` instead (the
+  import itself never completed).
+
+## Migrations
+
+Schema changes go through Prisma migrations (`prisma migrate dev`), never manual schema sync —
+every migration in this project has been run against a real dev Postgres instance before being
+considered done, not just written and assumed correct.

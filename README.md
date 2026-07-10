@@ -37,7 +37,13 @@ AI video repurposing platform (mirip OpusClip) — upload video panjang, otomati
   curl -sL -o apps/worker/models/blaze_face_short_range.tflite \
     https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
   ```
-- Bucket object storage S3-compatible (mis. [Cloudflare R2](https://developers.cloudflare.com/r2/), AWS S3, atau kompatibel lainnya) — video upload dan hasil render disimpan di sini, bukan local disk. Isi kredensialnya di `STORAGE_*` env var (lihat `.env.example`).
+- Model MediaPipe Face Landmarker — file `.task` TERPISAH dari Face Detector di atas (bukan `.tflite` biasa), dipakai `apps/worker/scripts/detect_face_landmarks.py` (AI Fusion roadmap's Face Intelligence initiative, Batch 1 — blink/smile/mouth-open/head-rotation/framing untuk Fusion Engine):
+  ```bash
+  curl -sL -o apps/worker/models/face_landmarker.task \
+    https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+  ```
+- Bucket object storage S3-compatible — video upload dan hasil render disimpan di sini, bukan local disk. Untuk dev lokal, `docker-compose.yml` sudah menyediakan [MinIO](https://min.io/) (endpoint `http://localhost:9000`, bucket dibuat otomatis oleh service `minio-init`) — cukup arahkan `STORAGE_ENDPOINT=http://localhost:9000` dengan kredensial `minioadmin`/`minioadmin`. Untuk produksi pakai provider eksternal (mis. [Cloudflare R2](https://developers.cloudflare.com/r2/), AWS S3). Isi kredensialnya di `STORAGE_*` env var (lihat `.env.example`).
+- [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) binary + `pip install pytesseract` (AI Fusion roadmap's OCR initiative, Batch OCR-1 — deteksi teks-di-layar untuk Fusion Engine, lihat `apps/worker/scripts/detect_ocr_text.py`). Di Debian/Ubuntu: `sudo apt-get install tesseract-ocr tesseract-ocr-eng`. Kalau binary `tesseract` tidak di `PATH`, set `TESSERACT_PATH` di `.env` ke path binary-nya.
 
 ### Install pnpm
 
@@ -289,4 +295,6 @@ docker run --rm -e DATABASE_URL=... speedora-migrate
 docker compose -f docker-compose.prod.yml up --build
 ```
 
-File ini punya `name: speedora-prod` eksplisit supaya tidak bentrok dengan `docker-compose.yml` (dev, Postgres/Redis saja) kalau keduanya kebetulan jalan bersamaan di direktori yang sama — tanpa itu, compose menganggap service `postgres`/`redis` di kedua file sebagai container yang sama (nama project default dari nama folder), dan `down` salah satu bisa mematikan/menghapus punya yang lain.
+File ini punya `name: speedora-prod` eksplisit supaya tidak bentrok dengan `docker-compose.yml` (dev, Postgres/Redis/MinIO) kalau keduanya kebetulan jalan bersamaan di direktori yang sama — tanpa itu, compose menganggap service `postgres`/`redis` di kedua file sebagai container yang sama (nama project default dari nama folder), dan `down` salah satu bisa mematikan/menghapus punya yang lain.
+
+**Object storage prod vs dev**: `apps/api`/`apps/worker` di file ini me-load `.env` **lalu** `.env.production` (`env_file` sebagai list — file belakangan menang untuk key yang sama). `.env` untuk dev lokal berisi kredensial MinIO (`docker-compose.yml`'s service `minio`, cuma untuk dev — lihat komentar di `.env`); `.env.production` (gitignored, salin dari `.env.production.example`) berisi kredensial R2/S3 asli yang dipakai di production. Sebelum deploy, isi `.env.production` — kalau lupa, `apps/api`/`apps/worker` tetap boot (karena `STORAGE_*` fail lambat, bukan di validasi boot) tapi setiap upload/download akan gagal mencoba konek ke `localhost:9000` yang tidak ada di dalam container prod.

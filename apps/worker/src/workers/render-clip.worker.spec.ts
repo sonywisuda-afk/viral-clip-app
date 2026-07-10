@@ -58,22 +58,33 @@ jest.mock('@speedora/subtitles', () => ({
   buildAss: (...args: unknown[]) => buildAssMock(...args),
 }));
 
-// deriveSceneFeatures is a pure function (no subprocess/side effects), so
-// it's left real here (via jest.requireActual) rather than mocked - same
-// precedent as cutlist's functions in this same spec file and
-// computeSpeakingRate in transcribe.worker.spec.ts. Only detectSceneCuts
-// (the ffmpeg subprocess call) is mocked.
+// deriveSceneFeatures/deriveMotionEnergyFeatures/deriveCameraMotionFeatures
+// are pure functions (no subprocess/side effects), so they're left real
+// here (via jest.requireActual) rather than mocked - same precedent as
+// cutlist's functions in this same spec file and computeSpeakingRate in
+// transcribe.worker.spec.ts. Only detectSceneCuts/classifySceneCutTypes/
+// analyzeMotionEnergy/detectCameraMotion (the ffmpeg/Python subprocess
+// calls) are mocked.
 const detectSceneCutsMock = jest.fn();
+const classifySceneCutTypesMock = jest.fn();
+const analyzeMotionEnergyMock = jest.fn();
+const detectCameraMotionMock = jest.fn();
 jest.mock('@speedora/scene-intelligence', () => ({
   ...jest.requireActual('@speedora/scene-intelligence'),
   detectSceneCuts: (...args: unknown[]) => detectSceneCutsMock(...args),
+  classifySceneCutTypes: (...args: unknown[]) => classifySceneCutTypesMock(...args),
+  analyzeMotionEnergy: (...args: unknown[]) => analyzeMotionEnergyMock(...args),
+  detectCameraMotion: (...args: unknown[]) => detectCameraMotionMock(...args),
 }));
 
-// Same reasoning as above - deriveFacialEmotionFeatures is pure, left real.
+// Same reasoning as above - deriveFacialEmotionFeatures/
+// deriveFaceLandmarkFeatures are pure, left real.
 const detectFacialEmotionMock = jest.fn();
+const detectFaceLandmarksMock = jest.fn();
 jest.mock('@speedora/facial-intelligence', () => ({
   ...jest.requireActual('@speedora/facial-intelligence'),
   detectFacialEmotion: (...args: unknown[]) => detectFacialEmotionMock(...args),
+  detectFaceLandmarks: (...args: unknown[]) => detectFaceLandmarksMock(...args),
 }));
 
 // Same reasoning as above - deriveGestureFeatures is pure, left real.
@@ -81,6 +92,16 @@ const detectGesturesMock = jest.fn();
 jest.mock('@speedora/gesture-intelligence', () => ({
   ...jest.requireActual('@speedora/gesture-intelligence'),
   detectGestures: (...args: unknown[]) => detectGesturesMock(...args),
+}));
+
+// OCR initiative Batch OCR-2 - trackOcrText/classifyOcrTrack/
+// deriveOcrFeatures are pure, left real (same reasoning as
+// derive*Features elsewhere); only the subprocess-calling detectOcrText
+// is mocked.
+const detectOcrTextMock = jest.fn();
+jest.mock('@speedora/ocr-intelligence', () => ({
+  ...jest.requireActual('@speedora/ocr-intelligence'),
+  detectOcrText: (...args: unknown[]) => detectOcrTextMock(...args),
 }));
 
 const detectFacesMock = jest.fn();
@@ -116,6 +137,7 @@ jest.mock('@speedora/storage', () => ({
 
 const clipUpdateMock = jest.fn();
 const clipFindManyMock = jest.fn();
+const clipCountMock = jest.fn();
 const videoUpdateMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
 jest.mock('../prisma', () => ({
@@ -123,6 +145,7 @@ jest.mock('../prisma', () => ({
     clip: {
       update: (...args: unknown[]) => clipUpdateMock(...args),
       findMany: (...args: unknown[]) => clipFindManyMock(...args),
+      count: (...args: unknown[]) => clipCountMock(...args),
     },
     video: { update: (...args: unknown[]) => videoUpdateMock(...args) },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
@@ -132,8 +155,11 @@ jest.mock('../prisma', () => ({
   },
 }));
 
+import { cameraMotionDeps } from '../cameraMotionDeps';
+import { faceLandmarksDeps } from '../faceLandmarksDeps';
 import { facialIntelligenceDeps } from '../facialIntelligenceDeps';
 import { gestureIntelligenceDeps } from '../gestureIntelligenceDeps';
+import { ocrIntelligenceDeps } from '../ocrIntelligenceDeps';
 import { sceneIntelligenceDeps } from '../sceneIntelligenceDeps';
 import { createRenderClipWorker } from './render-clip.worker';
 
@@ -159,6 +185,32 @@ const noAudioFeatures = {
   averageSpeakingRateWordsPerSecond: null,
   speakingRateStdDev: null,
 };
+const noMotionEnergyFeatures = {
+  averageMotionEnergy: null,
+  peakMotionEnergy: null,
+  staticRatio: null,
+  dynamicRatio: null,
+};
+const noCameraMotionFeatures = {
+  panScore: null,
+  tiltScore: null,
+  zoomScore: null,
+  shakeScore: null,
+  dominantMotionType: null,
+};
+// deriveEditingRhythmFeatures is left real (not mocked) in this spec file,
+// same "pure function, no subprocess" precedent as deriveSceneFeatures/
+// deriveMotionEnergyFeatures/deriveCameraMotionFeatures - this is its
+// actual computed output for baseJobData's default scenario (10s clip
+// duration, zero cuts, zero motion samples, no audio rmsDb data):
+// cutsPerMinute=0 (a real 0, not null, since duration > 0) is the only
+// non-null tempo component -> tempoScore=0; fewer than two cuts -> pacing/
+// acceleration stay null.
+const defaultEditingRhythmFeatures = {
+  tempoScore: 0,
+  pacingScore: null,
+  accelerationScore: null,
+};
 const noFacialFeatures = {
   dominantEmotion: null,
   emotionTransitions: 0,
@@ -170,6 +222,64 @@ const noGestureFeatures = {
   gestureTransitions: 0,
   peakConfidence: null,
   stability: null,
+};
+const noFaceLandmarkFeatures = {
+  blinkRate: null,
+  averageSmile: null,
+  averageMouthOpen: null,
+  averageAbsoluteYaw: null,
+  averageAbsolutePitch: null,
+  positionScore: null,
+  sizeScore: null,
+  visibilityScore: null,
+  eyeContactRate: null,
+  dominantLookingDirection: null,
+  averageSharpness: null,
+  averageBrightness: null,
+  occlusionRate: null,
+  speakerChangeCount: null,
+  dominantSpeakerConsistency: null,
+  speakerAudioSyncRate: null,
+  averageLipVelocity: null,
+  speakingIntensity: null,
+  pauseCount: null,
+  articulationRate: null,
+  averageMouthWidth: null,
+  averageCheekRaise: null,
+  averageEyeSquint: null,
+  genuineSmileRate: null,
+  blinkFrequencyPerMinute: null,
+  prolongedClosureCount: null,
+  gazeStabilityScore: null,
+  averageBrowActivity: null,
+  averageHeadMovementRate: null,
+  dominantAffect: null,
+  affectConfidence: null,
+};
+const noTrackingQualityMetrics = {
+  trackFragmentationRate: null,
+  idSwitchCount: null,
+  lostTrackDurationSeconds: null,
+  reidentificationSuccessRate: null,
+  faceVisibilityRatio: null,
+  faceOcclusionRatio: null,
+  averageLandmarkConfidence: null,
+  landmarkJitterScore: null,
+  kalmanCorrectionRatio: null,
+  trackingConfidence: null,
+  tracks: [],
+};
+// OCR-2's deriveOcrFeatures([], 0) output (mock's default ocrText: []
+// means zero samples, not zero-text-but-samples-taken) - all null.
+const noOcrFeatures = {
+  subtitleCoverageRate: null,
+  slidePresenceRate: null,
+  captionRate: null,
+  logoPresenceRate: null,
+  priceMentionRate: null,
+  nameMentionRate: null,
+  dominantTextCategory: null,
+  averageTextBlockCount: null,
 };
 // Real computeHighlightScore() (v2, Fase 31) output for a clip with zero
 // scene cuts (the baseline scene score, 0.2 normalized -> 20/100) and no
@@ -186,6 +296,14 @@ const baselineHighlight = {
       normalizedValue: 0.2,
       weight: 0.3,
       weightedContribution: 0.06,
+    },
+    {
+      signal: 'editingRhythm',
+      feature: 'tempoScore',
+      rawValue: 0,
+      normalizedValue: 0,
+      weight: 0,
+      weightedContribution: 0,
     },
   ],
   highlightExplainability: {
@@ -257,6 +375,9 @@ describe('render-clip worker', () => {
     trimCutRangesMock.mockResolvedValue(undefined);
     uploadObjectMock.mockResolvedValue(undefined);
     clipUpdateMock.mockResolvedValue({});
+    // Clip exists by default - individual tests override this to exercise
+    // the orphaned-job (deleted-clip) skip path.
+    clipCountMock.mockResolvedValue(1);
     videoUpdateMock.mockResolvedValue({});
     videoStatusEventCreateMock.mockResolvedValue({});
     cleanupTempFileMock.mockResolvedValue(undefined);
@@ -264,8 +385,13 @@ describe('render-clip worker', () => {
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
     detectFacesMock.mockResolvedValue([{ t: 0, box: null }]);
     detectSceneCutsMock.mockResolvedValue({ cuts: [] });
+    classifySceneCutTypesMock.mockResolvedValue({ events: [] });
+    analyzeMotionEnergyMock.mockResolvedValue({ samples: [] });
+    detectCameraMotionMock.mockResolvedValue([]);
     detectFacialEmotionMock.mockResolvedValue([]);
+    detectFaceLandmarksMock.mockResolvedValue([]);
     detectGesturesMock.mockResolvedValue([]);
+    detectOcrTextMock.mockResolvedValue([]);
     findEmphasisWordsMock.mockReturnValue([]);
     buildCropPathMock.mockReturnValue(null); // no face/emphasis -> static center-crop by default
     buildSendCmdScriptMock.mockReturnValue('0 crop@reframe x 10, crop@reframe y 0;');
@@ -321,12 +447,31 @@ describe('render-clip worker', () => {
       data: {
         outputUrl: 'renders/clip-1.mp4',
         sceneCuts: [],
+        sceneCutEvents: [],
         facialEmotions: [],
         gestures: [],
         audioFeatures: noAudioFeatures,
-        sceneFeatures: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 10 },
+        sceneFeatures: {
+          cutCount: 0,
+          cutsPerMinute: 0,
+          averageSegmentSeconds: 10,
+          hardCutCount: 0,
+          fadeCount: 0,
+          dissolveCount: 0,
+        },
+        motionEnergy: [],
+        motionEnergyFeatures: noMotionEnergyFeatures,
+        cameraMotion: [],
+        cameraMotionFeatures: noCameraMotionFeatures,
+        editingRhythmFeatures: defaultEditingRhythmFeatures,
         facialFeatures: noFacialFeatures,
         gestureFeatures: noGestureFeatures,
+        faceLandmarks: [],
+        faceLandmarkFeatures: noFaceLandmarkFeatures,
+        trackingQualityMetrics: noTrackingQualityMetrics,
+        ocrText: [],
+        ocrTracks: [],
+        ocrFeatures: noOcrFeatures,
         llmFeatures: Prisma.JsonNull,
         ...baselineHighlight,
       },
@@ -338,6 +483,22 @@ describe('render-clip worker', () => {
     // source + captions + output - no reframe-cmds file (no face detected).
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+  });
+
+  it('skips an orphaned job for a clip that was deleted while queued, without doing any work', async () => {
+    clipCountMock.mockResolvedValue(0);
+
+    const processor = getProcessor();
+    const result = await processor({ data: baseJobData });
+
+    expect(result).toEqual({ clipId: 'clip-1', outputUrl: '' });
+    // No source download, no rendering, no writes - the job is a pure no-op
+    // once the clip (or its parent video, cascade-deleting it) is gone.
+    expect(getObjectStreamMock).not.toHaveBeenCalled();
+    expect(renderClipMock).not.toHaveBeenCalled();
+    expect(uploadObjectMock).not.toHaveBeenCalled();
+    expect(clipUpdateMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalled();
   });
 
   it("passes the job's captionStyle through to buildAss", async () => {
@@ -722,12 +883,39 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [1.5, 4.2],
+          sceneCutEvents: [],
           facialEmotions: [],
           gestures: [],
           audioFeatures: noAudioFeatures,
-          sceneFeatures: { cutCount: 2, cutsPerMinute: 12, averageSegmentSeconds: 10 / 3 },
+          sceneFeatures: {
+            cutCount: 2,
+            cutsPerMinute: 12,
+            averageSegmentSeconds: 10 / 3,
+            hardCutCount: 2,
+            fadeCount: 0,
+            dissolveCount: 0,
+          },
+          motionEnergy: [],
+          motionEnergyFeatures: noMotionEnergyFeatures,
+          cameraMotion: [],
+          cameraMotionFeatures: noCameraMotionFeatures,
+          // cuts=[1.5, 4.2] on a 10s clip: cutsPerMinute=12 is the only
+          // tempo component (0.6); both cuts fall before the 5s midpoint
+          // (accelerationScore=-1, fully first-half-concentrated); pacing
+          // computed for real from the two cuts' actual segment lengths.
+          editingRhythmFeatures: {
+            tempoScore: 0.6,
+            pacingScore: 0.6478752062616411,
+            accelerationScore: -1,
+          },
           facialFeatures: noFacialFeatures,
           gestureFeatures: noGestureFeatures,
+          faceLandmarks: [],
+          faceLandmarkFeatures: noFaceLandmarkFeatures,
+          trackingQualityMetrics: noTrackingQualityMetrics,
+          ocrText: [],
+          ocrTracks: [],
+          ocrFeatures: noOcrFeatures,
           llmFeatures: Prisma.JsonNull,
           highlightScore: 68,
           highlightConfidence: 0.30000000000000004,
@@ -739,6 +927,30 @@ describe('render-clip worker', () => {
               normalizedValue: 0.6799999999999999,
               weight: 0.3,
               weightedContribution: 0.204,
+            },
+            {
+              signal: 'editingRhythm',
+              feature: 'tempoScore',
+              rawValue: 0.6,
+              normalizedValue: 0.6,
+              weight: 0,
+              weightedContribution: 0,
+            },
+            {
+              signal: 'editingRhythm',
+              feature: 'pacingScore',
+              rawValue: 0.6478752062616411,
+              normalizedValue: 0.6478752062616411,
+              weight: 0,
+              weightedContribution: 0,
+            },
+            {
+              signal: 'editingRhythm',
+              feature: 'accelerationScore',
+              rawValue: -1,
+              normalizedValue: 0,
+              weight: 0,
+              weightedContribution: 0,
             },
           ],
           highlightExplainability: {
@@ -780,16 +992,235 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [],
+          sceneCutEvents: [],
           facialEmotions: [],
           gestures: [],
           audioFeatures: noAudioFeatures,
-          sceneFeatures: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 10 },
+          sceneFeatures: {
+            cutCount: 0,
+            cutsPerMinute: 0,
+            averageSegmentSeconds: 10,
+            hardCutCount: 0,
+            fadeCount: 0,
+            dissolveCount: 0,
+          },
+          motionEnergy: [],
+          motionEnergyFeatures: noMotionEnergyFeatures,
+          cameraMotion: [],
+          cameraMotionFeatures: noCameraMotionFeatures,
+          editingRhythmFeatures: defaultEditingRhythmFeatures,
           facialFeatures: noFacialFeatures,
           gestureFeatures: noGestureFeatures,
+          faceLandmarks: [],
+          faceLandmarkFeatures: noFaceLandmarkFeatures,
+          trackingQualityMetrics: noTrackingQualityMetrics,
+          ocrText: [],
+          ocrTracks: [],
+          ocrFeatures: noOcrFeatures,
           llmFeatures: Prisma.JsonNull,
           ...baselineHighlight,
         },
       });
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('Batch SC-1 (Scene Intelligence taxonomy expansion)', () => {
+    it('calls classifySceneCutTypes with the detected cuts and persists the classified events plus the cut-type breakdown', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectSceneCutsMock.mockResolvedValue({ cuts: [1.5, 4.2, 7.0] });
+      classifySceneCutTypesMock.mockResolvedValue({
+        events: [
+          { t: 1.5, type: 'hard_cut' },
+          { t: 4.2, type: 'fade' },
+          { t: 7.0, type: 'hard_cut' },
+        ],
+      });
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(classifySceneCutTypesMock).toHaveBeenCalledWith(
+        {
+          videoPath: expect.stringContaining('source'),
+          startTime: 10,
+          endTime: 20,
+          cuts: [1.5, 4.2, 7.0],
+        },
+        sceneIntelligenceDeps,
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            sceneCutEvents: [
+              { t: 1.5, type: 'hard_cut' },
+              { t: 4.2, type: 'fade' },
+              { t: 7.0, type: 'hard_cut' },
+            ],
+            sceneFeatures: expect.objectContaining({
+              cutCount: 3,
+              hardCutCount: 2,
+              fadeCount: 1,
+              dissolveCount: 0,
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('persists Prisma.JsonNull sceneCutEvents (falling back to counting every cut as a hard cut) without failing the job when classification throws', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectSceneCutsMock.mockResolvedValue({ cuts: [1.5, 4.2] });
+      classifySceneCutTypesMock.mockRejectedValue(new Error('ffmpeg not found'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            sceneCutEvents: Prisma.JsonNull,
+            sceneFeatures: expect.objectContaining({
+              cutCount: 2,
+              hardCutCount: 2,
+              fadeCount: 0,
+              dissolveCount: 0,
+            }),
+          }),
+        }),
+      );
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('Batch SC-2 (Scene Intelligence taxonomy expansion - motion energy)', () => {
+    it('calls analyzeMotionEnergy with the source path and clip time range, persisting the samples and derived features', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      analyzeMotionEnergyMock.mockResolvedValue({
+        samples: [
+          { t: 0, motionEnergy: 2 },
+          { t: 1, motionEnergy: 10 },
+        ],
+      });
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(analyzeMotionEnergyMock).toHaveBeenCalledWith(
+        { videoPath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
+        sceneIntelligenceDeps,
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            motionEnergy: [
+              { t: 0, motionEnergy: 2 },
+              { t: 1, motionEnergy: 10 },
+            ],
+            motionEnergyFeatures: {
+              averageMotionEnergy: 6,
+              peakMotionEnergy: 10,
+              staticRatio: 0.5,
+              dynamicRatio: 0.5,
+            },
+          }),
+        }),
+      );
+    });
+
+    it('persists an empty motionEnergy array and all-null features (not a failed job) when analysis throws', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      analyzeMotionEnergyMock.mockRejectedValue(new Error('ffmpeg not found'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            motionEnergy: [],
+            motionEnergyFeatures: noMotionEnergyFeatures,
+            cameraMotion: [],
+            cameraMotionFeatures: noCameraMotionFeatures,
+          }),
+        }),
+      );
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('Batch SC-3 (Scene Intelligence taxonomy expansion - directional camera motion)', () => {
+    it('calls detectCameraMotion with the source path and clip time range, persisting the samples and derived features', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectCameraMotionMock.mockResolvedValue([
+        { t: 0, dx: null, dy: null, scale: null, rotation: null, ecc: null },
+        { t: 1, dx: 0.05, dy: 0, scale: 1.0, rotation: 0, ecc: 0.9 },
+        { t: 2, dx: 0.05, dy: 0, scale: 1.0, rotation: 0, ecc: 0.9 },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(detectCameraMotionMock).toHaveBeenCalledWith(
+        { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
+        cameraMotionDeps,
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cameraMotion: [
+              { t: 0, dx: null, dy: null, scale: null, rotation: null, ecc: null },
+              { t: 1, dx: 0.05, dy: 0, scale: 1.0, rotation: 0, ecc: 0.9 },
+              { t: 2, dx: 0.05, dy: 0, scale: 1.0, rotation: 0, ecc: 0.9 },
+            ],
+            cameraMotionFeatures: {
+              panScore: 1,
+              tiltScore: 0,
+              zoomScore: 0,
+              shakeScore: 0,
+              dominantMotionType: 'pan',
+            },
+          }),
+        }),
+      );
+    });
+
+    it('persists Prisma.JsonNull cameraMotion/cameraMotionFeatures (not a failed job) when detection throws', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectCameraMotionMock.mockRejectedValue(new Error('python3 not found'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cameraMotion: Prisma.JsonNull,
+            cameraMotionFeatures: Prisma.JsonNull,
+          }),
+        }),
+      );
       expect(videoUpdateMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
       );
@@ -819,13 +1250,26 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [],
+          sceneCutEvents: [],
           facialEmotions: [
             { t: 0, emotion: 'happy', score: 0.9 },
             { t: 1, emotion: null, score: null },
           ],
           gestures: [],
           audioFeatures: noAudioFeatures,
-          sceneFeatures: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 10 },
+          sceneFeatures: {
+            cutCount: 0,
+            cutsPerMinute: 0,
+            averageSegmentSeconds: 10,
+            hardCutCount: 0,
+            fadeCount: 0,
+            dissolveCount: 0,
+          },
+          motionEnergy: [],
+          motionEnergyFeatures: noMotionEnergyFeatures,
+          cameraMotion: [],
+          cameraMotionFeatures: noCameraMotionFeatures,
+          editingRhythmFeatures: defaultEditingRhythmFeatures,
           facialFeatures: {
             dominantEmotion: 'happy',
             emotionTransitions: 0,
@@ -833,6 +1277,12 @@ describe('render-clip worker', () => {
             stability: null,
           },
           gestureFeatures: noGestureFeatures,
+          faceLandmarks: [],
+          faceLandmarkFeatures: noFaceLandmarkFeatures,
+          trackingQualityMetrics: noTrackingQualityMetrics,
+          ocrText: [],
+          ocrTracks: [],
+          ocrFeatures: noOcrFeatures,
           llmFeatures: Prisma.JsonNull,
           highlightScore: 48,
           highlightConfidence: 0.4500000000000001,
@@ -844,6 +1294,14 @@ describe('render-clip worker', () => {
               normalizedValue: 0.2,
               weight: 0.3,
               weightedContribution: 0.06,
+            },
+            {
+              signal: 'editingRhythm',
+              feature: 'tempoScore',
+              rawValue: 0,
+              normalizedValue: 0,
+              weight: 0,
+              weightedContribution: 0,
             },
             {
               signal: 'facial',
@@ -914,12 +1372,31 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [],
+          sceneCutEvents: [],
           facialEmotions: Prisma.JsonNull,
           gestures: [],
           audioFeatures: noAudioFeatures,
-          sceneFeatures: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 10 },
+          sceneFeatures: {
+            cutCount: 0,
+            cutsPerMinute: 0,
+            averageSegmentSeconds: 10,
+            hardCutCount: 0,
+            fadeCount: 0,
+            dissolveCount: 0,
+          },
+          motionEnergy: [],
+          motionEnergyFeatures: noMotionEnergyFeatures,
+          cameraMotion: [],
+          cameraMotionFeatures: noCameraMotionFeatures,
+          editingRhythmFeatures: defaultEditingRhythmFeatures,
           facialFeatures: Prisma.JsonNull,
           gestureFeatures: noGestureFeatures,
+          faceLandmarks: [],
+          faceLandmarkFeatures: noFaceLandmarkFeatures,
+          trackingQualityMetrics: noTrackingQualityMetrics,
+          ocrText: [],
+          ocrTracks: [],
+          ocrFeatures: noOcrFeatures,
           llmFeatures: Prisma.JsonNull,
           ...baselineHighlight,
         },
@@ -996,6 +1473,295 @@ describe('render-clip worker', () => {
         expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
       );
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('Face Intelligence Batch 1 - Face Landmarks', () => {
+    it('calls detectFaceLandmarks with the source path and clip time range, persisting the resulting samples', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectFaceLandmarksMock.mockResolvedValue([
+        {
+          t: 0,
+          blendshapes: {
+            eyeBlinkLeft: 0.1,
+            eyeBlinkRight: 0.1,
+            mouthSmileLeft: 0.6,
+            mouthSmileRight: 0.6,
+            jawOpen: 0.2,
+            cheekSquintLeft: 0.1,
+            cheekSquintRight: 0.1,
+            eyeSquintLeft: 0.1,
+            eyeSquintRight: 0.1,
+            browDownLeft: 0.1,
+            browDownRight: 0.1,
+            browInnerUp: 0.1,
+            browOuterUpLeft: 0.1,
+            browOuterUpRight: 0.1,
+          },
+          rotation: { pitch: 2, yaw: -4, roll: 1 },
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.3, height: 0.4 },
+          leftIris: { x: 0.45, y: 0.5, z: -0.02 },
+          rightIris: { x: 0.55, y: 0.5, z: -0.02 },
+          leftEyeInnerCorner: { x: 0.47, y: 0.5, z: -0.01 },
+          leftEyeOuterCorner: { x: 0.4, y: 0.5, z: -0.01 },
+          rightEyeInnerCorner: { x: 0.53, y: 0.5, z: -0.01 },
+          rightEyeOuterCorner: { x: 0.6, y: 0.5, z: -0.01 },
+          sharpness: 300,
+          brightness: 140,
+          mouthContrastRatio: 0.9,
+          faceDescriptor: [1, 1, 1, 1, 1, 1, 1, 1, 1],
+          trackId: 0,
+          mouthWidth: 0.5,
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(detectFaceLandmarksMock).toHaveBeenCalledWith(
+        { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
+        faceLandmarksDeps,
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            faceLandmarkFeatures: {
+              blinkRate: 0,
+              averageSmile: 0.6,
+              averageMouthOpen: 0.2,
+              averageAbsoluteYaw: 4,
+              averageAbsolutePitch: 2,
+              positionScore: 1,
+              sizeScore: 0.12,
+              visibilityScore: 1,
+              // Iris roughly centered in both eye sockets (leftIris/
+              // rightIris landmarks in the mock sample above) and head
+              // rotation well within the forward-facing threshold - see
+              // deriveFaceLandmarkFeatures's Batch 2 heuristic.
+              eyeContactRate: 1,
+              dominantLookingDirection: 'center',
+              averageSharpness: 300,
+              averageBrightness: 140,
+              occlusionRate: 0,
+              // Single sample, single trackId - no changes, fully consistent.
+              speakerChangeCount: 0,
+              dominantSpeakerConsistency: 1,
+              // baseJobData's transcript segment carries no rmsDb (see its
+              // own comment above) - no audio-timing data at all, so this
+              // is null (not merely inconclusive) per
+              // deriveFaceLandmarkFeatures's own contract.
+              speakerAudioSyncRate: null,
+              // Batch 5A - single sample only: <2 samples-with-blendshapes
+              // means no delta to measure velocity/articulation from, but
+              // jawOpen(0.2) is already above MOUTH_ACTIVITY_THRESHOLD so
+              // speakingIntensity resolves to that one active sample's
+              // value, and no sustained low-activity run exists to count
+              // as a pause.
+              averageLipVelocity: null,
+              speakingIntensity: 0.2,
+              pauseCount: 0,
+              articulationRate: null,
+              // Batch 5B - averageMouthWidth from the mock sample's own
+              // mouthWidth(0.5); averageCheekRaise/averageEyeSquint from
+              // cheekSquintLeft/Right and eyeSquintLeft/Right (0.1 each).
+              // This one sample IS smiling (average mouthSmile 0.6 >=
+              // SMILE_ACTIVE_THRESHOLD) but cheek-raise/eye-squint (0.1)
+              // fall short of their own thresholds (0.3) - a posed, not
+              // genuine, smile.
+              averageMouthWidth: 0.5,
+              averageCheekRaise: 0.1,
+              averageEyeSquint: 0.1,
+              genuineSmileRate: 0,
+              // Batch 5C - single sample only: <2 samples-with-blendshapes
+              // means no blink-frequency rate can be computed, and only 1
+              // gaze-offset reading means no frame-to-frame stability
+              // comparison is possible either. The one sample's own blink
+              // blendshapes are both below BLINK_THRESHOLD (not blinking),
+              // so its single-sample run never reaches
+              // PROLONGED_CLOSURE_MIN_SAMPLES.
+              blinkFrequencyPerMinute: null,
+              prolongedClosureCount: 0,
+              gazeStabilityScore: null,
+              // Batch 5D - averageBrowActivity from the mock's own brow
+              // blendshapes (0.1 each). Smile alone (0.6 >=
+              // POSITIVE_AFFECT_THRESHOLD) resolves dominantAffect to
+              // 'positive_affect' before energy/expressiveness get a say.
+              // All 3 component scores (positivity/energy/expressiveness)
+              // end up available for this single sample, so
+              // affectConfidence is 1.
+              averageBrowActivity: 0.1,
+              averageHeadMovementRate: null,
+              dominantAffect: 'positive_affect',
+              affectConfidence: 1,
+            },
+            // faceGeometry's default weight is 0 (see @speedora/fusion-
+            // engine's weights.ts) - same "collected, not yet scored"
+            // convention as gesture above - real data doesn't change the
+            // score/confidence versus the no-signal baseline.
+            highlightScore: baselineHighlight.highlightScore,
+            highlightConfidence: baselineHighlight.highlightConfidence,
+            highlightReason: baselineHighlight.highlightReason,
+          }),
+        }),
+      );
+    });
+
+    it('persists Prisma.JsonNull (not an empty array) without failing the job when face landmark detection throws', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectFaceLandmarksMock.mockRejectedValue(new Error('python3 not found'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            faceLandmarks: Prisma.JsonNull,
+            faceLandmarkFeatures: Prisma.JsonNull,
+            trackingQualityMetrics: Prisma.JsonNull,
+          }),
+        }),
+      );
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('OCR Batch OCR-1 - Text Detection', () => {
+    it('calls detectOcrText with the source path and clip time range, persisting the resulting samples', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectOcrTextMock.mockResolvedValue([
+        {
+          t: 0,
+          textBlocks: [
+            {
+              text: 'hello world',
+              boundingBox: { xCenter: 0.5, yCenter: 0.85, width: 0.6, height: 0.05 },
+              confidence: 0.92,
+            },
+          ],
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(detectOcrTextMock).toHaveBeenCalledWith(
+        { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
+        ocrIntelligenceDeps,
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ocrText: [
+              {
+                t: 0,
+                textBlocks: [
+                  {
+                    text: 'hello world',
+                    boundingBox: { xCenter: 0.5, yCenter: 0.85, width: 0.6, height: 0.05 },
+                    confidence: 0.92,
+                  },
+                ],
+              },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('persists Prisma.JsonNull (not an empty array) without failing the job when OCR text detection throws', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectOcrTextMock.mockRejectedValue(new Error('tesseract not found'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ocrText: Prisma.JsonNull,
+            ocrTracks: Prisma.JsonNull,
+            ocrFeatures: Prisma.JsonNull,
+          }),
+        }),
+      );
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('OCR Batch OCR-2 - Tracking & Classification', () => {
+    it('tracks and classifies OCR text, persisting ocrTracks/ocrFeatures and letting the ocr signal move highlightScore', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      // Bottom-center, wide, single-frame text block - unambiguously
+      // subtitle-shaped (see classify-ocr-text.ts's own scoring rules).
+      detectOcrTextMock.mockResolvedValue([
+        {
+          t: 0,
+          textBlocks: [
+            {
+              text: 'hello world',
+              boundingBox: { xCenter: 0.5, yCenter: 0.85, width: 0.6, height: 0.05 },
+              confidence: 0.92,
+            },
+          ],
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            ocrTracks: [
+              expect.objectContaining({
+                text: 'hello world',
+                category: 'subtitle',
+                categoryConfidence: 1,
+                classificationMethod: 'HybridRuleEngine',
+                appearsFrames: 1,
+                persistenceScore: 1,
+                motionScore: null,
+                nearFace: null,
+                language: null,
+              }),
+            ],
+            ocrFeatures: {
+              subtitleCoverageRate: 1,
+              slidePresenceRate: 0,
+              captionRate: 0,
+              logoPresenceRate: 0,
+              priceMentionRate: 0,
+              nameMentionRate: 0,
+              dominantTextCategory: 'subtitle',
+              averageTextBlockCount: 1,
+            },
+          }),
+        }),
+      );
+
+      // `ocr` carries a real (non-zero) weight in DEFAULT_FUSION_WEIGHTS
+      // (unlike faceGeometry/gesture, which stay at 0) - this is the
+      // first batch where OCR data should actually move the score away
+      // from the no-signal baseline, not just get collected for later.
+      const [{ data }] = clipUpdateMock.mock.calls[0];
+      expect(data.highlightScore).not.toBe(baselineHighlight.highlightScore);
     });
   });
 
@@ -1152,6 +1918,30 @@ describe('render-clip worker', () => {
                 normalizedValue: 0.6799999999999999,
                 weight: 0.3,
                 weightedContribution: 0.204,
+              },
+              {
+                signal: 'editingRhythm',
+                feature: 'tempoScore',
+                rawValue: 0.5857142857142856,
+                normalizedValue: 0.5857142857142856,
+                weight: 0,
+                weightedContribution: 0,
+              },
+              {
+                signal: 'editingRhythm',
+                feature: 'pacingScore',
+                rawValue: 0.6478752062616411,
+                normalizedValue: 0.6478752062616411,
+                weight: 0,
+                weightedContribution: 0,
+              },
+              {
+                signal: 'editingRhythm',
+                feature: 'accelerationScore',
+                rawValue: -1,
+                normalizedValue: 0,
+                weight: 0,
+                weightedContribution: 0,
               },
               {
                 signal: 'facial',

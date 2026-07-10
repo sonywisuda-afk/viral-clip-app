@@ -49,6 +49,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxrender1 \
     libegl1 \
     libgles2 \
+    # AI Fusion roadmap's OCR initiative, Batch OCR-1 - the actual OCR
+    # binary + English trained data (pytesseract below is just a thin
+    # subprocess wrapper around this, not a bundled/vendored copy of it).
+    tesseract-ocr \
+    tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 # --break-system-packages: Debian 12's system Python enforces PEP 668
 # (no unmanaged global pip installs) - fine to override in a single-purpose
@@ -59,7 +64,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # installs, then hands the downloaded file to this image's existing ffmpeg
 # install (--merge-output-format mp4) exactly like render-clip already does
 # for its own ffmpeg calls.
-RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-headless yt-dlp
+# scipy - AI Fusion roadmap's Face Intelligence initiative, Batch 4 (Face
+# Re-identification/Tracking) - detect_face_landmarks.py's single-object
+# tracker uses scipy.optimize.linear_sum_assignment (Hungarian algorithm)
+# to solve the detection-to-track assignment cost matrix each frame. A
+# plain numerical library (not a heavy ML framework like dlib/TensorFlow -
+# deliberately avoided per explicit user direction, see CLAUDE.md's Fase 36
+# section), so it's added alongside mediapipe/opencv here rather than a
+# separate RUN layer.
+# pytesseract - AI Fusion roadmap's OCR initiative, Batch OCR-1
+# (detect_ocr_text.py) - a thin subprocess wrapper around the tesseract-ocr
+# binary installed above, not an OCR engine itself.
+RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-headless yt-dlp scipy pytesseract
 # MediaPipe's Tasks API (mediapipe.tasks.python.vision.FaceDetector) needs
 # this model file locally - it isn't bundled in the pip package, and isn't
 # committed to the repo either (see .gitignore) since it's a binary asset
@@ -70,6 +86,14 @@ RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-h
 # README.md's prerequisites.
 RUN mkdir -p /app/models && curl -sL -o /app/models/blaze_face_short_range.tflite \
     https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
+# FaceLandmarker's OWN `.task` bundle (Face Intelligence initiative, Batch 1
+# - detect_face_landmarks.py) - a SEPARATE model file from blaze_face_short_
+# range.tflite above, NOT bundled in the pip package either. Missed in this
+# Dockerfile when Batch 1 first shipped (README.md's local-dev prerequisites
+# were updated, this production image step was not) - fixed here, found
+# while wiring Batch 4 into the same script.
+RUN curl -sL -o /app/models/face_landmarker.task \
+    https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
 WORKDIR /app
 COPY --from=build /out .
 # No .env file is copied into the image on purpose - config comes entirely

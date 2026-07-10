@@ -29,7 +29,20 @@ describe('fusionInputSchema', () => {
         averageSpeakingRateWordsPerSecond: 2.5,
         speakingRateStdDev: 0.3,
       },
-      scene: { cutCount: 2, cutsPerMinute: 4, averageSegmentSeconds: 10 },
+      scene: {
+        cutCount: 2,
+        cutsPerMinute: 4,
+        averageSegmentSeconds: 10,
+        hardCutCount: 2,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
+      sceneMotion: {
+        averageMotionEnergy: 5,
+        peakMotionEnergy: 12,
+        staticRatio: 0.6,
+        dynamicRatio: 0.4,
+      },
       facial: {
         dominantEmotion: 'happy',
         emotionTransitions: 1,

@@ -57,6 +57,24 @@ body {
   font-family: var(--font-body);
 }
 
+@layer base {
+  /* Universal pressed-state feedback: EVERY interactive control (styled
+     Button, raw <button>, and <a> rendered via Button asChild) visibly
+     reacts to a click - a quick shrink + brightness pop - so a press never
+     feels like it went nowhere, even for controls whose result takes a
+     server round-trip. Kept in base layer so per-component utilities can
+     still override it. */
+  button:not(:disabled):active,
+  [role='button']:not([aria-disabled='true']):active,
+  a:active {
+    transform: scale(0.96);
+    filter: brightness(1.35);
+    transition:
+      transform 80ms ease-out,
+      filter 80ms ease-out;
+  }
+}
+
 @layer utilities {
   .text-balance {
     text-wrap: balance;

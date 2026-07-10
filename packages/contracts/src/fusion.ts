@@ -1,9 +1,16 @@
 import { z } from 'zod';
 import { audioFeaturesSchema } from './audio-intelligence';
 import { clipScoresSchema } from './clip-scoring';
+import { editingRhythmFeaturesSchema } from './editing-rhythm';
+import { faceLandmarkFeaturesSchema } from './face-landmarks';
 import { facialEmotionFeaturesSchema } from './facial-intelligence';
 import { gestureFeaturesSchema } from './gesture-intelligence';
-import { sceneFeaturesSchema } from './scene-intelligence';
+import { ocrFeaturesSchema } from './ocr';
+import {
+  cameraMotionFeaturesSchema,
+  motionEnergyFeaturesSchema,
+  sceneFeaturesSchema,
+} from './scene-intelligence';
 
 // Defined ahead of the modules that produce every input (per explicit user
 // direction) - every signal module built from here on (Eye Contact, Visual
@@ -23,7 +30,50 @@ import { sceneFeaturesSchema } from './scene-intelligence';
 // (e.g. audio's averageRmsDb AND speakingRateStdDev separately), not one
 // pre-collapsed per-module score - so adding a new module later contributes
 // richer information without any existing detail being lost.
-export const FUSION_SIGNALS = ['audio', 'scene', 'facial', 'gesture', 'ocr', 'llm'] as const;
+// `faceGeometry` (AI Fusion roadmap's Face Intelligence initiative, Batch 1) -
+// blink/smile/mouth-open/head-rotation/framing signals from MediaPipe's
+// FaceLandmarker, distinct from `facial` (expression classification via a
+// separate ViT model) - the two run as separate subprocess calls producing
+// unrelated feature sets, so they're separate signals here too, not folded
+// together.
+// `sceneMotion` (Scene Intelligence taxonomy expansion, Batch SC-2) -
+// motion-energy/static-dynamic classification, a SEPARATE signal from
+// `scene`'s cut-based features: a clip can be one continuous shot (zero
+// cuts) yet still be highly dynamic, or full of cuts between static shots.
+// Deliberately its own signal rather than folded into `scene`'s features -
+// `scene` already carries a real, non-zero weight (30%, see weights.ts), so
+// adding an uncalibrated new feature into it would immediately shift every
+// existing clip's highlightScore with no data backing the change. Same
+// "weight 0 until calibrated" treatment as gesture/faceGeometry below.
+// `cameraMotion` (Scene Intelligence taxonomy expansion, Batch SC-3) -
+// directional camera motion (pan/tilt/zoom/shake), a SEPARATE signal from
+// `sceneMotion`'s magnitude-only measurement above - same "collected, weight
+// 0 until calibrated" treatment, per explicit user direction: wire it into
+// the pipeline now, gather real data, evaluate the distribution, THEN
+// calibrate before it's allowed to move highlightScore.
+// `editingRhythm` (taxonomy category F, requested by user after Scene
+// Intelligence Batch SC-3) - a COMPOSITE signal, not a raw detector: its
+// own module (@speedora/editing-rhythm) combines OTHER signals'
+// already-computed output (scene/sceneMotion/audio) into tempoScore/
+// pacingScore/accelerationScore. Per explicit user architectural rule:
+// composite/derived signals like this one get their own package and are
+// wired into the Fusion Engine exactly like a raw-detection signal -
+// weight 0 until calibrated, same "collect first, calibrate later"
+// treatment as sceneMotion/cameraMotion/gesture/faceGeometry. The Fusion
+// Engine itself never derives new features - it only ever combines/weighs
+// whatever `*Features` objects already exist.
+export const FUSION_SIGNALS = [
+  'audio',
+  'scene',
+  'sceneMotion',
+  'cameraMotion',
+  'editingRhythm',
+  'facial',
+  'gesture',
+  'faceGeometry',
+  'ocr',
+  'llm',
+] as const;
 export type FusionSignal = (typeof FUSION_SIGNALS)[number];
 
 // Each field is `.optional()` (not required) because a clip may be missing
@@ -33,11 +83,11 @@ export type FusionSignal = (typeof FUSION_SIGNALS)[number];
 // require every signal to be present, same "optional signal" philosophy
 // that already governs every individual module in this pipeline.
 //
-// `ocr` is NOT present as an input field yet - no module produces OCR
-// features (see CLAUDE.md's Fase 24 gap analysis) - it's reserved in
-// FUSION_SIGNALS/fusionWeightsSchema below so the weight table and engine
-// code don't need to change shape again once that module exists, only
-// gain a new optional input field + extraction/normalization case.
+// `ocr` (AI Fusion roadmap's OCR initiative, Batch OCR-2) - reserved as a
+// weight-table-only key since Fase 31 (see weights.ts's own comment); this
+// is the batch that finally gives it a real fusionInputSchema field,
+// consuming @speedora/ocr-intelligence's deriveOcrFeatures() output the
+// same way every other signal here consumes its own module's *Features.
 //
 // `llm` (Fase 32) reuses clip-scoring's own ClipScores directly - it's
 // already a per-clip "Features"-shaped object (9 named 0-100 metrics
@@ -48,8 +98,13 @@ export const fusionInputSchema = z.object({
   clipId: z.string(),
   audio: audioFeaturesSchema.optional(),
   scene: sceneFeaturesSchema.optional(),
+  sceneMotion: motionEnergyFeaturesSchema.optional(),
+  cameraMotion: cameraMotionFeaturesSchema.optional(),
+  editingRhythm: editingRhythmFeaturesSchema.optional(),
   facial: facialEmotionFeaturesSchema.optional(),
   gesture: gestureFeaturesSchema.optional(),
+  faceGeometry: faceLandmarkFeaturesSchema.optional(),
+  ocr: ocrFeaturesSchema.optional(),
   llm: clipScoresSchema.optional(),
 });
 

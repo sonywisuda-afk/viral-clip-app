@@ -38,10 +38,14 @@ jest.mock('node:fs/promises', () => ({
 }));
 
 const videoUpdateMock = jest.fn();
+const videoCountMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
-    video: { update: (...args: unknown[]) => videoUpdateMock(...args) },
+    video: {
+      update: (...args: unknown[]) => videoUpdateMock(...args),
+      count: (...args: unknown[]) => videoCountMock(...args),
+    },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, atomically alongside video.update() via $transaction.
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
@@ -66,6 +70,9 @@ describe('import-youtube worker', () => {
     readFileMock.mockResolvedValue(Buffer.from('fake video bytes'));
     uploadObjectMock.mockResolvedValue(undefined);
     videoUpdateMock.mockResolvedValue({});
+    // Video exists by default - individual tests override this to exercise
+    // the orphaned-job (deleted-video) skip path.
+    videoCountMock.mockResolvedValue(1);
     videoStatusEventCreateMock.mockResolvedValue({});
     transcribeQueueAdd.mockResolvedValue(undefined);
     cleanupTempFileMock.mockResolvedValue(undefined);
@@ -84,15 +91,23 @@ describe('import-youtube worker', () => {
     expect(downloadYoutubeVideoMock).toHaveBeenCalledWith(
       'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
       '/tmp/youtube-import-abc.mp4',
+      expect.any(Function),
     );
     expect(uploadObjectMock).toHaveBeenCalledWith(
       'videos/video-1.mp4',
       Buffer.from('fake video bytes'),
       'video/mp4',
     );
+    // Reset to 0 before the download starts...
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
-      data: { sourceUrl: 'videos/video-1.mp4', status: VideoStatus.UPLOADED },
+      data: { importProgress: 0 },
+    });
+    // ...and cleared back to null once UPLOADED, same "irrelevant past this
+    // stage" convention as transcribeProgress.
+    expect(videoUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'video-1' },
+      data: { sourceUrl: 'videos/video-1.mp4', importProgress: null, status: VideoStatus.UPLOADED },
     });
     expect(transcribeQueueAdd).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
       videoId: 'video-1',
@@ -101,6 +116,56 @@ describe('import-youtube worker', () => {
     });
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
     expect(result).toEqual({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' });
+  });
+
+  it('reports each real download percentage from yt-dlp to Video.importProgress', async () => {
+    downloadYoutubeVideoMock.mockImplementation(
+      async (_url: string, _path: string, onProgress: (percent: number) => void) => {
+        onProgress(12.7);
+        onProgress(88.4);
+      },
+    );
+
+    const processor = getProcessor();
+    await processor({
+      data: {
+        videoId: 'video-1',
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        provider: TranscriptionProvider.GROQ,
+      },
+    });
+
+    // Rounded to the nearest integer - Video.importProgress is an Int
+    // column, yt-dlp's own percentages are fractional.
+    expect(videoUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'video-1' },
+      data: { importProgress: 13 },
+    });
+    expect(videoUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'video-1' },
+      data: { importProgress: 88 },
+    });
+  });
+
+  it('skips an orphaned job for a video that was deleted while queued, without doing any work', async () => {
+    videoCountMock.mockResolvedValue(0);
+
+    const processor = getProcessor();
+    const result = await processor({
+      data: {
+        videoId: 'video-1',
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        provider: TranscriptionProvider.GROQ,
+      },
+    });
+
+    expect(result).toEqual({ videoId: 'video-1', sourceUrl: '' });
+    // No download, no upload, no progress/status writes, no downstream
+    // enqueue - the job is a pure no-op once the video is gone.
+    expect(downloadYoutubeVideoMock).not.toHaveBeenCalled();
+    expect(uploadObjectMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalled();
+    expect(transcribeQueueAdd).not.toHaveBeenCalled();
   });
 
   it('marks the video FAILED, reports to Sentry, and still cleans up the scratch file when the download fails', async () => {

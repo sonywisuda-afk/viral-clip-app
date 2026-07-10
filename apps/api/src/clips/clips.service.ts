@@ -19,6 +19,8 @@ import {
   toSharedAudioFeatures,
   toSharedCaptionStyle,
   toSharedClipScores,
+  toSharedFaceLandmarkFeatures,
+  toSharedFaceLandmarks,
   toSharedFacialEmotions,
   toSharedFacialFeatures,
   toSharedGestureFeatures,
@@ -28,7 +30,17 @@ import {
   toSharedHighlightPrediction,
   toSharedHighlightRecommendation,
   toSharedLlmFeatures,
+  toSharedOcrFeatures,
+  toSharedOcrText,
+  toSharedCameraMotion,
+  toSharedCameraMotionFeatures,
+  toSharedEditingRhythmFeatures,
+  toSharedMotionEnergy,
+  toSharedMotionEnergyFeatures,
+  toSharedOcrTracks,
+  toSharedSceneCutEvents,
   toSharedSceneFeatures,
+  toSharedTrackingQualityMetrics,
   toSharedTranscriptSegment,
 } from '../videos/transcript-segment.util';
 import type { PublishClipDto } from './dto/publish-clip.dto';
@@ -91,7 +103,11 @@ export class ClipsService {
 
     await this.prisma.clip.delete({ where: { id } });
     if (clip.outputUrl) {
-      await this.storage.deleteObjects([clip.outputUrl]);
+      // Deliberately not awaited - deleteObjects is already best-effort (it
+      // swallows storage errors), so keeping the HTTP response waiting on a
+      // slow round-trip to object storage buys nothing except a laggy
+      // delete button. The DB row (the source of truth) is already gone.
+      void this.storage.deleteObjects([clip.outputUrl]);
     }
   }
 
@@ -272,11 +288,23 @@ export class ClipsService {
     ctaText: string | null;
     emojiSuggestions: string[];
     facialEmotions: unknown;
+    sceneCutEvents: unknown;
+    motionEnergy: unknown;
+    motionEnergyFeatures: unknown;
+    cameraMotion: unknown;
+    cameraMotionFeatures: unknown;
+    editingRhythmFeatures: unknown;
     gestures: unknown;
     audioFeatures: unknown;
     sceneFeatures: unknown;
     facialFeatures: unknown;
     gestureFeatures: unknown;
+    faceLandmarks: unknown;
+    faceLandmarkFeatures: unknown;
+    trackingQualityMetrics: unknown;
+    ocrText: unknown;
+    ocrTracks: unknown;
+    ocrFeatures: unknown;
     highlightScore: number | null;
     highlightBreakdown: unknown;
     highlightExplainability: unknown;
@@ -307,11 +335,23 @@ export class ClipsService {
       ctaText: clip.ctaText,
       emojiSuggestions: clip.emojiSuggestions,
       facialEmotions: toSharedFacialEmotions(clip.facialEmotions),
+      sceneCutEvents: toSharedSceneCutEvents(clip.sceneCutEvents),
       gestures: toSharedGestures(clip.gestures),
       audioFeatures: toSharedAudioFeatures(clip.audioFeatures),
       sceneFeatures: toSharedSceneFeatures(clip.sceneFeatures),
+      motionEnergy: toSharedMotionEnergy(clip.motionEnergy),
+      motionEnergyFeatures: toSharedMotionEnergyFeatures(clip.motionEnergyFeatures),
+      cameraMotion: toSharedCameraMotion(clip.cameraMotion),
+      cameraMotionFeatures: toSharedCameraMotionFeatures(clip.cameraMotionFeatures),
+      editingRhythmFeatures: toSharedEditingRhythmFeatures(clip.editingRhythmFeatures),
       facialFeatures: toSharedFacialFeatures(clip.facialFeatures),
       gestureFeatures: toSharedGestureFeatures(clip.gestureFeatures),
+      faceLandmarks: toSharedFaceLandmarks(clip.faceLandmarks),
+      faceLandmarkFeatures: toSharedFaceLandmarkFeatures(clip.faceLandmarkFeatures),
+      trackingQualityMetrics: toSharedTrackingQualityMetrics(clip.trackingQualityMetrics),
+      ocrText: toSharedOcrText(clip.ocrText),
+      ocrTracks: toSharedOcrTracks(clip.ocrTracks),
+      ocrFeatures: toSharedOcrFeatures(clip.ocrFeatures),
       highlightScore: clip.highlightScore,
       highlightBreakdown: toSharedHighlightBreakdown(clip.highlightBreakdown),
       highlightExplainability: toSharedHighlightExplainability(clip.highlightExplainability),

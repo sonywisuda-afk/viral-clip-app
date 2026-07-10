@@ -17,6 +17,7 @@ import { Button } from '../../components/ui/button';
 import {
   cancelScheduledPublish,
   clipDownloadUrl,
+  clipStreamUrl,
   deleteClip,
   deleteVideo,
   listSocialAccounts,
@@ -320,20 +321,30 @@ export default function Dashboard() {
   async function handleDeleteClip(videoId: string, clipId: string) {
     setDeleteClipError(null);
     setDeletingClipId(clipId);
+    // Optimistic: drop the clip from the UI immediately instead of leaving
+    // the row (and its "Menghapus...") sitting there for the whole server
+    // round-trip. On failure, re-fetch the real list so the clip reappears
+    // (a snapshot rollback could resurrect state the poll has since moved).
+    setVideos(
+      (prev) =>
+        prev?.map((v) =>
+          v.id === videoId ? { ...v, clips: v.clips.filter((c) => c.id !== clipId) } : v,
+        ) ?? prev,
+    );
+    setConfirmDeleteClipId(null);
     try {
       await deleteClip(clipId);
-      setVideos(
-        (prev) =>
-          prev?.map((v) =>
-            v.id === videoId ? { ...v, clips: v.clips.filter((c) => c.id !== clipId) } : v,
-          ) ?? prev,
-      );
-      setConfirmDeleteClipId(null);
     } catch (err) {
       setDeleteClipError({
         clipId,
         message: err instanceof Error ? err.message : 'Gagal menghapus klip',
       });
+      try {
+        setVideos(await listVideos());
+      } catch {
+        // The next poll tick (or reload) will resync - the delete error
+        // above is the message that matters here.
+      }
     } finally {
       setDeletingClipId(null);
     }
@@ -390,6 +401,14 @@ export default function Dashboard() {
                             className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
                           >
                             Edit Timeline
+                          </Link>
+                        )}
+                        {video.clips.some((clip) => (clip.ocrTracks?.length ?? 0) > 0) && (
+                          <Link
+                            href={`/videos/${video.id}/ocr-review`}
+                            className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                          >
+                            OCR Review
                           </Link>
                         )}
                         {confirmDeleteId === video.id ? (
@@ -556,7 +575,7 @@ export default function Dashboard() {
                                   {clip.downloadUrl && (
                                     <video
                                       key={clip.id}
-                                      src={clipDownloadUrl(clip.downloadUrl)}
+                                      src={clipStreamUrl(clip.id)}
                                       crossOrigin="use-credentials"
                                       controls
                                       preload="metadata"

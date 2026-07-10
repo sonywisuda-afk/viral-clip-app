@@ -53,15 +53,56 @@ function bucket(): string {
   return value;
 }
 
+// A connection-level failure (as opposed to a real S3 error like NoSuchKey,
+// which comes back as a normal HTTP response) - the classes of error a stale
+// keep-alive pool produces. Observed for real against R2 from a long-running
+// apps/api process: every request from the existing client timed out at
+// exactly connectionTimeout while a freshly-constructed client on the same
+// machine connected instantly, so the client instance itself was the problem.
+function isConnectionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return (
+    error.name === 'TimeoutError' ||
+    code === 'ECONNRESET' ||
+    code === 'EPIPE' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNREFUSED' ||
+    error.message.includes('socket hang up')
+  );
+}
+
+// Every storage call goes through this instead of getClient().send()
+// directly: when the cached client's connection pool has gone bad (see
+// isConnectionError above), the whole pool is thrown away and the call
+// retried ONCE on a brand-new client - self-healing without restarting the
+// process. Non-connection errors (NoSuchKey, auth, etc.) propagate
+// immediately; a retry that fails again propagates too.
+async function sendResilient<Output>(command: {
+  // Matches any @aws-sdk command for this client without naming the SDK's
+  // internal command union type.
+  input: object;
+}): Promise<Output> {
+  try {
+    return (await getClient().send(command as never)) as Output;
+  } catch (error) {
+    if (!isConnectionError(error)) throw error;
+    client = null;
+    return (await getClient().send(command as never)) as Output;
+  }
+}
+
 export async function uploadObject(key: string, body: Buffer, contentType?: string): Promise<void> {
-  await getClient().send(
+  await sendResilient(
     new PutObjectCommand({ Bucket: bucket(), Key: key, Body: body, ContentType: contentType }),
   );
 }
 
 export async function getObjectStream(key: string): Promise<Readable> {
-  const result = await getClient().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
-  return result.Body as Readable;
+  const result = await sendResilient<{ Body: Readable }>(
+    new GetObjectCommand({ Bucket: bucket(), Key: key }),
+  );
+  return result.Body;
 }
 
 export interface RangeObjectResult {
@@ -87,11 +128,14 @@ export async function getObjectStreamRange(
   key: string,
   range?: string,
 ): Promise<RangeObjectResult> {
-  const result = await getClient().send(
-    new GetObjectCommand({ Bucket: bucket(), Key: key, Range: range }),
-  );
+  const result = await sendResilient<{
+    Body: Readable;
+    ContentType?: string;
+    ContentLength?: number;
+    ContentRange?: string;
+  }>(new GetObjectCommand({ Bucket: bucket(), Key: key, Range: range }));
   return {
-    stream: result.Body as Readable,
+    stream: result.Body,
     contentType: result.ContentType,
     contentLength: result.ContentLength,
     contentRange: result.ContentRange,
@@ -99,7 +143,7 @@ export async function getObjectStreamRange(
 }
 
 export async function deleteObject(key: string): Promise<void> {
-  await getClient().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
+  await sendResilient(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
 }
 
 // The one caller (apps/worker's publish-clip job, for an Instagram Reels

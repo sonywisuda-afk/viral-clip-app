@@ -140,6 +140,82 @@ export interface SceneFeatures {
   cutCount: number;
   cutsPerMinute: number | null;
   averageSegmentSeconds: number | null;
+  // Batch SC-1 (Scene Intelligence taxonomy expansion) - breakdown of
+  // cutCount by type, see SceneCutType below. dissolveCount is always 0 for
+  // now (dissolve isn't detected yet).
+  hardCutCount: number;
+  fadeCount: number;
+  dissolveCount: number;
+}
+
+// Batch SC-1 (Scene Intelligence taxonomy expansion, on top of Fase 26) -
+// mirrors @speedora/contracts' SCENE_CUT_TYPES/SceneCutEvent shape rather
+// than importing it, same duplication precedent as FacialEmotionSample/
+// GestureSample above. 'dissolve' is reserved (part of the taxonomy) but
+// never actually produced by this batch - see the contracts module's own
+// comment.
+export const SCENE_CUT_TYPES = ['hard_cut', 'fade', 'dissolve'] as const;
+export type SceneCutType = (typeof SCENE_CUT_TYPES)[number];
+
+export interface SceneCutEvent {
+  t: number;
+  type: SceneCutType;
+}
+
+// Batch SC-2 (Scene Intelligence taxonomy expansion, continuing Batch SC-1) -
+// mirrors @speedora/contracts' MotionEnergySample shape rather than
+// importing it, same duplication precedent as SceneCutEvent above. A
+// SEPARATE signal from cut classification (motion magnitude, not cut
+// events) - see @speedora/scene-intelligence's analyzeMotionEnergy module
+// comment.
+export interface MotionEnergySample {
+  t: number;
+  motionEnergy: number;
+}
+
+export interface MotionEnergyFeatures {
+  averageMotionEnergy: number | null;
+  peakMotionEnergy: number | null;
+  staticRatio: number | null;
+  dynamicRatio: number | null;
+}
+
+// Batch SC-3 (Scene Intelligence taxonomy expansion, continuing SC-1/SC-2) -
+// mirrors @speedora/contracts' CameraMotionSample shape rather than
+// importing it, same duplication precedent as MotionEnergySample above. A
+// SEPARATE signal from motionEnergy (directional pan/tilt/zoom/rotation, not
+// undirected magnitude) - see @speedora/scene-intelligence's
+// detectCameraMotion module comment.
+export interface CameraMotionSample {
+  t: number;
+  dx: number | null;
+  dy: number | null;
+  scale: number | null;
+  rotation: number | null;
+  ecc: number | null;
+}
+
+export const CAMERA_MOTION_TYPES = ['pan', 'tilt', 'zoom', 'shake', 'static'] as const;
+export type CameraMotionType = (typeof CAMERA_MOTION_TYPES)[number];
+
+export interface CameraMotionFeatures {
+  panScore: number | null;
+  tiltScore: number | null;
+  zoomScore: number | null;
+  shakeScore: number | null;
+  dominantMotionType: CameraMotionType | null;
+}
+
+// Taxonomy category F (Editing Rhythm, requested by user after Scene
+// Intelligence Batch SC-3) - mirrors @speedora/contracts'
+// EditingRhythmFeatures shape rather than importing it, same duplication
+// precedent as CameraMotionSample above. A COMPOSITE signal (its own
+// module combines OTHER signals' already-computed output), not a raw
+// detector - see @speedora/editing-rhythm's own module comment.
+export interface EditingRhythmFeatures {
+  tempoScore: number | null;
+  pacingScore: number | null;
+  accelerationScore: number | null;
 }
 
 export interface FacialEmotionFeatures {
@@ -154,6 +230,265 @@ export interface GestureFeatures {
   gestureTransitions: number;
   peakConfidence: number | null;
   stability: number | null;
+}
+
+// AI Fusion roadmap's Face Intelligence initiative, Batch 1 - one sampled
+// frame's MediaPipe FaceLandmarker output (blendshapes/head-rotation/
+// framing/iris+eye-corner points), clip-relative seconds. Mirrors
+// @speedora/contracts' FaceLandmarkSample shape rather than importing it -
+// same duplication precedent as FacialEmotionSample/GestureSample above.
+// Every field null means no face was found in that sampled frame.
+export interface FaceBlendshapes {
+  eyeBlinkLeft: number;
+  eyeBlinkRight: number;
+  mouthSmileLeft: number;
+  mouthSmileRight: number;
+  jawOpen: number;
+  // Batch 5B (Smile & Laugh) - Duchenne-smile markers (orbicularis oculi
+  // activation), see @speedora/contracts' faceBlendshapesSchema.
+  cheekSquintLeft: number;
+  cheekSquintRight: number;
+  eyeSquintLeft: number;
+  eyeSquintRight: number;
+  // Batch 5D (Emotion Heuristic) - eyebrow movement, tracked as an
+  // undirected magnitude (see @speedora/contracts' faceBlendshapesSchema).
+  browDownLeft: number;
+  browDownRight: number;
+  browInnerUp: number;
+  browOuterUpLeft: number;
+  browOuterUpRight: number;
+}
+
+export interface FaceRotation {
+  pitch: number;
+  yaw: number;
+  roll: number;
+}
+
+export interface NormalizedPoint3d {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface FaceLandmarkSample {
+  t: number;
+  blendshapes: FaceBlendshapes | null;
+  rotation: FaceRotation | null;
+  boundingBox: { xCenter: number; yCenter: number; width: number; height: number } | null;
+  leftIris: NormalizedPoint3d | null;
+  rightIris: NormalizedPoint3d | null;
+  leftEyeInnerCorner: NormalizedPoint3d | null;
+  leftEyeOuterCorner: NormalizedPoint3d | null;
+  rightEyeInnerCorner: NormalizedPoint3d | null;
+  rightEyeOuterCorner: NormalizedPoint3d | null;
+  // Batch 3 (Blur/Sharpness/Lighting/Occlusion) - raw Laplacian variance
+  // (sharpness), 0-255 mean grayscale (brightness), and the mouth-region-
+  // vs-whole-face variance ratio used to derive occlusionRate. See
+  // @speedora/facial-intelligence's deriveFaceLandmarkFeatures for the
+  // honest caveat on mouthContrastRatio specifically.
+  sharpness: number | null;
+  brightness: number | null;
+  mouthContrastRatio: number | null;
+  // Batch 4 (Face Re-identification/Tracking) - a 9-element scale-invariant
+  // geometric fingerprint and the single-object tracker's assigned track id
+  // (Kalman Filter + Hungarian Assignment + IoU + pose consistency). See
+  // @speedora/contracts' faceLandmarkSampleSchema for the full rationale.
+  faceDescriptor: number[] | null;
+  trackId: number | null;
+  // Batch 5B (Smile & Laugh) - scale-invariant mouth-width ratio, see
+  // @speedora/contracts' faceLandmarkSampleSchema.
+  mouthWidth: number | null;
+}
+
+// AI Fusion roadmap's OCR initiative, Batch OCR-1 - one detected on-screen
+// text region (Tesseract's own line-level grouping). Mirrors
+// @speedora/contracts' ocrTextBlockSchema shape rather than importing it,
+// same duplication precedent as FaceLandmarkSample above.
+export interface OcrTextBlock {
+  text: string;
+  boundingBox: { xCenter: number; yCenter: number; width: number; height: number };
+  confidence: number;
+}
+
+// A sampled frame's worth of OCR output - textBlocks is an EMPTY array
+// (not null) when no text was found, since that's an entirely ordinary
+// result (most frames have no on-screen text at all), not a detection
+// failure - see @speedora/contracts' ocrSampleSchema for the full
+// rationale.
+export interface OcrSample {
+  t: number;
+  textBlocks: OcrTextBlock[];
+}
+
+// AI Fusion roadmap's OCR initiative, Batch OCR-2 - the 6 SAFE
+// classification categories (never a discrete claim like "this is an ad"),
+// see @speedora/contracts' OCR_TEXT_CATEGORIES for the full rationale.
+export type OcrTextCategory = 'subtitle' | 'slide' | 'caption' | 'logo' | 'price' | 'name';
+
+// Content-pattern evidence used by the rule-fusion classifier - mirrors
+// @speedora/contracts' ocrRegexFlagsSchema.
+export interface OcrRegexFlags {
+  isPriceLike: boolean;
+  isNameLike: boolean;
+}
+
+// One tracked on-screen text element across its full lifetime in the clip
+// - mirrors @speedora/contracts' ocrTextTrackSchema rather than importing
+// it, same duplication precedent as FaceLandmarkSample above.
+export interface OcrTextTrack {
+  trackId: number;
+  text: string;
+  boundingBox: { xCenter: number; yCenter: number; width: number; height: number };
+  confidence: number;
+  startTime: number;
+  endTime: number;
+  durationSeconds: number;
+  appearsFrames: number;
+  persistenceScore: number;
+  motionScore: number | null;
+  nearFace: boolean | null;
+  language: string | null;
+  regexFlags: OcrRegexFlags;
+  category: OcrTextCategory;
+  categoryConfidence: number;
+  classificationMethod: 'HybridRuleEngine';
+}
+
+// Aggregate, Fusion-Engine-ready summary derived from OcrTextTrack[] above
+// - mirrors @speedora/contracts' ocrFeaturesSchema.
+export interface OcrFeatures {
+  subtitleCoverageRate: number | null;
+  slidePresenceRate: number | null;
+  captionRate: number | null;
+  logoPresenceRate: number | null;
+  priceMentionRate: number | null;
+  nameMentionRate: number | null;
+  dominantTextCategory: OcrTextCategory | null;
+  averageTextBlockCount: number | null;
+}
+
+// AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
+// looking-direction bucket, 'center' meaning both iris position and head
+// rotation roughly face the camera. Mirrors @speedora/contracts'
+// LookingDirection shape rather than importing it - same duplication
+// precedent as FacialEmotion/GestureFeatures above.
+export type LookingDirection = 'center' | 'left' | 'right' | 'up' | 'down';
+
+// AI Fusion roadmap's Face Intelligence initiative, Batch 5D (Emotion
+// Heuristic) - deliberately SAFE, non-diagnostic vocabulary (never a
+// discrete emotion name). Mirrors @speedora/contracts' AffectLabel shape
+// rather than importing it, same duplication precedent as
+// LookingDirection above.
+export type AffectLabel =
+  'positive_affect' | 'high_energy' | 'low_energy' | 'expressive' | 'neutral';
+
+export interface FaceLandmarkFeatures {
+  blinkRate: number | null;
+  averageSmile: number | null;
+  averageMouthOpen: number | null;
+  averageAbsoluteYaw: number | null;
+  averageAbsolutePitch: number | null;
+  positionScore: number | null;
+  sizeScore: number | null;
+  visibilityScore: number | null;
+  // Batch 2 (Eye Contact/Looking Direction) - fraction of samples-with-a-
+  // face resolved to lookingDirection 'center', and the most frequent
+  // resolved direction overall. A coarse heuristic proxy, not calibrated
+  // gaze tracking - see @speedora/facial-intelligence's
+  // deriveFaceLandmarkFeatures for the exact thresholds.
+  eyeContactRate: number | null;
+  dominantLookingDirection: LookingDirection | null;
+  // Batch 3 (Blur/Sharpness/Lighting/Occlusion) - averageSharpness/
+  // averageBrightness left in raw units (Laplacian-variance / 0-255), same
+  // "normalized later in fusion-engine" convention as averageAbsoluteYaw/
+  // Pitch above. occlusionRate is already a 0-1 rate (fraction of samples
+  // flagged as possibly occluded) - a coarse proxy, not a trained
+  // occlusion classifier, see @speedora/facial-intelligence's own caveat.
+  averageSharpness: number | null;
+  averageBrightness: number | null;
+  occlusionRate: number | null;
+  // Batch 4 (Face Re-identification/Tracking, Speaker Face Selection) -
+  // derived from the trackId sequence (speakerChangeCount/
+  // dominantSpeakerConsistency) and, optionally, correlated against the
+  // clip's transcript audio timing (speakerAudioSyncRate - null when no
+  // audio-timing data was supplied to deriveFaceLandmarkFeatures at all, not
+  // merely inconclusive). See @speedora/contracts' faceLandmarkFeaturesSchema
+  // for the full rationale.
+  speakerChangeCount: number | null;
+  dominantSpeakerConsistency: number | null;
+  speakerAudioSyncRate: number | null;
+  // Batch 5A (Lip Activity) - temporal dynamics on top of averageMouthOpen
+  // above, all derived from the same jawOpen blendshape sequence. See
+  // @speedora/contracts' faceLandmarkFeaturesSchema for the exact formulas
+  // and honest caveats.
+  averageLipVelocity: number | null;
+  speakingIntensity: number | null;
+  pauseCount: number | null;
+  articulationRate: number | null;
+  // Batch 5B (Smile & Laugh) - averageMouthWidth is raw units (a scale-
+  // invariant ratio, normalized later in fusion-engine). genuineSmileRate
+  // is a coarse Duchenne-marker heuristic (smile + cheek-raise + eye-
+  // squint co-occurring), not a trained/validated classifier - see
+  // @speedora/contracts' faceLandmarkFeaturesSchema for the exact
+  // thresholds and honest caveats.
+  averageMouthWidth: number | null;
+  averageCheekRaise: number | null;
+  averageEyeSquint: number | null;
+  genuineSmileRate: number | null;
+  // Batch 5C (Blink & Eye Behavior) - blinkFrequencyPerMinute/
+  // prolongedClosureCount derived from blink-blendshape runs;
+  // gazeStabilityScore from continuous (not bucketed) gaze offset
+  // consistency. See @speedora/contracts' faceLandmarkFeaturesSchema for
+  // the exact formulas and honest caveats.
+  blinkFrequencyPerMinute: number | null;
+  prolongedClosureCount: number | null;
+  gazeStabilityScore: number | null;
+  // Batch 5D (Emotion Heuristic) - averageBrowActivity/averageHeadMovementRate
+  // are raw units, normalized later in fusion-engine. dominantAffect is a
+  // deliberately SAFE, non-diagnostic label from a deterministic (not
+  // trained) decision tree combining Smile+Jaw/Speaking+Eyebrow+Head
+  // movement - see @speedora/contracts' faceLandmarkFeaturesSchema for the
+  // full rationale and honest caveats. affectConfidence is a coverage
+  // score (fraction of contributing signals available), not a statistical
+  // confidence.
+  averageBrowActivity: number | null;
+  averageHeadMovementRate: number | null;
+  dominantAffect: AffectLabel | null;
+  affectConfidence: number | null;
+}
+
+// AI Fusion roadmap's Face Intelligence initiative, Batch 4.5 (Quality
+// Metrics & Telemetry) - explicitly NOT a scoring signal, purely
+// explainability/audit telemetry over Batch 4's Kalman+Hungarian+IoU+pose
+// tracker. Mirrors @speedora/contracts' trackSegmentQualitySchema/
+// faceTrackingQualityMetricsSchema shapes rather than importing them, same
+// duplication precedent as FaceLandmarkSample/Features above. See
+// @speedora/facial-intelligence's deriveTrackingQualityMetrics for every
+// threshold's honest "unvalidated guess" caveat.
+export interface TrackSegmentQuality {
+  trackId: number;
+  frameCount: number;
+  startTime: number;
+  endTime: number;
+  occlusionRatio: number | null;
+  confidence: number | null;
+  idSwitchCount: 0 | 1;
+  stable: boolean;
+}
+
+export interface FaceTrackingQualityMetrics {
+  trackFragmentationRate: number | null;
+  idSwitchCount: number | null;
+  lostTrackDurationSeconds: number | null;
+  reidentificationSuccessRate: number | null;
+  faceVisibilityRatio: number | null;
+  faceOcclusionRatio: number | null;
+  averageLandmarkConfidence: number | null;
+  landmarkJitterScore: number | null;
+  kalmanCorrectionRatio: number | null;
+  trackingConfidence: number | null;
+  tracks: TrackSegmentQuality[];
 }
 
 // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
@@ -238,6 +573,12 @@ export interface Video {
   // Prisma's `durationSeconds Float?` serializes as `null`, not `undefined`,
   // once it round-trips through JSON.
   durationSeconds: number | null;
+  // 0-100, real progress reported by import-youtube.worker.ts (see
+  // schema.prisma's comment on this column) - null before an import
+  // attempt has started or once status has moved past IMPORTING. Only
+  // meaningful while status === IMPORTING; the frontend's per-stage
+  // progress bar ignores it otherwise.
+  importProgress: number | null;
   // 0-100, real progress reported by transcribe.worker.ts (see
   // schema.prisma's comment on this column) - null before a transcribe
   // attempt has started or once status has moved past UPLOADED. Only
@@ -280,6 +621,14 @@ export interface Clip {
   // time (not detect-clips time, unlike scores/topics/etc.), so it isn't on
   // ClipCandidate.
   facialEmotions: FacialEmotionSample[] | null;
+  // Batch SC-1 (Scene Intelligence taxonomy expansion, on top of Fase 26) -
+  // classifySceneCutTypes()'s per-cut hard_cut/fade/dissolve classification,
+  // one entry per this clip's `sceneCuts` timestamp (not itself exposed via
+  // the API - see @speedora/contracts' Fase 27 comment on why a Float[]
+  // column was never wired through). Null when classification wasn't run or
+  // failed entirely for this clip, distinct from an empty array (no cuts to
+  // classify at all) - same nullability convention as facialEmotions below.
+  sceneCutEvents: SceneCutEvent[] | null;
   // Fase 30 (Gesture Intelligence, AI Fusion roadmap Checkpoint 2) - same
   // null-vs-empty-array convention as facialEmotions above.
   gestures: GestureSample[] | null;
@@ -293,6 +642,26 @@ export interface Clip {
   // exactly when facialEmotions/gestures are null.
   audioFeatures: AudioFeatures | null;
   sceneFeatures: SceneFeatures | null;
+  // Batch SC-2 (Scene Intelligence taxonomy expansion) - `motionEnergy`
+  // (raw samples) is never null (unlike facialEmotions/gestures/ocrText) -
+  // analyzeMotionEnergy() never fails the job, so the underlying column
+  // defaults to an empty array rather than needing a null-vs-empty
+  // distinction. `motionEnergyFeatures` is always computed, same convention
+  // as sceneFeatures above.
+  motionEnergy: MotionEnergySample[];
+  motionEnergyFeatures: MotionEnergyFeatures | null;
+  // Batch SC-3 (Scene Intelligence taxonomy expansion) - `cameraMotion` is a
+  // Python/OpenCV subprocess result (unlike motionEnergy's ffmpeg-based
+  // "always an array"), so it follows facialEmotions/gestures' null-vs-
+  // empty-array convention instead: null when the analysis wasn't run or
+  // failed entirely, distinct from an empty array. `cameraMotionFeatures`
+  // is null exactly when `cameraMotion` is null.
+  cameraMotion: CameraMotionSample[] | null;
+  cameraMotionFeatures: CameraMotionFeatures | null;
+  // Taxonomy category F (Editing Rhythm) - a COMPOSITE signal, no separate
+  // raw column (see schema.prisma's own comment) - always computed, same
+  // convention as sceneFeatures/motionEnergyFeatures above.
+  editingRhythmFeatures: EditingRhythmFeatures | null;
   facialFeatures: FacialEmotionFeatures | null;
   gestureFeatures: GestureFeatures | null;
   // Fase 32 - the same Fase 8 ClipScores this clip's `scores` field already
@@ -301,6 +670,28 @@ export interface Clip {
   // payload - see RenderClipJobData.scores) - null for a clip whose
   // detect-clips LLM call never ran/produced no scores.
   llmFeatures: ClipScores | null;
+  // AI Fusion roadmap's Face Intelligence initiative, Batch 1 - same null-
+  // vs-empty-array convention as facialEmotions/gestures above. Distinct
+  // from facialEmotions/facialFeatures (a separate subprocess/model -
+  // expression classification vs. MediaPipe FaceLandmarker geometry).
+  faceLandmarks: FaceLandmarkSample[] | null;
+  faceLandmarkFeatures: FaceLandmarkFeatures | null;
+  // Batch 4.5 (Quality Metrics & Telemetry) - explainability/audit
+  // telemetry over faceLandmarks' own tracking, NOT consumed by
+  // @speedora/fusion-engine at all (unlike every other *Features field
+  // above). Null exactly when faceLandmarks is null.
+  trackingQualityMetrics: FaceTrackingQualityMetrics | null;
+  // AI Fusion roadmap's OCR initiative, Batch OCR-1 - @speedora/ocr-
+  // intelligence's detectOcrText() per-sample output (Tesseract text +
+  // bounding box + confidence per sampled frame). Null (not []) when the
+  // whole analysis failed to run.
+  ocrText: OcrSample[] | null;
+  // Batch OCR-2 - trackOcrText()+classifyOcrTrack()'s "store everything"
+  // per-instance layer (ocrTracks) and deriveOcrFeatures()'s aggregate
+  // Fusion-Engine-ready summary (ocrFeatures) - both null exactly when
+  // ocrText is null.
+  ocrTracks: OcrTextTrack[] | null;
+  ocrFeatures: OcrFeatures | null;
   // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
   // computeHighlightScore() output, combining whichever of
   // audioFeatures/sceneFeatures/facialFeatures/gestureFeatures were

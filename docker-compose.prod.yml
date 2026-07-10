@@ -7,11 +7,16 @@
 #
 #   docker compose -f docker-compose.prod.yml up --build
 #
-# Secrets (JWT_SECRET, STORAGE_*, GROQ_API_KEY, OPENAI_API_KEY, MIDTRANS_*)
-# come from .env via env_file. DATABASE_URL/REDIS_URL/FFMPEG_PATH are
-# overridden below to point at the compose network's service names/the
-# container's own ffmpeg instead of whatever apps/api and apps/worker's own
-# .env values are for local dev (localhost, and a host-specific FFMPEG_PATH).
+# Secrets (JWT_SECRET, GROQ_API_KEY, OPENAI_API_KEY, MIDTRANS_*, etc.) come
+# from .env via env_file. STORAGE_* is the one exception - .env's copy
+# points at the local-dev-only MinIO container (see docker-compose.yml),
+# which doesn't exist in this prod stack, so .env.production is layered on
+# top (later env_file entries win on shared keys) to swap in real R2
+# credentials for just that one concern. See .env.production.example.
+# DATABASE_URL/REDIS_URL/FFMPEG_PATH are overridden below to point at the
+# compose network's service names/the container's own ffmpeg instead of
+# whatever apps/api and apps/worker's own .env values are for local dev
+# (localhost, and a host-specific FFMPEG_PATH).
 #
 # Explicit project name - without it, compose derives the project name from
 # the directory (same as docker-compose.yml's default), and since both files
@@ -74,7 +79,9 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    env_file: .env
+    env_file:
+      - .env
+      - .env.production
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
       REDIS_URL: redis://redis:6379
@@ -94,7 +101,9 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
-    env_file: .env
+    env_file:
+      - .env
+      - .env.production
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
       REDIS_URL: redis://redis:6379

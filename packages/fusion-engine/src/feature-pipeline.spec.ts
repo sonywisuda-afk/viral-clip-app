@@ -23,7 +23,14 @@ describe('extractFeatures', () => {
   it('extracts cutsPerMinute for scene, and nothing when cutsPerMinute is null', () => {
     const present = extractFeatures({
       clipId: 'clip-1',
-      scene: { cutCount: 2, cutsPerMinute: 12, averageSegmentSeconds: 5 },
+      scene: {
+        cutCount: 2,
+        cutsPerMinute: 12,
+        averageSegmentSeconds: 5,
+        hardCutCount: 2,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
     });
     expect(present).toEqual([
       { signal: 'scene', feature: 'cutsPerMinute', value: 12, isCategoryDerived: false },
@@ -31,7 +38,111 @@ describe('extractFeatures', () => {
 
     const absent = extractFeatures({
       clipId: 'clip-1',
-      scene: { cutCount: 0, cutsPerMinute: null, averageSegmentSeconds: null },
+      scene: {
+        cutCount: 0,
+        cutsPerMinute: null,
+        averageSegmentSeconds: null,
+        hardCutCount: 0,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
+    });
+    expect(absent).toEqual([]);
+  });
+
+  it('extracts averageMotionEnergy and dynamicRatio for sceneMotion, skipping null readings', () => {
+    const present = extractFeatures({
+      clipId: 'clip-1',
+      sceneMotion: {
+        averageMotionEnergy: 5.5,
+        peakMotionEnergy: 12,
+        staticRatio: 0.4,
+        dynamicRatio: 0.6,
+      },
+    });
+    expect(present).toEqual([
+      {
+        signal: 'sceneMotion',
+        feature: 'averageMotionEnergy',
+        value: 5.5,
+        isCategoryDerived: false,
+      },
+      { signal: 'sceneMotion', feature: 'dynamicRatio', value: 0.6, isCategoryDerived: false },
+    ]);
+
+    const absent = extractFeatures({
+      clipId: 'clip-1',
+      sceneMotion: {
+        averageMotionEnergy: null,
+        peakMotionEnergy: null,
+        staticRatio: null,
+        dynamicRatio: null,
+      },
+    });
+    expect(absent).toEqual([]);
+  });
+
+  it('extracts panScore/tiltScore/zoomScore/shakeScore and dominantMotionTypeWeight (category-derived, with label) for cameraMotion, skipping null readings', () => {
+    const present = extractFeatures({
+      clipId: 'clip-1',
+      cameraMotion: {
+        panScore: 0.6,
+        tiltScore: 0.1,
+        zoomScore: 0.2,
+        shakeScore: 0.05,
+        dominantMotionType: 'pan',
+      },
+    });
+    expect(present).toEqual([
+      { signal: 'cameraMotion', feature: 'panScore', value: 0.6, isCategoryDerived: false },
+      { signal: 'cameraMotion', feature: 'tiltScore', value: 0.1, isCategoryDerived: false },
+      { signal: 'cameraMotion', feature: 'zoomScore', value: 0.2, isCategoryDerived: false },
+      { signal: 'cameraMotion', feature: 'shakeScore', value: 0.05, isCategoryDerived: false },
+      {
+        signal: 'cameraMotion',
+        feature: 'dominantMotionTypeWeight',
+        value: 65,
+        isCategoryDerived: true,
+        label: 'pan',
+      },
+    ]);
+
+    const absent = extractFeatures({
+      clipId: 'clip-1',
+      cameraMotion: {
+        panScore: null,
+        tiltScore: null,
+        zoomScore: null,
+        shakeScore: null,
+        dominantMotionType: null,
+      },
+    });
+    expect(absent).toEqual([]);
+  });
+
+  it('extracts tempoScore/pacingScore/accelerationScore for editingRhythm, skipping null readings', () => {
+    const present = extractFeatures({
+      clipId: 'clip-1',
+      editingRhythm: {
+        tempoScore: 0.4,
+        pacingScore: 0.9,
+        accelerationScore: 0.3,
+      },
+    });
+    expect(present).toEqual([
+      { signal: 'editingRhythm', feature: 'tempoScore', value: 0.4, isCategoryDerived: false },
+      { signal: 'editingRhythm', feature: 'pacingScore', value: 0.9, isCategoryDerived: false },
+      {
+        signal: 'editingRhythm',
+        feature: 'accelerationScore',
+        value: 0.3,
+        isCategoryDerived: false,
+      },
+    ]);
+
+    const absent = extractFeatures({
+      clipId: 'clip-1',
+      editingRhythm: { tempoScore: null, pacingScore: null, accelerationScore: null },
     });
     expect(absent).toEqual([]);
   });
@@ -80,6 +191,478 @@ describe('extractFeatures', () => {
       { signal: 'gesture', feature: 'peakConfidence', value: 0.9, isCategoryDerived: false },
     ]);
   });
+
+  it('extracts every non-null faceGeometry feature, skipping nulls', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: 0.1,
+        averageSmile: 0.5,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: 12,
+        averageAbsolutePitch: null,
+        positionScore: 0.9,
+        sizeScore: 0.3,
+        visibilityScore: 1,
+        eyeContactRate: null,
+        dominantLookingDirection: null,
+        averageSharpness: null,
+        averageBrightness: null,
+        occlusionRate: null,
+        speakerChangeCount: null,
+        dominantSpeakerConsistency: null,
+        speakerAudioSyncRate: null,
+        averageLipVelocity: null,
+        speakingIntensity: null,
+        pauseCount: null,
+        articulationRate: null,
+        averageMouthWidth: null,
+        averageCheekRaise: null,
+        averageEyeSquint: null,
+        genuineSmileRate: null,
+        blinkFrequencyPerMinute: null,
+        prolongedClosureCount: null,
+        gazeStabilityScore: null,
+        averageBrowActivity: null,
+        averageHeadMovementRate: null,
+        dominantAffect: null,
+        affectConfidence: null,
+      },
+    });
+    expect(result).toEqual([
+      { signal: 'faceGeometry', feature: 'blinkRate', value: 0.1, isCategoryDerived: false },
+      { signal: 'faceGeometry', feature: 'averageSmile', value: 0.5, isCategoryDerived: false },
+      {
+        signal: 'faceGeometry',
+        feature: 'averageAbsoluteYaw',
+        value: 12,
+        isCategoryDerived: false,
+      },
+      { signal: 'faceGeometry', feature: 'positionScore', value: 0.9, isCategoryDerived: false },
+      { signal: 'faceGeometry', feature: 'sizeScore', value: 0.3, isCategoryDerived: false },
+      {
+        signal: 'faceGeometry',
+        feature: 'visibilityScore',
+        value: 1,
+        isCategoryDerived: false,
+      },
+    ]);
+  });
+
+  it('extracts eyeContactRate and dominantLookingDirectionWeight (category-derived, with label) for faceGeometry (Batch 2)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: null,
+        averageSmile: null,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: null,
+        averageAbsolutePitch: null,
+        positionScore: null,
+        sizeScore: null,
+        visibilityScore: null,
+        eyeContactRate: 0.8,
+        dominantLookingDirection: 'center',
+        averageSharpness: null,
+        averageBrightness: null,
+        occlusionRate: null,
+        speakerChangeCount: null,
+        dominantSpeakerConsistency: null,
+        speakerAudioSyncRate: null,
+        averageLipVelocity: null,
+        speakingIntensity: null,
+        pauseCount: null,
+        articulationRate: null,
+        averageMouthWidth: null,
+        averageCheekRaise: null,
+        averageEyeSquint: null,
+        genuineSmileRate: null,
+        blinkFrequencyPerMinute: null,
+        prolongedClosureCount: null,
+        gazeStabilityScore: null,
+        averageBrowActivity: null,
+        averageHeadMovementRate: null,
+        dominantAffect: null,
+        affectConfidence: null,
+      },
+    });
+    expect(result).toEqual([
+      { signal: 'faceGeometry', feature: 'eyeContactRate', value: 0.8, isCategoryDerived: false },
+      {
+        signal: 'faceGeometry',
+        feature: 'dominantLookingDirectionWeight',
+        value: 90,
+        isCategoryDerived: true,
+        label: 'center',
+      },
+    ]);
+  });
+
+  it('extracts averageSharpness, averageBrightness, and occlusionRate for faceGeometry (Batch 3)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: null,
+        averageSmile: null,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: null,
+        averageAbsolutePitch: null,
+        positionScore: null,
+        sizeScore: null,
+        visibilityScore: null,
+        eyeContactRate: null,
+        dominantLookingDirection: null,
+        averageSharpness: 250,
+        averageBrightness: 140,
+        occlusionRate: 0.2,
+        speakerChangeCount: null,
+        dominantSpeakerConsistency: null,
+        speakerAudioSyncRate: null,
+        averageLipVelocity: null,
+        speakingIntensity: null,
+        pauseCount: null,
+        articulationRate: null,
+        averageMouthWidth: null,
+        averageCheekRaise: null,
+        averageEyeSquint: null,
+        genuineSmileRate: null,
+        blinkFrequencyPerMinute: null,
+        prolongedClosureCount: null,
+        gazeStabilityScore: null,
+        averageBrowActivity: null,
+        averageHeadMovementRate: null,
+        dominantAffect: null,
+        affectConfidence: null,
+      },
+    });
+    expect(result).toEqual([
+      { signal: 'faceGeometry', feature: 'averageSharpness', value: 250, isCategoryDerived: false },
+      {
+        signal: 'faceGeometry',
+        feature: 'averageBrightness',
+        value: 140,
+        isCategoryDerived: false,
+      },
+      { signal: 'faceGeometry', feature: 'occlusionRate', value: 0.2, isCategoryDerived: false },
+    ]);
+  });
+
+  it('extracts speakerChangeCount, dominantSpeakerConsistency, and speakerAudioSyncRate for faceGeometry (Batch 4)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: null,
+        averageSmile: null,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: null,
+        averageAbsolutePitch: null,
+        positionScore: null,
+        sizeScore: null,
+        visibilityScore: null,
+        eyeContactRate: null,
+        dominantLookingDirection: null,
+        averageSharpness: null,
+        averageBrightness: null,
+        occlusionRate: null,
+        speakerChangeCount: 2,
+        dominantSpeakerConsistency: 0.75,
+        speakerAudioSyncRate: 0.6,
+        averageLipVelocity: null,
+        speakingIntensity: null,
+        pauseCount: null,
+        articulationRate: null,
+        averageMouthWidth: null,
+        averageCheekRaise: null,
+        averageEyeSquint: null,
+        genuineSmileRate: null,
+        blinkFrequencyPerMinute: null,
+        prolongedClosureCount: null,
+        gazeStabilityScore: null,
+        averageBrowActivity: null,
+        averageHeadMovementRate: null,
+        dominantAffect: null,
+        affectConfidence: null,
+      },
+    });
+    expect(result).toEqual([
+      { signal: 'faceGeometry', feature: 'speakerChangeCount', value: 2, isCategoryDerived: false },
+      {
+        signal: 'faceGeometry',
+        feature: 'dominantSpeakerConsistency',
+        value: 0.75,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'faceGeometry',
+        feature: 'speakerAudioSyncRate',
+        value: 0.6,
+        isCategoryDerived: false,
+      },
+    ]);
+  });
+
+  it('extracts averageLipVelocity, speakingIntensity, pauseCount, and articulationRate for faceGeometry (Batch 5A)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: null,
+        averageSmile: null,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: null,
+        averageAbsolutePitch: null,
+        positionScore: null,
+        sizeScore: null,
+        visibilityScore: null,
+        eyeContactRate: null,
+        dominantLookingDirection: null,
+        averageSharpness: null,
+        averageBrightness: null,
+        occlusionRate: null,
+        speakerChangeCount: null,
+        dominantSpeakerConsistency: null,
+        speakerAudioSyncRate: null,
+        averageLipVelocity: 0.3,
+        speakingIntensity: 0.5,
+        pauseCount: 1,
+        articulationRate: 0.8,
+        averageMouthWidth: null,
+        averageCheekRaise: null,
+        averageEyeSquint: null,
+        genuineSmileRate: null,
+        blinkFrequencyPerMinute: null,
+        prolongedClosureCount: null,
+        gazeStabilityScore: null,
+        averageBrowActivity: null,
+        averageHeadMovementRate: null,
+        dominantAffect: null,
+        affectConfidence: null,
+      },
+    });
+    expect(result).toEqual([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageLipVelocity',
+        value: 0.3,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'faceGeometry',
+        feature: 'speakingIntensity',
+        value: 0.5,
+        isCategoryDerived: false,
+      },
+      { signal: 'faceGeometry', feature: 'pauseCount', value: 1, isCategoryDerived: false },
+      {
+        signal: 'faceGeometry',
+        feature: 'articulationRate',
+        value: 0.8,
+        isCategoryDerived: false,
+      },
+    ]);
+  });
+
+  it('extracts averageMouthWidth, averageCheekRaise, averageEyeSquint, and genuineSmileRate for faceGeometry (Batch 5B)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: null,
+        averageSmile: null,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: null,
+        averageAbsolutePitch: null,
+        positionScore: null,
+        sizeScore: null,
+        visibilityScore: null,
+        eyeContactRate: null,
+        dominantLookingDirection: null,
+        averageSharpness: null,
+        averageBrightness: null,
+        occlusionRate: null,
+        speakerChangeCount: null,
+        dominantSpeakerConsistency: null,
+        speakerAudioSyncRate: null,
+        averageLipVelocity: null,
+        speakingIntensity: null,
+        pauseCount: null,
+        articulationRate: null,
+        averageMouthWidth: 0.6,
+        averageCheekRaise: 0.4,
+        averageEyeSquint: 0.5,
+        genuineSmileRate: 0.7,
+        blinkFrequencyPerMinute: null,
+        prolongedClosureCount: null,
+        gazeStabilityScore: null,
+        averageBrowActivity: null,
+        averageHeadMovementRate: null,
+        dominantAffect: null,
+        affectConfidence: null,
+      },
+    });
+    expect(result).toEqual([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageMouthWidth',
+        value: 0.6,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'faceGeometry',
+        feature: 'averageCheekRaise',
+        value: 0.4,
+        isCategoryDerived: false,
+      },
+      { signal: 'faceGeometry', feature: 'averageEyeSquint', value: 0.5, isCategoryDerived: false },
+      { signal: 'faceGeometry', feature: 'genuineSmileRate', value: 0.7, isCategoryDerived: false },
+    ]);
+  });
+
+  it('extracts blinkFrequencyPerMinute, prolongedClosureCount, and gazeStabilityScore for faceGeometry (Batch 5C)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: null,
+        averageSmile: null,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: null,
+        averageAbsolutePitch: null,
+        positionScore: null,
+        sizeScore: null,
+        visibilityScore: null,
+        eyeContactRate: null,
+        dominantLookingDirection: null,
+        averageSharpness: null,
+        averageBrightness: null,
+        occlusionRate: null,
+        speakerChangeCount: null,
+        dominantSpeakerConsistency: null,
+        speakerAudioSyncRate: null,
+        averageLipVelocity: null,
+        speakingIntensity: null,
+        pauseCount: null,
+        articulationRate: null,
+        averageMouthWidth: null,
+        averageCheekRaise: null,
+        averageEyeSquint: null,
+        genuineSmileRate: null,
+        blinkFrequencyPerMinute: 12,
+        prolongedClosureCount: 2,
+        gazeStabilityScore: 0.9,
+        averageBrowActivity: null,
+        averageHeadMovementRate: null,
+        dominantAffect: null,
+        affectConfidence: null,
+      },
+    });
+    expect(result).toEqual([
+      {
+        signal: 'faceGeometry',
+        feature: 'blinkFrequencyPerMinute',
+        value: 12,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'faceGeometry',
+        feature: 'prolongedClosureCount',
+        value: 2,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'faceGeometry',
+        feature: 'gazeStabilityScore',
+        value: 0.9,
+        isCategoryDerived: false,
+      },
+    ]);
+  });
+
+  it('extracts averageBrowActivity, averageHeadMovementRate, dominantAffectWeight (category-derived, with label), and affectConfidence for faceGeometry (Batch 5D)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      faceGeometry: {
+        blinkRate: null,
+        averageSmile: null,
+        averageMouthOpen: null,
+        averageAbsoluteYaw: null,
+        averageAbsolutePitch: null,
+        positionScore: null,
+        sizeScore: null,
+        visibilityScore: null,
+        eyeContactRate: null,
+        dominantLookingDirection: null,
+        averageSharpness: null,
+        averageBrightness: null,
+        occlusionRate: null,
+        speakerChangeCount: null,
+        dominantSpeakerConsistency: null,
+        speakerAudioSyncRate: null,
+        averageLipVelocity: null,
+        speakingIntensity: null,
+        pauseCount: null,
+        articulationRate: null,
+        averageMouthWidth: null,
+        averageCheekRaise: null,
+        averageEyeSquint: null,
+        genuineSmileRate: null,
+        blinkFrequencyPerMinute: null,
+        prolongedClosureCount: null,
+        gazeStabilityScore: null,
+        averageBrowActivity: 0.4,
+        averageHeadMovementRate: 5,
+        dominantAffect: 'positive_affect',
+        affectConfidence: 1,
+      },
+    });
+    expect(result).toEqual([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageBrowActivity',
+        value: 0.4,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'faceGeometry',
+        feature: 'averageHeadMovementRate',
+        value: 5,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'faceGeometry',
+        feature: 'dominantAffectWeight',
+        value: 90,
+        isCategoryDerived: true,
+        label: 'positive_affect',
+      },
+      { signal: 'faceGeometry', feature: 'affectConfidence', value: 1, isCategoryDerived: false },
+    ]);
+  });
+
+  it('extracts every non-null ocr feature, skipping nulls, with dominantTextCategoryWeight category-derived (Batch OCR-2)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      ocr: {
+        subtitleCoverageRate: 0.8,
+        slidePresenceRate: null,
+        captionRate: null,
+        logoPresenceRate: 0.1,
+        priceMentionRate: null,
+        nameMentionRate: null,
+        dominantTextCategory: 'subtitle',
+        averageTextBlockCount: 1.5,
+      },
+    });
+    expect(result).toEqual([
+      { signal: 'ocr', feature: 'subtitleCoverageRate', value: 0.8, isCategoryDerived: false },
+      { signal: 'ocr', feature: 'logoPresenceRate', value: 0.1, isCategoryDerived: false },
+      {
+        signal: 'ocr',
+        feature: 'dominantTextCategoryWeight',
+        value: 60,
+        isCategoryDerived: true,
+        label: 'subtitle',
+      },
+      { signal: 'ocr', feature: 'averageTextBlockCount', value: 1.5, isCategoryDerived: false },
+    ]);
+  });
 });
 
 describe('normalizeFeatures', () => {
@@ -97,6 +680,78 @@ describe('normalizeFeatures', () => {
     expect(result[0].normalizedValue).toBeCloseTo(0.2);
   });
 
+  it('maps averageMotionEnergy from [0,20] YDIF to [0,1]', () => {
+    const result = normalizeFeatures([
+      {
+        signal: 'sceneMotion',
+        feature: 'averageMotionEnergy',
+        value: 10,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(result[0].normalizedValue).toBeCloseTo(0.5);
+  });
+
+  it("passes sceneMotion's already-0-1 dynamicRatio through unchanged", () => {
+    const result = normalizeFeatures([
+      { signal: 'sceneMotion', feature: 'dynamicRatio', value: 0.6, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.6);
+  });
+
+  it("passes cameraMotion's already-0-1 panScore/tiltScore/zoomScore/shakeScore through unchanged", () => {
+    const result = normalizeFeatures([
+      { signal: 'cameraMotion', feature: 'panScore', value: 0.6, isCategoryDerived: false },
+      { signal: 'cameraMotion', feature: 'shakeScore', value: 0.2, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.6);
+    expect(result[1].normalizedValue).toBe(0.2);
+  });
+
+  it('divides cameraMotion dominantMotionTypeWeight (a 0-100 category weight) down to 0-1', () => {
+    const result = normalizeFeatures([
+      {
+        signal: 'cameraMotion',
+        feature: 'dominantMotionTypeWeight',
+        value: 80,
+        isCategoryDerived: true,
+        label: 'zoom',
+      },
+    ]);
+    expect(result[0].normalizedValue).toBeCloseTo(0.8);
+  });
+
+  it("passes editingRhythm's already-0-1 tempoScore/pacingScore through unchanged", () => {
+    const result = normalizeFeatures([
+      { signal: 'editingRhythm', feature: 'tempoScore', value: 0.4, isCategoryDerived: false },
+      { signal: 'editingRhythm', feature: 'pacingScore', value: 0.9, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.4);
+    expect(result[1].normalizedValue).toBe(0.9);
+  });
+
+  it('maps editingRhythm accelerationScore from [-1,1] to [0,1]', () => {
+    const negative = normalizeFeatures([
+      {
+        signal: 'editingRhythm',
+        feature: 'accelerationScore',
+        value: -1,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(negative[0].normalizedValue).toBe(0);
+
+    const zero = normalizeFeatures([
+      { signal: 'editingRhythm', feature: 'accelerationScore', value: 0, isCategoryDerived: false },
+    ]);
+    expect(zero[0].normalizedValue).toBeCloseTo(0.5);
+
+    const positive = normalizeFeatures([
+      { signal: 'editingRhythm', feature: 'accelerationScore', value: 1, isCategoryDerived: false },
+    ]);
+    expect(positive[0].normalizedValue).toBe(1);
+  });
+
   it('divides a 0-100 category weight down to 0-1', () => {
     const result = normalizeFeatures([
       {
@@ -108,6 +763,278 @@ describe('normalizeFeatures', () => {
       },
     ]);
     expect(result[0].normalizedValue).toBeCloseTo(0.9);
+  });
+
+  it("passes faceGeometry's already-0-1 features through unchanged", () => {
+    const result = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'blinkRate', value: 0.4, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.4);
+  });
+
+  it('maps averageAbsoluteYaw/Pitch from [0,45] degrees to [0,1]', () => {
+    const yaw = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageAbsoluteYaw',
+        value: 45,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(yaw[0].normalizedValue).toBe(1);
+
+    const pitch = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageAbsolutePitch',
+        value: 0,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(pitch[0].normalizedValue).toBe(0);
+  });
+
+  it('passes eyeContactRate through unchanged and maps dominantLookingDirectionWeight down to 0-1', () => {
+    const eyeContact = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'eyeContactRate', value: 0.6, isCategoryDerived: false },
+    ]);
+    expect(eyeContact[0].normalizedValue).toBe(0.6);
+
+    const direction = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'dominantLookingDirectionWeight',
+        value: 90,
+        isCategoryDerived: true,
+        label: 'center',
+      },
+    ]);
+    expect(direction[0].normalizedValue).toBeCloseTo(0.9);
+  });
+
+  it('maps averageSharpness from [0,500] Laplacian-variance units to [0,1]', () => {
+    const result = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'averageSharpness', value: 500, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(1);
+  });
+
+  it('scores averageBrightness highest at the ideal midpoint, lower toward either extreme', () => {
+    const ideal = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageBrightness',
+        value: 140,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(ideal[0].normalizedValue).toBe(1);
+
+    const tooDark = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'averageBrightness', value: 40, isCategoryDerived: false },
+    ]);
+    expect(tooDark[0].normalizedValue).toBe(0);
+
+    const tooBright = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageBrightness',
+        value: 220,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(tooBright[0].normalizedValue).toBe(0);
+  });
+
+  it('inverts occlusionRate so a higher normalizedValue always means better (less occluded)', () => {
+    const clear = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'occlusionRate', value: 0, isCategoryDerived: false },
+    ]);
+    expect(clear[0].normalizedValue).toBe(1);
+
+    const fullyOccluded = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'occlusionRate', value: 1, isCategoryDerived: false },
+    ]);
+    expect(fullyOccluded[0].normalizedValue).toBe(0);
+  });
+
+  it('maps speakerChangeCount from [0,5] to [0,1] and passes the two already-0-1 speaker features through unchanged', () => {
+    const changeCount = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'speakerChangeCount', value: 5, isCategoryDerived: false },
+    ]);
+    expect(changeCount[0].normalizedValue).toBe(1);
+
+    const consistency = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'dominantSpeakerConsistency',
+        value: 0.75,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(consistency[0].normalizedValue).toBe(0.75);
+
+    const syncRate = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'speakerAudioSyncRate',
+        value: 0.6,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(syncRate[0].normalizedValue).toBe(0.6);
+  });
+
+  it('maps averageLipVelocity/articulationRate to their own caps, and passes speakingIntensity/pauseCount through as documented', () => {
+    const lipVelocity = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageLipVelocity',
+        value: 0.5,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(lipVelocity[0].normalizedValue).toBe(1);
+
+    const speakingIntensity = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'speakingIntensity',
+        value: 0.6,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(speakingIntensity[0].normalizedValue).toBe(0.6);
+
+    const pauseCount = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'pauseCount', value: 5, isCategoryDerived: false },
+    ]);
+    expect(pauseCount[0].normalizedValue).toBe(1);
+
+    const articulationRate = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'articulationRate', value: 2, isCategoryDerived: false },
+    ]);
+    expect(articulationRate[0].normalizedValue).toBe(1);
+  });
+
+  it('maps averageMouthWidth to its own cap, and passes averageCheekRaise/averageEyeSquint/genuineSmileRate through unchanged', () => {
+    const mouthWidth = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'averageMouthWidth', value: 1, isCategoryDerived: false },
+    ]);
+    expect(mouthWidth[0].normalizedValue).toBe(1);
+
+    const cheekRaise = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageCheekRaise',
+        value: 0.4,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(cheekRaise[0].normalizedValue).toBe(0.4);
+
+    const eyeSquint = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'averageEyeSquint', value: 0.5, isCategoryDerived: false },
+    ]);
+    expect(eyeSquint[0].normalizedValue).toBe(0.5);
+
+    const genuineSmile = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'genuineSmileRate', value: 0.7, isCategoryDerived: false },
+    ]);
+    expect(genuineSmile[0].normalizedValue).toBe(0.7);
+  });
+
+  it('maps blinkFrequencyPerMinute/prolongedClosureCount to their own caps, and passes gazeStabilityScore through unchanged', () => {
+    const blinkFrequency = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'blinkFrequencyPerMinute',
+        value: 30,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(blinkFrequency[0].normalizedValue).toBe(1);
+
+    const prolongedClosure = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'prolongedClosureCount',
+        value: 5,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(prolongedClosure[0].normalizedValue).toBe(1);
+
+    const gazeStability = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'gazeStabilityScore',
+        value: 0.9,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(gazeStability[0].normalizedValue).toBe(0.9);
+  });
+
+  it('maps averageHeadMovementRate to its own cap, dominantAffectWeight down to 0-1, and passes averageBrowActivity/affectConfidence through unchanged', () => {
+    const browActivity = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageBrowActivity',
+        value: 0.4,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(browActivity[0].normalizedValue).toBe(0.4);
+
+    const headMovement = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'averageHeadMovementRate',
+        value: 30,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(headMovement[0].normalizedValue).toBe(1);
+
+    const affectWeight = normalizeFeatures([
+      {
+        signal: 'faceGeometry',
+        feature: 'dominantAffectWeight',
+        value: 90,
+        isCategoryDerived: true,
+        label: 'positive_affect',
+      },
+    ]);
+    expect(affectWeight[0].normalizedValue).toBeCloseTo(0.9);
+
+    const affectConfidence = normalizeFeatures([
+      { signal: 'faceGeometry', feature: 'affectConfidence', value: 1, isCategoryDerived: false },
+    ]);
+    expect(affectConfidence[0].normalizedValue).toBe(1);
+  });
+
+  it('passes ocr rate features through unchanged, maps dominantTextCategoryWeight down to 0-1, and caps averageTextBlockCount', () => {
+    const subtitleRate = normalizeFeatures([
+      { signal: 'ocr', feature: 'subtitleCoverageRate', value: 0.8, isCategoryDerived: false },
+    ]);
+    expect(subtitleRate[0].normalizedValue).toBe(0.8);
+
+    const categoryWeight = normalizeFeatures([
+      {
+        signal: 'ocr',
+        feature: 'dominantTextCategoryWeight',
+        value: 60,
+        isCategoryDerived: true,
+        label: 'subtitle',
+      },
+    ]);
+    expect(categoryWeight[0].normalizedValue).toBeCloseTo(0.6);
+
+    const textBlockCount = normalizeFeatures([
+      { signal: 'ocr', feature: 'averageTextBlockCount', value: 3, isCategoryDerived: false },
+    ]);
+    expect(textBlockCount[0].normalizedValue).toBe(1);
   });
 
   it('throws for an unregistered feature name', () => {

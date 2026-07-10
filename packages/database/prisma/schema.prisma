@@ -137,6 +137,16 @@ model Video {
   importSourceUrl       String?
   status                VideoStatus           @default(UPLOADED)
   durationSeconds       Float?
+  // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
+  // downloads the source - same "never fabricated" convention as
+  // transcribeProgress below, and deliberately a separate column rather
+  // than reusing that one: IMPORTING and (transcribe's) UPLOADED are
+  // different stages, and overloading one column for both would make an
+  // in-flight value ambiguous about which stage it belongs to. Null before
+  // the import job has started or once status has moved past IMPORTING.
+  // Reset to 0 at the start of every import attempt (including retries),
+  // same reasoning as transcribeProgress.
+  importProgress        Int?
   // 0-100, real progress reported by transcribe.worker.ts at each checkpoint
   // (source downloaded, each audio chunk transcribed) - never a fabricated/
   // interpolated animation. Null before the transcribe job has started or
@@ -293,6 +303,59 @@ model Clip {
   // Empty array (not null) when analysis found no cuts or failed to run -
   // same "always an array" convention as topics/keywords/emojiSuggestions.
   sceneCuts     Float[]      @default([])
+  // Batch SC-1 (Scene Intelligence taxonomy expansion, on top of Fase 26) -
+  // one JSON array of @speedora/scene-intelligence's classifySceneCutTypes()
+  // output ({t, type: 'hard_cut'|'fade'|'dissolve'}[], clip-relative
+  // seconds, one entry per `sceneCuts` timestamp above) - a second ffmpeg
+  // pass (blackdetect) over the same cuts, not a re-detection. Null (not an
+  // empty array) when classification wasn't run or failed entirely for the
+  // clip, distinct from an empty array (no cuts to classify at all) - same
+  // convention as facialEmotions below.
+  sceneCutEvents Json?
+  // Batch SC-2 (Scene Intelligence taxonomy expansion, continuing Batch
+  // SC-1) - one JSON array of @speedora/scene-intelligence's
+  // analyzeMotionEnergy() output ({t, motionEnergy}[], clip-relative
+  // seconds, ~1 sample/second) - a SEPARATE signal from sceneCuts/
+  // sceneCutEvents above (motion magnitude, not cut events). Json (not
+  // Float[] like sceneCuts) because each sample is a {t, motionEnergy}
+  // pair, not a bare number. Defaults to an empty JSON array (never null) -
+  // analyzeMotionEnergy() itself never fails the job, same "always an
+  // array" convention as sceneCuts.
+  motionEnergy         Json         @default("[]")
+  // Batch SC-2 - derived summary (see audioFeatures/sceneFeatures below) -
+  // always computed (deriveMotionEnergyFeatures() never returns null, only
+  // all-null fields for an empty `motionEnergy`), same "always populated"
+  // convention as sceneFeatures/audioFeatures despite the nullable column
+  // type (Prisma Json columns are declared nullable here purely so the
+  // adapter isn't forced to fabricate a value before the first render).
+  motionEnergyFeatures Json?
+  // Batch SC-3 (Scene Intelligence taxonomy expansion, continuing Batch
+  // SC-1/SC-2) - one JSON array of @speedora/scene-intelligence's
+  // detectCameraMotion() output ({t, dx, dy, scale, rotation, ecc}[],
+  // clip-relative seconds, ~1 sample/second) - a Python/OpenCV subprocess
+  // (ECC image alignment), unlike sceneCuts/motionEnergy above (both
+  // ffmpeg-based). Null (not an empty array) when the analysis wasn't run
+  // or failed entirely for the clip, same convention as facialEmotions
+  // below (distinct from sceneCuts/motionEnergy's "always an array"
+  // convention, which only applies to ffmpeg-based detectors that catch
+  // their own failures).
+  cameraMotion Json?
+  // Batch SC-3 - derived summary (see motionEnergyFeatures above) - null
+  // exactly when `cameraMotion` above is null, same convention as
+  // facialFeatures/gestureFeatures.
+  cameraMotionFeatures Json?
+  // Taxonomy category F (Editing Rhythm, requested by user after Batch
+  // SC-3) - @speedora/editing-rhythm's deriveEditingRhythmFeatures()
+  // output (tempoScore/pacingScore/accelerationScore). NO separate "raw"
+  // column - unlike every signal above, this one is a COMPOSITE (its input
+  // is OTHER signals' already-computed sceneCuts/motionEnergy/features,
+  // not a fresh subprocess/ffmpeg detector of its own), so there's no
+  // independent raw timeline to persist here; the raw data it's built from
+  // already lives in Clip.sceneCuts/Clip.motionEnergy. Always computed
+  // when render-clip runs (never null in practice), same "always populated
+  // despite a nullable column type" convention as sceneFeatures/
+  // audioFeatures above.
+  editingRhythmFeatures Json?
   // Fase 27 (Facial Intelligence, AI Fusion roadmap Phase C) - one JSON
   // array of @speedora/facial-intelligence's per-sample output ({t, emotion,
   // score}[], clip-relative seconds), same "one JSON blob, not a column per
@@ -366,6 +429,53 @@ model Clip {
   llmFeatures             Json?
   highlightPrediction     Json?
   highlightRecommendation Json?
+  // AI Fusion roadmap's Face Intelligence initiative, Batch 1 - same raw/
+  // features split as Scene/Facial/Gesture Intelligence above:
+  // @speedora/facial-intelligence's detectFaceLandmarks() per-sample output
+  // (MediaPipe FaceLandmarker: blendshapes/rotation/boundingBox/iris/eye-
+  // corner points per sampled frame) and its derived summary (blinkRate,
+  // averageSmile, averageMouthOpen, averageAbsoluteYaw/Pitch, position/
+  // size/visibilityScore). Distinct from facialEmotions/facialFeatures
+  // above (a separate subprocess/model producing an unrelated feature set -
+  // expression classification vs. landmark geometry). faceLandmarks null
+  // (not []) when the whole analysis failed to run; faceLandmarkFeatures
+  // null exactly when faceLandmarks is null.
+  faceLandmarks         Json?
+  faceLandmarkFeatures  Json?
+  // AI Fusion roadmap's Face Intelligence initiative, Batch 4.5 (Quality
+  // Metrics & Telemetry) - explicitly NOT a scoring signal (user's own
+  // framing: "bukan menambah AI baru"). Purely explainability/audit
+  // telemetry over Batch 4's tracker (fragmentation rate, id switch count,
+  // lost-track duration, re-identification success rate, per-track
+  // breakdown, etc. - see @speedora/facial-intelligence's
+  // deriveTrackingQualityMetrics). Not consumed by @speedora/fusion-engine
+  // at all, unlike every other *Features column above. Null when
+  // faceLandmarks itself is null (nothing to derive telemetry from).
+  trackingQualityMetrics Json?
+  // AI Fusion roadmap's OCR initiative, Batch OCR-1 - @speedora/ocr-
+  // intelligence's detectOcrText() per-sample output (Tesseract: text +
+  // bounding box + confidence per detected on-screen text region, per
+  // sampled frame). Raw only - no `ocrFeatures` companion column yet,
+  // unlike every other detector's Batch 1: OCR-2 (cross-frame tracking +
+  // rule-based Subtitle/Slide/Caption/Logo/Price/Name classification) is
+  // what a derived-features summary would even mean here, so it's added
+  // in that batch instead of as a premature placeholder now. Null (not
+  // []) when the whole analysis failed to run.
+  ocrText Json?
+  // AI Fusion roadmap's OCR initiative, Batch OCR-2 - the "store
+  // everything" layer between raw (ocrText) and aggregate (ocrFeatures):
+  // @speedora/ocr-intelligence's trackOcrText()+classifyOcrTrack() output,
+  // one entry per tracked on-screen text element across its lifetime, each
+  // carrying every feature (position/size/duration/persistence/motion/
+  // nearFace/regexFlags) PLUS the rule-fusion category/categoryConfidence
+  // - user's own instruction: persist all of this now so a future trained
+  // classifier could be built from it later. ocrFeatures is the dense
+  // per-clip summary computeHighlightScore actually consumes (derived FROM
+  // ocrTracks, same "raw/features" relationship as every other module's
+  // pair, with this extra middle layer specific to OCR's multi-region-
+  // per-frame shape). Both null exactly when ocrText is null.
+  ocrTracks   Json?
+  ocrFeatures Json?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

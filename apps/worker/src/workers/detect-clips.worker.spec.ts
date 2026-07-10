@@ -35,6 +35,7 @@ const clipCreateMock = jest.fn((args: { data: Record<string, unknown> }) => {
 });
 const videoUpdateMock = jest.fn();
 const videoFindUniqueOrThrowMock = jest.fn();
+const videoCountMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn().mockResolvedValue({});
 const transactionMock = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 jest.mock('../prisma', () => ({
@@ -43,6 +44,7 @@ jest.mock('../prisma', () => ({
     video: {
       update: (...args: unknown[]) => videoUpdateMock(...args),
       findUniqueOrThrow: (...args: unknown[]) => videoFindUniqueOrThrowMock(...args),
+      count: (...args: unknown[]) => videoCountMock(...args),
     },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, in the same $transaction as video.update().
@@ -92,6 +94,9 @@ describe('detect-clips worker (adapter)', () => {
     transactionMock.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
     videoUpdateMock.mockResolvedValue({});
     renderClipQueueAdd.mockResolvedValue(undefined);
+    // Video exists by default - individual tests override this to exercise
+    // the orphaned-job (deleted-video) skip path.
+    videoCountMock.mockResolvedValue(1);
   });
 
   it("narrows each TranscriptSegment to the scoring module's own input shape (drops speaker/emotion)", async () => {
@@ -210,6 +215,23 @@ describe('detect-clips worker (adapter)', () => {
 
     expect(result).toEqual({ videoId: 'video-1', candidates: [] });
     expect(videoFindUniqueOrThrowMock).not.toHaveBeenCalled();
+    expect(renderClipQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('skips an orphaned job for a video that was deleted while queued, without doing any work', async () => {
+    videoCountMock.mockResolvedValue(0);
+
+    const processor = getProcessor();
+    const result = await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
+    });
+
+    expect(result).toEqual({ videoId: 'video-1', candidates: [] });
+    // No LLM call, no clip writes, no status update, no downstream enqueue -
+    // the job is a pure no-op once the video is gone.
+    expect(scoreClipCandidatesMock).not.toHaveBeenCalled();
+    expect(clipCreateMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalled();
     expect(renderClipQueueAdd).not.toHaveBeenCalled();
   });
 

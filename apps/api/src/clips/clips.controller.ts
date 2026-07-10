@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   HttpCode,
   Param,
   Patch,
@@ -10,7 +11,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { getObjectStream } from '@speedora/storage';
+import { getObjectStream, getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -33,6 +34,33 @@ export class ClipsController {
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="clip-${clip.id}.mp4"`);
     stream.pipe(res);
+  }
+
+  // Streams the rendered clip for inline playback (the dashboard's <video>
+  // preview). Separate from :id/download - Chrome refuses to play media
+  // served with Content-Disposition: attachment, and a <video> element
+  // needs Range support to seek/read metadata; same pattern as
+  // GET /videos/:id/source in VideosController.
+  @Get(':id/stream')
+  async stream(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Headers('range') range: string | undefined,
+    @Res() res: Response,
+  ) {
+    const clip = await this.clipsService.findRenderedOrThrow(id, user.id);
+    const result = await getObjectStreamRange(clip.outputUrl as string, range);
+
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', result.contentType ?? 'video/mp4');
+    if (result.contentLength !== undefined) {
+      res.setHeader('Content-Length', result.contentLength.toString());
+    }
+    if (range && result.contentRange) {
+      res.status(206);
+      res.setHeader('Content-Range', result.contentRange);
+    }
+    result.stream.pipe(res);
   }
 
   // Manual trim from the timeline editor - does not trigger a re-render.

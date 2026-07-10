@@ -1,11 +1,16 @@
 import type {
   AudioFeatures,
+  CameraMotionFeatures,
   ClipScores,
+  EditingRhythmFeatures,
+  FaceLandmarkFeatures,
   FacialEmotionFeatures,
   FusionInput,
   FusionSignal,
   FusionWeights,
   GestureFeatures,
+  MotionEnergyFeatures,
+  OcrFeatures,
   SceneFeatures,
 } from '@speedora/contracts';
 
@@ -47,6 +52,36 @@ export interface ExtractedFeature {
   // to describe the feature in human terms.
   label?: string;
 }
+
+// Same "attention-grabbing category weight" proxy as EMOTION_WEIGHT/
+// GESTURE_WEIGHT below, for Batch 2's dominantLookingDirection - 'center'
+// (looking at camera) scores highest, any deviation scores equally lower
+// (this heuristic doesn't distinguish "slightly off" from "looking away
+// entirely" at the category level - only the per-sample eyeContactRate
+// feature captures degree/frequency).
+const LOOKING_DIRECTION_WEIGHT: Record<string, number> = {
+  center: 90,
+  left: 50,
+  right: 50,
+  up: 50,
+  down: 50,
+};
+const DEFAULT_LOOKING_DIRECTION_WEIGHT = 50;
+
+// Batch 5D (Emotion Heuristic) - same "attention-grabbing category weight"
+// proxy as EMOTION_WEIGHT/GESTURE_WEIGHT/LOOKING_DIRECTION_WEIGHT above,
+// for the SAFE dominantAffect vocabulary (see @speedora/contracts'
+// AFFECT_LABELS) - positive_affect/high_energy read as high-arousal/
+// engaging, expressive as moderately so, low_energy/neutral as low-arousal
+// - same "not a sentiment claim" caveat as EMOTION_WEIGHT.
+const AFFECT_WEIGHT: Record<string, number> = {
+  positive_affect: 90,
+  high_energy: 90,
+  expressive: 75,
+  low_energy: 40,
+  neutral: 40,
+};
+const DEFAULT_AFFECT_WEIGHT = 50;
 
 // High-arousal emotions (happy/surprise/angry/fear) weighted above low-
 // arousal ones (neutral/sad) - a "attention-grabbing expression" proxy, not
@@ -111,6 +146,149 @@ function extractSceneFeatures(features: SceneFeatures | undefined): ExtractedFea
       isCategoryDerived: false,
     },
   ];
+}
+
+// Batch SC-2 (Scene Intelligence taxonomy expansion) - motion-energy/
+// static-dynamic classification, a SEPARATE signal from extractSceneFeatures
+// above (see @speedora/contracts' FUSION_SIGNALS comment on why). Every
+// field is a plain measurement (no category-derived weight table here,
+// unlike facial/gesture's dominant-label mapping).
+function extractMotionEnergyFeatures(
+  features: MotionEnergyFeatures | undefined,
+): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.averageMotionEnergy !== null) {
+    items.push({
+      signal: 'sceneMotion',
+      feature: 'averageMotionEnergy',
+      value: features.averageMotionEnergy,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dynamicRatio !== null) {
+    items.push({
+      signal: 'sceneMotion',
+      feature: 'dynamicRatio',
+      // dynamicRatio (not staticRatio) is the one extracted - "more motion
+      // = higher normalizedValue" keeps this consistent with every other
+      // feature's "higher normalizedValue = more of the thing being
+      // measured" convention (cutsPerMinute, averageMotionEnergy itself,
+      // etc.), rather than needing a special inverted case like
+      // occlusionRate. staticRatio is always derivable as 1 - dynamicRatio
+      // for a caller that wants it, so nothing is lost by only reporting one.
+      value: features.dynamicRatio,
+      isCategoryDerived: false,
+    });
+  }
+  return items;
+}
+
+// Batch SC-3 (Scene Intelligence taxonomy expansion) - directional camera
+// motion (pan/tilt/zoom/shake), a SEPARATE signal from sceneMotion above
+// (undirected magnitude). Same "attention-grabbing category weight" proxy
+// as EMOTION_WEIGHT/GESTURE_WEIGHT/AFFECT_WEIGHT for dominantMotionType -
+// zoom/pan/tilt read as deliberate cinematic choices, weighted a bit above
+// static; `shake`'s weight is deliberately neutral (50, same as the
+// DEFAULT) - unlike the others, this codebase has NO calibrated view on
+// whether shake reads as engaging (intentional handheld energy) or a
+// production-value problem (unstable footage), so it isn't nudged either
+// direction, same "direction unproven" honesty as speakerChangeCount/
+// pauseCount elsewhere in this file.
+const CAMERA_MOTION_WEIGHT: Record<string, number> = {
+  zoom: 80,
+  pan: 65,
+  tilt: 65,
+  shake: 50,
+  static: 40,
+};
+const DEFAULT_CAMERA_MOTION_WEIGHT = 50;
+
+function extractCameraMotionFeatures(
+  features: CameraMotionFeatures | undefined,
+): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.panScore !== null) {
+    items.push({
+      signal: 'cameraMotion',
+      feature: 'panScore',
+      value: features.panScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.tiltScore !== null) {
+    items.push({
+      signal: 'cameraMotion',
+      feature: 'tiltScore',
+      value: features.tiltScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.zoomScore !== null) {
+    items.push({
+      signal: 'cameraMotion',
+      feature: 'zoomScore',
+      value: features.zoomScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.shakeScore !== null) {
+    items.push({
+      signal: 'cameraMotion',
+      feature: 'shakeScore',
+      value: features.shakeScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dominantMotionType !== null) {
+    items.push({
+      signal: 'cameraMotion',
+      feature: 'dominantMotionTypeWeight',
+      value: CAMERA_MOTION_WEIGHT[features.dominantMotionType] ?? DEFAULT_CAMERA_MOTION_WEIGHT,
+      isCategoryDerived: true,
+      label: features.dominantMotionType,
+    });
+  }
+  return items;
+}
+
+// Taxonomy category F (Editing Rhythm) - a COMPOSITE signal (see
+// @speedora/editing-rhythm's own module comment): tempoScore/pacingScore
+// are already 0-1 by contract, accelerationScore is -1 to 1 (the only
+// feature in this whole pipeline with that range so far) and gets mapped
+// to 0-1 in NORMALIZERS below, not here - extraction only reports the raw
+// value, normalization is a separate pipeline stage.
+function extractEditingRhythmFeatures(
+  features: EditingRhythmFeatures | undefined,
+): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.tempoScore !== null) {
+    items.push({
+      signal: 'editingRhythm',
+      feature: 'tempoScore',
+      value: features.tempoScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.pacingScore !== null) {
+    items.push({
+      signal: 'editingRhythm',
+      feature: 'pacingScore',
+      value: features.pacingScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.accelerationScore !== null) {
+    items.push({
+      signal: 'editingRhythm',
+      feature: 'accelerationScore',
+      value: features.accelerationScore,
+      isCategoryDerived: false,
+    });
+  }
+  return items;
 }
 
 function extractFacialFeatures(features: FacialEmotionFeatures | undefined): ExtractedFeature[] {
@@ -249,12 +427,404 @@ function extractLlmFeatures(scores: ClipScores | undefined): ExtractedFeature[] 
   ];
 }
 
+// AI Fusion roadmap's Face Intelligence initiative, Batch 1 - MediaPipe
+// FaceLandmarker's blink/smile/mouth-open/head-rotation/framing features,
+// distinct from extractFacialFeatures (expression classification via a
+// separate model/subprocess). Every field maps 1:1 to a named feature, same
+// "nothing collapsed into one opaque signal score" convention as every
+// other extractor here - `visibilityScore` in particular is reported even
+// though its own signal's weight is 0 (see weights.ts), for the same
+// transparency reason gesture's features are.
+function extractFaceGeometryFeatures(features: FaceLandmarkFeatures | undefined): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.blinkRate !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'blinkRate',
+      value: features.blinkRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageSmile !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageSmile',
+      value: features.averageSmile,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageMouthOpen !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageMouthOpen',
+      value: features.averageMouthOpen,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageAbsoluteYaw !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageAbsoluteYaw',
+      value: features.averageAbsoluteYaw,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageAbsolutePitch !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageAbsolutePitch',
+      value: features.averageAbsolutePitch,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.positionScore !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'positionScore',
+      value: features.positionScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.sizeScore !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'sizeScore',
+      value: features.sizeScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.visibilityScore !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'visibilityScore',
+      value: features.visibilityScore,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch 2 (Eye Contact/Looking Direction) - eyeContactRate is a plain
+  // rate (like blinkRate above); dominantLookingDirection is category-
+  // derived (like dominantEmotionWeight/dominantGestureWeight), mapped
+  // through LOOKING_DIRECTION_WEIGHT.
+  if (features.eyeContactRate !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'eyeContactRate',
+      value: features.eyeContactRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dominantLookingDirection !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'dominantLookingDirectionWeight',
+      value:
+        LOOKING_DIRECTION_WEIGHT[features.dominantLookingDirection] ??
+        DEFAULT_LOOKING_DIRECTION_WEIGHT,
+      isCategoryDerived: true,
+      label: features.dominantLookingDirection,
+    });
+  }
+  // Batch 3 (Blur/Sharpness/Lighting/Occlusion) - averageSharpness/
+  // averageBrightness are raw units (normalized below in NORMALIZERS,
+  // same convention as averageAbsoluteYaw/Pitch); occlusionRate is
+  // already a 0-1 rate like blinkRate/eyeContactRate.
+  if (features.averageSharpness !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageSharpness',
+      value: features.averageSharpness,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageBrightness !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageBrightness',
+      value: features.averageBrightness,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.occlusionRate !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'occlusionRate',
+      value: features.occlusionRate,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch 4 (Face Re-identification/Tracking, Speaker Face Selection) -
+  // speakerChangeCount/dominantSpeakerConsistency come from the trackId
+  // sequence, speakerAudioSyncRate from correlating jawOpen against audio
+  // timing (see @speedora/facial-intelligence's deriveFaceLandmarkFeatures).
+  // All three normalized below (NORMALIZERS) same as every other feature
+  // here; faceGeometry's overall signal weight is still 0 (see weights.ts),
+  // so none of this moves a real score yet - reported for transparency the
+  // same way visibilityScore already is.
+  if (features.speakerChangeCount !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'speakerChangeCount',
+      value: features.speakerChangeCount,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dominantSpeakerConsistency !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'dominantSpeakerConsistency',
+      value: features.dominantSpeakerConsistency,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.speakerAudioSyncRate !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'speakerAudioSyncRate',
+      value: features.speakerAudioSyncRate,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch 5A (Lip Activity) - temporal dynamics on top of averageMouthOpen
+  // (already extracted above), all derived from the same jawOpen sequence.
+  // Unlike Batch 4.5's telemetry, this IS a scoring signal (user's own
+  // framing: high value for short-form video) - still faceGeometry's
+  // shared weight (0, see weights.ts) until real data justifies otherwise.
+  if (features.averageLipVelocity !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageLipVelocity',
+      value: features.averageLipVelocity,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.speakingIntensity !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'speakingIntensity',
+      value: features.speakingIntensity,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.pauseCount !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'pauseCount',
+      value: features.pauseCount,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.articulationRate !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'articulationRate',
+      value: features.articulationRate,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch 5B (Smile & Laugh) - averageMouthWidth/averageCheekRaise/
+  // averageEyeSquint are plain measurements; genuineSmileRate is a coarse
+  // Duchenne-marker heuristic (not category-derived - it's already a rate,
+  // not a label-to-weight mapping like dominantEmotionWeight above).
+  if (features.averageMouthWidth !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageMouthWidth',
+      value: features.averageMouthWidth,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageCheekRaise !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageCheekRaise',
+      value: features.averageCheekRaise,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageEyeSquint !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageEyeSquint',
+      value: features.averageEyeSquint,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.genuineSmileRate !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'genuineSmileRate',
+      value: features.genuineSmileRate,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch 5C (Blink & Eye Behavior) - blinkFrequencyPerMinute/
+  // prolongedClosureCount are plain measurements; gazeStabilityScore is
+  // already 0-1 by contract.
+  if (features.blinkFrequencyPerMinute !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'blinkFrequencyPerMinute',
+      value: features.blinkFrequencyPerMinute,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.prolongedClosureCount !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'prolongedClosureCount',
+      value: features.prolongedClosureCount,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.gazeStabilityScore !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'gazeStabilityScore',
+      value: features.gazeStabilityScore,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch 5D (Emotion Heuristic) - averageBrowActivity/
+  // averageHeadMovementRate are plain measurements; dominantAffect is
+  // category-derived (same "attention-grabbing category weight" proxy as
+  // dominantEmotionWeight/dominantGestureWeight/
+  // dominantLookingDirectionWeight above, via AFFECT_WEIGHT);
+  // affectConfidence is a coverage score, extracted the same way
+  // peakConfidence is for facial/gesture.
+  if (features.averageBrowActivity !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageBrowActivity',
+      value: features.averageBrowActivity,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageHeadMovementRate !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'averageHeadMovementRate',
+      value: features.averageHeadMovementRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dominantAffect !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'dominantAffectWeight',
+      value: AFFECT_WEIGHT[features.dominantAffect] ?? DEFAULT_AFFECT_WEIGHT,
+      isCategoryDerived: true,
+      label: features.dominantAffect,
+    });
+  }
+  if (features.affectConfidence !== null) {
+    items.push({
+      signal: 'faceGeometry',
+      feature: 'affectConfidence',
+      value: features.affectConfidence,
+      isCategoryDerived: false,
+    });
+  }
+  return items;
+}
+
+// AI Fusion roadmap's OCR initiative, Batch OCR-2 - @speedora/ocr-
+// intelligence's deriveOcrFeatures() output. Unlike faceGeometry/gesture
+// (weight 0, collected-but-not-scored), `ocr` has carried a real weight
+// (0.1) in DEFAULT_FUSION_WEIGHTS since Fase 31, reserved before any
+// module existed to fill it - this is that module.
+const OCR_CATEGORY_WEIGHT: Record<string, number> = {
+  price: 90,
+  name: 70,
+  subtitle: 60,
+  slide: 55,
+  caption: 50,
+  logo: 30,
+};
+const DEFAULT_OCR_CATEGORY_WEIGHT = 50;
+
+function extractOcrFeatures(features: OcrFeatures | undefined): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.subtitleCoverageRate !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'subtitleCoverageRate',
+      value: features.subtitleCoverageRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.slidePresenceRate !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'slidePresenceRate',
+      value: features.slidePresenceRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.captionRate !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'captionRate',
+      value: features.captionRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.logoPresenceRate !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'logoPresenceRate',
+      value: features.logoPresenceRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.priceMentionRate !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'priceMentionRate',
+      value: features.priceMentionRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.nameMentionRate !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'nameMentionRate',
+      value: features.nameMentionRate,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dominantTextCategory !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'dominantTextCategoryWeight',
+      value: OCR_CATEGORY_WEIGHT[features.dominantTextCategory] ?? DEFAULT_OCR_CATEGORY_WEIGHT,
+      isCategoryDerived: true,
+      label: features.dominantTextCategory,
+    });
+  }
+  if (features.averageTextBlockCount !== null) {
+    items.push({
+      signal: 'ocr',
+      feature: 'averageTextBlockCount',
+      value: features.averageTextBlockCount,
+      isCategoryDerived: false,
+    });
+  }
+  return items;
+}
+
 export function extractFeatures(input: FusionInput): ExtractedFeature[] {
   return [
     ...extractAudioFeatures(input.audio),
     ...extractSceneFeatures(input.scene),
+    ...extractMotionEnergyFeatures(input.sceneMotion),
+    ...extractCameraMotionFeatures(input.cameraMotion),
+    ...extractEditingRhythmFeatures(input.editingRhythm),
     ...extractFacialFeatures(input.facial),
     ...extractGestureFeatures(input.gesture),
+    ...extractFaceGeometryFeatures(input.faceGeometry),
+    ...extractOcrFeatures(input.ocr),
     ...extractLlmFeatures(input.llm),
   ];
 }
@@ -277,22 +847,193 @@ const SPEAKING_RATE_STD_DEV_CAP = 2;
 const SCENE_CUTS_PER_MINUTE_CAP = 20;
 const SCENE_BASELINE = 0.2;
 
+// Batch SC-2 (Scene Intelligence taxonomy expansion) - ffmpeg signalstats'
+// YDIF at/above this reads as "maximally dynamic" motion energy - a
+// reasonable guess (0-255 luma scale; sustained handheld/action footage
+// commonly reads well above single digits), NOT calibrated against real
+// footage, same caveat as every other cap in this file.
+const MOTION_ENERGY_CAP = 20;
+
 // clip-scoring's LLM output is already 0-100 by contract (clampScores()
 // there), so every llm.* normalizer is the same plain /100 divide - listed
 // individually (rather than a wildcard match) so an unrecognized feature
 // name still throws instead of silently normalizing.
 const LLM_SCORE_NORMALIZER = (value: number) => clamp(value / 100, 0, 1);
 
+// Degrees of head yaw/pitch above which "looking away from camera" is
+// already at its most extreme reportable value - same "reasonable cap,
+// not calibrated against real footage" caveat as AUDIO_QUIET_DB/
+// SCENE_CUTS_PER_MINUTE_CAP above. This normalizes MAGNITUDE of rotation
+// (0 = facing camera, 1 = at/past the cap), not a judgment of whether
+// looking away is good or bad for a given clip.
+const HEAD_ROTATION_CAP_DEGREES = 45;
+
+// Batch 3 (Blur/Sharpness/Lighting) - Laplacian variance at/above this is
+// already fully "sharp" (1.0); a reasonable guess for typical video frame
+// content/resolution, not calibrated against real footage (same caveat as
+// every other cap in this file).
+const SHARPNESS_CAP = 500;
+
+// Batch 3 (Lighting) - unlike sharpness/cuts-per-minute (more is simply
+// "more"), brightness has a middle-is-best shape: too dark OR too bright
+// are both worse than a well-lit middle range. BRIGHTNESS_IDEAL scores 1;
+// TOO_DARK/TOO_BRIGHT score 0; linear ramps between. Reasonable guesses on
+// a 0-255 grayscale scale, not calibrated against real footage.
+const BRIGHTNESS_TOO_DARK = 40;
+const BRIGHTNESS_IDEAL = 140;
+const BRIGHTNESS_TOO_BRIGHT = 220;
+
+function brightnessScore(value: number): number {
+  if (value <= BRIGHTNESS_TOO_DARK || value >= BRIGHTNESS_TOO_BRIGHT) return 0;
+  if (value <= BRIGHTNESS_IDEAL) {
+    return clamp(mapRange(value, BRIGHTNESS_TOO_DARK, BRIGHTNESS_IDEAL, 0, 1), 0, 1);
+  }
+  return clamp(mapRange(value, BRIGHTNESS_IDEAL, BRIGHTNESS_TOO_BRIGHT, 1, 0), 0, 1);
+}
+
+// Batch 4 (Face Re-identification/Tracking) - same "more is simply more, up
+// to a reasonable cap" treatment as SCENE_CUTS_PER_MINUTE_CAP, and for the
+// same honest reason: this codebase has no calibrated view on whether a
+// visible-speaker change within a single short clip is inherently good
+// (dynamic, multi-person content) or bad (unstable tracking) - so it's
+// scored the same direction as scene cuts rather than inverted, pending
+// real data. dominantSpeakerConsistency is the complementary "stability"
+// read and is scored in the opposite direction (more consistent = better)
+// since that one IS unambiguous.
+const SPEAKER_CHANGE_CAP = 5;
+
+// Batch 5A (Lip Activity) - reasonable guesses, not calibrated against real
+// footage, same "kejujuran skala" as every other cap in this file.
+// LIP_VELOCITY_CAP: blendshape-units/sec at/above which mouth movement
+// reads as "maximally active" (a full 0->1 jawOpen swing in ~2 seconds).
+const LIP_VELOCITY_CAP = 0.5;
+// ARTICULATION_RATE_CAP: direction reversals/sec at/above which jawOpen is
+// oscillating "maximally rapidly".
+const ARTICULATION_RATE_CAP = 2;
+// PAUSE_COUNT_CAP: same "more is simply more, direction unproven" honesty
+// as SPEAKER_CHANGE_CAP - this codebase has no calibrated view on whether
+// mid-clip pauses are a good (dramatic effect) or bad (dead air) sign for a
+// short clip, so it's scored the same uninverted direction as speaker
+// changes/scene cuts, pending real data.
+const PAUSE_COUNT_CAP = 5;
+
+// Batch 5B (Smile & Laugh) - a mouth-width ratio (corner-to-corner distance
+// / inter-ocular baseline, see face-landmarks.ts) at/above this reads as
+// "maximally wide" (a broad, expressive smile) - a reasonable guess, not
+// calibrated against real footage, same caveat as every other cap here.
+const MOUTH_WIDTH_CAP = 1.0;
+
+// Batch 5C (Blink & Eye Behavior) - reasonable guesses, not calibrated
+// against real footage. BLINK_FREQUENCY_CAP: blinks/minute at/above which
+// blink frequency reads as "maximally high" (typical resting blink rate is
+// roughly 15-20/min, so this is a generous upper band).
+// PROLONGED_CLOSURE_CAP: same "more is simply more, direction unproven"
+// honesty as PAUSE_COUNT_CAP/SPEAKER_CHANGE_CAP.
+const BLINK_FREQUENCY_CAP = 30;
+const PROLONGED_CLOSURE_CAP = 5;
+
+// Batch 5D (Emotion Heuristic) - degrees/sec of combined pitch+yaw+roll
+// change at/above which head movement reads as "maximally dynamic" - same
+// VALUE as @speedora/facial-intelligence's own HEAD_MOVEMENT_RATE_CAP,
+// duplicated (not imported - separate packages, and that copy serves a
+// different purpose: normalizing this SAME raw signal for its own internal
+// dominantAffect decision tree, not for the Fusion Engine's scoring).
+const HEAD_MOVEMENT_RATE_CAP = 30;
+
+// AI Fusion roadmap's OCR initiative, Batch OCR-2 - text blocks/sampled-
+// frame at/above which on-screen text density reads as "maximally dense" -
+// a reasonable guess (a typical talking-head clip might show 0-2 blocks at
+// once: one subtitle line plus maybe a logo), not calibrated against real
+// footage, same caveat as every other cap in this file.
+const AVERAGE_TEXT_BLOCK_COUNT_CAP = 3;
+
 const NORMALIZERS: Record<string, (value: number) => number> = {
   averageRmsDb: (value) => clamp(mapRange(value, AUDIO_QUIET_DB, AUDIO_LOUD_DB, 0, 1), 0, 1),
   speakingRateStdDev: (value) => clamp(mapRange(value, 0, SPEAKING_RATE_STD_DEV_CAP, 0, 1), 0, 1),
   cutsPerMinute: (value) =>
     clamp(mapRange(value, 0, SCENE_CUTS_PER_MINUTE_CAP, SCENE_BASELINE, 1), 0, 1),
+  // Batch SC-2 (Scene Intelligence taxonomy expansion).
+  averageMotionEnergy: (value) => clamp(mapRange(value, 0, MOTION_ENERGY_CAP, 0, 1), 0, 1),
+  // Already 0-1 by contract (MotionEnergyFeatures.dynamicRatio).
+  dynamicRatio: (value) => clamp(value, 0, 1),
+  // Batch SC-3 - already 0-1 by contract (CameraMotionFeatures - see
+  // scene-intelligence.ts).
+  panScore: (value) => clamp(value, 0, 1),
+  tiltScore: (value) => clamp(value, 0, 1),
+  zoomScore: (value) => clamp(value, 0, 1),
+  shakeScore: (value) => clamp(value, 0, 1),
+  dominantMotionTypeWeight: (value) => clamp(value / 100, 0, 1),
+  // Taxonomy category F (Editing Rhythm) - tempoScore/pacingScore already
+  // 0-1 by contract. accelerationScore is -1 to 1 (concentrated-first-half
+  // to concentrated-second-half) - the only feature normalized from a
+  // signed range in this pipeline so far, mapped linearly to 0-1 (0 =
+  // fully first-half-concentrated, 1 = fully second-half-concentrated,
+  // 0.5 = evenly split) rather than treating "accelerating" as
+  // inherently better/worse than "decelerating".
+  tempoScore: (value) => clamp(value, 0, 1),
+  pacingScore: (value) => clamp(value, 0, 1),
+  accelerationScore: (value) => clamp(mapRange(value, -1, 1, 0, 1), 0, 1),
   dominantEmotionWeight: (value) => clamp(value / 100, 0, 1),
   dominantGestureWeight: (value) => clamp(value / 100, 0, 1),
   // Already 0-1 by contract (facial/gesture peakConfidence/stability).
   peakConfidence: (value) => clamp(value, 0, 1),
   stability: (value) => clamp(value, 0, 1),
+  // Already 0-1 by contract (FaceLandmarkFeatures - see face-landmarks.ts).
+  blinkRate: (value) => clamp(value, 0, 1),
+  averageSmile: (value) => clamp(value, 0, 1),
+  averageMouthOpen: (value) => clamp(value, 0, 1),
+  positionScore: (value) => clamp(value, 0, 1),
+  sizeScore: (value) => clamp(value, 0, 1),
+  visibilityScore: (value) => clamp(value, 0, 1),
+  averageAbsoluteYaw: (value) => clamp(mapRange(value, 0, HEAD_ROTATION_CAP_DEGREES, 0, 1), 0, 1),
+  averageAbsolutePitch: (value) =>
+    clamp(mapRange(value, 0, HEAD_ROTATION_CAP_DEGREES, 0, 1), 0, 1),
+  // Already 0-1 by contract (FaceLandmarkFeatures.eyeContactRate).
+  eyeContactRate: (value) => clamp(value, 0, 1),
+  dominantLookingDirectionWeight: (value) => clamp(value / 100, 0, 1),
+  averageSharpness: (value) => clamp(mapRange(value, 0, SHARPNESS_CAP, 0, 1), 0, 1),
+  averageBrightness: brightnessScore,
+  // Inverted (1 - rate), NOT a passthrough - occlusionRate's raw semantics
+  // are "higher = more occluded" (a problem), but every other feature here
+  // follows "higher normalizedValue = better" (positionScore/sizeScore/
+  // eyeContactRate) - inverting keeps that convention consistent so a
+  // future non-zero weight moves the score the right direction without
+  // needing a special case.
+  occlusionRate: (value) => clamp(1 - value, 0, 1),
+  speakerChangeCount: (value) => clamp(mapRange(value, 0, SPEAKER_CHANGE_CAP, 0, 1), 0, 1),
+  // Already 0-1 by contract (FaceLandmarkFeatures - see face-landmarks.ts).
+  dominantSpeakerConsistency: (value) => clamp(value, 0, 1),
+  speakerAudioSyncRate: (value) => clamp(value, 0, 1),
+  averageLipVelocity: (value) => clamp(mapRange(value, 0, LIP_VELOCITY_CAP, 0, 1), 0, 1),
+  // Already 0-1 by contract (FaceLandmarkFeatures.speakingIntensity).
+  speakingIntensity: (value) => clamp(value, 0, 1),
+  pauseCount: (value) => clamp(mapRange(value, 0, PAUSE_COUNT_CAP, 0, 1), 0, 1),
+  articulationRate: (value) => clamp(mapRange(value, 0, ARTICULATION_RATE_CAP, 0, 1), 0, 1),
+  averageMouthWidth: (value) => clamp(mapRange(value, 0, MOUTH_WIDTH_CAP, 0, 1), 0, 1),
+  // Already 0-1 by contract (FaceLandmarkFeatures - see face-landmarks.ts).
+  averageCheekRaise: (value) => clamp(value, 0, 1),
+  averageEyeSquint: (value) => clamp(value, 0, 1),
+  genuineSmileRate: (value) => clamp(value, 0, 1),
+  blinkFrequencyPerMinute: (value) => clamp(mapRange(value, 0, BLINK_FREQUENCY_CAP, 0, 1), 0, 1),
+  prolongedClosureCount: (value) =>
+    clamp(mapRange(value, 0, PROLONGED_CLOSURE_CAP, 0, 1), 0, 1),
+  // Already 0-1 by contract (FaceLandmarkFeatures.gazeStabilityScore).
+  gazeStabilityScore: (value) => clamp(value, 0, 1),
+  averageBrowActivity: (value) => clamp(value, 0, 1),
+  averageHeadMovementRate: (value) =>
+    clamp(mapRange(value, 0, HEAD_MOVEMENT_RATE_CAP, 0, 1), 0, 1),
+  dominantAffectWeight: (value) => clamp(value / 100, 0, 1),
+  affectConfidence: (value) => clamp(value, 0, 1),
+  // Already 0-1 by contract (OcrFeatures - see ocr.ts).
+  subtitleCoverageRate: (value) => clamp(value, 0, 1),
+  slidePresenceRate: (value) => clamp(value, 0, 1),
+  captionRate: (value) => clamp(value, 0, 1),
+  logoPresenceRate: (value) => clamp(value, 0, 1),
+  priceMentionRate: (value) => clamp(value, 0, 1),
+  nameMentionRate: (value) => clamp(value, 0, 1),
+  dominantTextCategoryWeight: (value) => clamp(value / 100, 0, 1),
+  averageTextBlockCount: (value) =>
+    clamp(mapRange(value, 0, AVERAGE_TEXT_BLOCK_COUNT_CAP, 0, 1), 0, 1),
   'engagement.hookStrength': LLM_SCORE_NORMALIZER,
   'engagement.curiosity': LLM_SCORE_NORMALIZER,
   'engagement.emotion': LLM_SCORE_NORMALIZER,

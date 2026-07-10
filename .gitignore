@@ -17,6 +17,11 @@ apps/worker/models/
 .env
 .env.local
 .env.*.local
+# Real production secrets (STORAGE_* pointing at R2, etc.) - see
+# docker-compose.prod.yml's env_file list and README.md's "Deploy ke
+# production" section. Never committed; each deploy target fills this in
+# itself, same as .env for local dev.
+.env.production
 
 # logs
 *.log
@@ -38,3 +43,13 @@ coverage/
 
 # docker volumes (local dev data)
 .docker-data/
+
+# Local dev process supervisor (.dev-scripts/watchdog.ps1) state - PIDs and
+# logs are specific to this machine's running processes, not portable.
+.dev-scripts/*.pid
+.dev-scripts/logs/
+
+# One-off local migration scripts (e.g. migrate-r2-to-minio.cjs) - these
+# tend to carry hardcoded credentials for a one-time run and are never meant
+# to be shared/committed.
+.dev-storage/

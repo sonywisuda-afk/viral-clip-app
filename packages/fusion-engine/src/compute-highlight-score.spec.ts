@@ -38,7 +38,14 @@ describe('computeHighlightScore', () => {
   it('gives a zero-cut scene clip the same non-zero baseline score as v1', () => {
     const result = computeHighlightScore({
       clipId: 'clip-1',
-      scene: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 30 },
+      scene: {
+        cutCount: 0,
+        cutsPerMinute: 0,
+        averageSegmentSeconds: 30,
+        hardCutCount: 0,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
     });
     expect(result.highlightScore).toBe(20);
   });
@@ -52,7 +59,14 @@ describe('computeHighlightScore', () => {
         averageSpeakingRateWordsPerSecond: 2,
         speakingRateStdDev: null,
       },
-      scene: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 30 },
+      scene: {
+        cutCount: 0,
+        cutsPerMinute: 0,
+        averageSegmentSeconds: 30,
+        hardCutCount: 0,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
     });
     // audio contributes 0.35 weight at normalizedValue 1 (=0.35), scene
     // contributes 0.30 weight at normalizedValue 0.2 (=0.06) -> (0.41/0.65)*100.
@@ -121,11 +135,25 @@ describe('computeHighlightScore', () => {
   it("does not let a zero-weight signal's peakConfidence influence overall confidence", () => {
     const withoutGesture = computeHighlightScore({
       clipId: 'clip-1',
-      scene: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 30 },
+      scene: {
+        cutCount: 0,
+        cutsPerMinute: 0,
+        averageSegmentSeconds: 30,
+        hardCutCount: 0,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
     });
     const withGesture = computeHighlightScore({
       clipId: 'clip-1',
-      scene: { cutCount: 0, cutsPerMinute: 0, averageSegmentSeconds: 30 },
+      scene: {
+        cutCount: 0,
+        cutsPerMinute: 0,
+        averageSegmentSeconds: 30,
+        hardCutCount: 0,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
       gesture: {
         dominantGesture: 'thumb_up',
         gestureTransitions: 0,
@@ -163,7 +191,14 @@ describe('computeHighlightScore', () => {
         averageSpeakingRateWordsPerSecond: 2,
         speakingRateStdDev: 1,
       },
-      scene: { cutCount: 2, cutsPerMinute: 12, averageSegmentSeconds: 5 },
+      scene: {
+        cutCount: 2,
+        cutsPerMinute: 12,
+        averageSegmentSeconds: 5,
+        hardCutCount: 2,
+        fadeCount: 0,
+        dissolveCount: 0,
+      },
       facial: {
         dominantEmotion: 'happy',
         emotionTransitions: 0,
@@ -219,7 +254,14 @@ describe('computeHighlightScore', () => {
           averageSpeakingRateWordsPerSecond: 2,
           speakingRateStdDev: null,
         },
-        scene: { cutCount: 2, cutsPerMinute: 20, averageSegmentSeconds: 3 },
+        scene: {
+          cutCount: 2,
+          cutsPerMinute: 20,
+          averageSegmentSeconds: 3,
+          hardCutCount: 2,
+          fadeCount: 0,
+          dissolveCount: 0,
+        },
       });
       expect(result.prediction.bucket).toBe('likely_high_performer');
       expect(result.recommendation.action).toBe('publish_as_is');

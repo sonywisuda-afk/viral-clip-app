@@ -5,8 +5,14 @@ import type {
 } from '@speedora/database';
 import type {
   AudioFeatures,
+  CameraMotionFeatures,
+  CameraMotionSample,
   CaptionStyle,
   ClipScores,
+  EditingRhythmFeatures,
+  FaceLandmarkFeatures,
+  FaceLandmarkSample,
+  FaceTrackingQualityMetrics,
   FacialEmotionFeatures,
   FacialEmotionSample,
   FusionBreakdown,
@@ -15,6 +21,12 @@ import type {
   FusionRecommendation,
   GestureFeatures,
   GestureSample,
+  OcrFeatures,
+  OcrSample,
+  MotionEnergyFeatures,
+  MotionEnergySample,
+  OcrTextTrack,
+  SceneCutEvent,
   SceneFeatures,
   TranscriptionProvider,
   TranscriptSegment,
@@ -91,6 +103,54 @@ export function toSharedSceneFeatures(sceneFeatures: unknown): SceneFeatures | n
   return (sceneFeatures as SceneFeatures | null) ?? null;
 }
 
+// Same "Json column is opaque" situation as toSharedFacialEmotions above,
+// for Clip.sceneCutEvents (Batch SC-1's Scene Intelligence taxonomy
+// expansion).
+export function toSharedSceneCutEvents(sceneCutEvents: unknown): SceneCutEvent[] | null {
+  return (sceneCutEvents as SceneCutEvent[] | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as toSharedSceneFeatures above,
+// for Clip.motionEnergyFeatures (Batch SC-2's Scene Intelligence taxonomy
+// expansion).
+export function toSharedMotionEnergyFeatures(
+  motionEnergyFeatures: unknown,
+): MotionEnergyFeatures | null {
+  return (motionEnergyFeatures as MotionEnergyFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.motionEnergy (Batch SC-2) - unlike facialEmotions/gestures/ocrText,
+// this one is never null at the DB level (`Json @default("[]")`,
+// analyzeMotionEnergy() never fails the job - see @speedora/scene-
+// intelligence's own module comment), so it defaults to an empty array
+// rather than null.
+export function toSharedMotionEnergy(motionEnergy: unknown): MotionEnergySample[] {
+  return (motionEnergy as MotionEnergySample[] | undefined) ?? [];
+}
+
+// Same "Json column is opaque" situation as toSharedFacialEmotions above,
+// for Clip.cameraMotion (Batch SC-3) - unlike motionEnergy, this one CAN be
+// null (a Python/OpenCV subprocess result, same null-vs-empty-array
+// convention as facialEmotions/gestures).
+export function toSharedCameraMotion(cameraMotion: unknown): CameraMotionSample[] | null {
+  return (cameraMotion as CameraMotionSample[] | null) ?? null;
+}
+
+export function toSharedCameraMotionFeatures(
+  cameraMotionFeatures: unknown,
+): CameraMotionFeatures | null {
+  return (cameraMotionFeatures as CameraMotionFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.editingRhythmFeatures (taxonomy category F - Editing Rhythm).
+export function toSharedEditingRhythmFeatures(
+  editingRhythmFeatures: unknown,
+): EditingRhythmFeatures | null {
+  return (editingRhythmFeatures as EditingRhythmFeatures | null) ?? null;
+}
+
 export function toSharedFacialFeatures(facialFeatures: unknown): FacialEmotionFeatures | null {
   return (facialFeatures as FacialEmotionFeatures | null) ?? null;
 }
@@ -103,6 +163,44 @@ export function toSharedGestures(gestures: unknown): GestureSample[] | null {
 
 export function toSharedGestureFeatures(gestureFeatures: unknown): GestureFeatures | null {
   return (gestureFeatures as GestureFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as toSharedGestures/
+// toSharedGestureFeatures above, for Clip.faceLandmarks/.faceLandmarkFeatures
+// (AI Fusion roadmap's Face Intelligence initiative, Batch 1).
+export function toSharedFaceLandmarks(faceLandmarks: unknown): FaceLandmarkSample[] | null {
+  return (faceLandmarks as FaceLandmarkSample[] | null) ?? null;
+}
+
+export function toSharedFaceLandmarkFeatures(
+  faceLandmarkFeatures: unknown,
+): FaceLandmarkFeatures | null {
+  return (faceLandmarkFeatures as FaceLandmarkFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as toSharedFaceLandmarks/
+// toSharedFaceLandmarkFeatures above, for Clip.trackingQualityMetrics (AI
+// Fusion roadmap's Face Intelligence initiative, Batch 4.5).
+export function toSharedTrackingQualityMetrics(
+  trackingQualityMetrics: unknown,
+): FaceTrackingQualityMetrics | null {
+  return (trackingQualityMetrics as FaceTrackingQualityMetrics | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.ocrText (AI Fusion roadmap's OCR initiative, Batch OCR-1).
+export function toSharedOcrText(ocrText: unknown): OcrSample[] | null {
+  return (ocrText as OcrSample[] | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as toSharedOcrText above, for
+// Clip.ocrTracks/.ocrFeatures (Batch OCR-2).
+export function toSharedOcrTracks(ocrTracks: unknown): OcrTextTrack[] | null {
+  return (ocrTracks as OcrTextTrack[] | null) ?? null;
+}
+
+export function toSharedOcrFeatures(ocrFeatures: unknown): OcrFeatures | null {
+  return (ocrFeatures as OcrFeatures | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

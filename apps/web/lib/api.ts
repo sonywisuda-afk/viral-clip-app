@@ -208,6 +208,14 @@ export function clipDownloadUrl(downloadUrl: string): string {
   return `${API_URL}${downloadUrl}`;
 }
 
+// Inline-playback variant of clipDownloadUrl for a <video> preview - the
+// download endpoint serves Content-Disposition: attachment (which browsers
+// refuse to play as media) and has no Range support; this one streams
+// inline with Range, same contract as videoSourceUrl below.
+export function clipStreamUrl(clipId: string): string {
+  return `${API_URL}/clips/${clipId}/stream`;
+}
+
 // Used directly as a <video src>, not fetched - the browser's own media
 // pipeline issues the (possibly many, while scrubbing) Range requests
 // against this URL. crossOrigin="use-credentials" on the <video> element is

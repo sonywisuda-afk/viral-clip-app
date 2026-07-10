@@ -60,6 +60,16 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
     QueueName.DETECT_CLIPS,
     async (job: Job<DetectClipsJobData>) => {
       const { videoId, segments } = job.data;
+
+      // Same orphaned-job guard as transcribe.worker.ts - a video deleted
+      // while this job was still queued would otherwise burn a real OpenAI
+      // API call before failing on the final prisma write.
+      const videoStillExists = await prisma.video.count({ where: { id: videoId } });
+      if (videoStillExists === 0) {
+        console.log(`[detect-clips] video ${videoId} was deleted - skipping orphaned job`);
+        return { videoId, candidates: [] };
+      }
+
       console.log(`[detect-clips] analyzing ${segments.length} segments for video ${videoId}`);
 
       try {

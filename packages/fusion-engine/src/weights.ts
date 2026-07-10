@@ -7,22 +7,49 @@ import type { FusionWeights } from '@speedora/contracts';
 // this table with values learned from real engagement data, not hardcode
 // forever.
 //
-// `gesture` is deliberately 0 here, not absent - it's collected (raw +
-// derived features both exist, see @speedora/gesture-intelligence) and
-// still shows up in `contributions` for transparency/future calibration,
-// but doesn't move highlightScore yet. This matches the roadmap's existing
-// note that gesture has "low standalone value" on its own; giving it a
-// real weight is a decision for later once there's data to justify one.
+// `sceneMotion` (Scene Intelligence taxonomy expansion, Batch SC-2) is also
+// deliberately 0, same reasoning as gesture/faceGeometry below - motion-
+// energy/static-dynamic classification is brand new and unvalidated, and
+// `scene` itself already carries a real weight, so `sceneMotion` stays
+// separate and silent until there's data to justify a non-zero value.
+// `cameraMotion` (Batch SC-3, directional pan/tilt/zoom/shake) is the same
+// story one batch later - collected and visible in `contributions` for
+// calibration, contributing nothing to highlightScore yet.
+// `editingRhythm` (taxonomy category F - tempo/pacing/acceleration,
+// composed from scene/sceneMotion/audio's own already-computed features)
+// gets the identical treatment, per explicit user direction: wire it in
+// now, gather real data, evaluate the distribution, THEN calibrate.
 //
-// `ocr`/`llm` are reserved keys with no corresponding fusionInputSchema
-// field yet (no module produces those features) - present here so the
-// weight table's shape doesn't need to change again once those modules
-// exist, only gain a real contribution.
+// `gesture`/`faceGeometry` are deliberately 0 here, not absent - both are
+// collected (raw + derived features both exist, see
+// @speedora/gesture-intelligence and @speedora/facial-intelligence's
+// detectFaceLandmarks) and still show up in `contributions` for
+// transparency/future calibration, but don't move highlightScore yet. Same
+// "low standalone value until calibrated against real data" reasoning
+// gesture already carries - `faceGeometry` (blink/smile/mouth-open/head-
+// rotation/framing, AI Fusion roadmap's Face Intelligence initiative Batch
+// 1) is new enough that giving it a nonzero weight ahead of any real
+// engagement-data validation would just be another unvalidated guess
+// layered on top of the ones already acknowledged in this table's own
+// history (see the fusion-engine v2/v2.1 sections in CLAUDE.md).
+//
+// `ocr` was a reserved key with no corresponding fusionInputSchema field
+// (no module produced those features) until the AI Fusion roadmap's OCR
+// initiative's Batch OCR-2 - it now has a real contribution too, same as
+// `llm` (Fase 32) - see feature-pipeline.ts's extractOcrFeatures/
+// extractLlmFeatures. The 0.1 weight below is the SAME value given by the
+// user back in Fase 31, before any OCR module existed to fill it -
+// unvalidated against real engagement data now just as it was reserved
+// unvalidated then.
 export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   audio: 0.35,
   scene: 0.3,
+  sceneMotion: 0,
+  cameraMotion: 0,
+  editingRhythm: 0,
   facial: 0.2,
   gesture: 0,
+  faceGeometry: 0,
   ocr: 0.1,
   llm: 0.05,
 };

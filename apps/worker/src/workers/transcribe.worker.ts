@@ -133,6 +133,20 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
     QueueName.TRANSCRIBE,
     async (job: Job<TranscribeJobData>) => {
       const { videoId, sourceUrl, provider } = job.data;
+
+      // A video can be deleted (VideosService.remove) while its transcribe
+      // job is still sitting in the queue - deletion doesn't reach into
+      // BullMQ to cancel it. Without this check, a stale job like that would
+      // still burn a real Whisper API call and then blow up on the very
+      // first prisma.video.update() (P2025, no such row) - checked here,
+      // before any of that work starts, rather than discovered expensively
+      // partway through.
+      const videoStillExists = await prisma.video.count({ where: { id: videoId } });
+      if (videoStillExists === 0) {
+        console.log(`[transcribe] video ${videoId} was deleted - skipping orphaned job`);
+        return { videoId, segments: [] };
+      }
+
       console.log(`[transcribe] processing video ${videoId} from ${sourceUrl} via ${provider}`);
 
       let sourcePath: string | null = null;

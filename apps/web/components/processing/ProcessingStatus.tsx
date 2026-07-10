@@ -26,6 +26,10 @@ const STAGE_ORDER = [
   VideoStatus.RENDERED,
 ];
 
+// How often the displayed progress creeps +1% toward the current stage's
+// ceiling while waiting for the next real checkpoint (see displayedPercent).
+const CREEP_INTERVAL_MS = 1000;
+
 function formatElapsed(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -71,13 +75,60 @@ export function ProcessingStatus({
   // writes checkpoints to Video.transcribeProgress - never a fabricated
   // animation) filling in this stage's slice of the bar, rather than
   // sitting flat at baseProgressPercent for the whole Transcribe stage.
-  // Only meaningful on the Transcribe stage itself - the other two stages
-  // (Auto-Clip, Render & Caption) still only jump at their boundaries.
   const withinStageProgress =
     !isFailed && effectiveStatus === VideoStatus.UPLOADED && video.transcribeProgress != null
       ? (video.transcribeProgress / 100) * stageSpanPercent
       : 0;
-  const progressPercent = baseProgressPercent + withinStageProgress;
+  // Render & Caption stage progress is real too, and already in the polled
+  // payload: each clip's downloadUrl flips non-null as its render-clip job
+  // finishes, so "2 of 3 clips rendered" fills 2/3 of this stage's slice.
+  const renderStageProgress =
+    !isFailed && effectiveStatus === VideoStatus.CLIPS_DETECTED && video.clips.length > 0
+      ? (video.clips.filter((clip) => clip.downloadUrl !== null).length / video.clips.length) *
+        stageSpanPercent
+      : 0;
+  const progressPercent = baseProgressPercent + withinStageProgress + renderStageProgress;
+
+  // What the bar actually shows: real checkpoints are the floor (the bar
+  // jumps up to them the moment they arrive and never rolls back), and
+  // between checkpoints it advances +1% per tick so the user sees steady
+  // movement instead of long flat stretches. The creep is capped 1% below
+  // the current stage's end - only a real status change from the backend
+  // unlocks the boundary, so the bar can never claim a stage finished that
+  // didn't.
+  const creepCeiling = Math.min(99, baseProgressPercent + stageSpanPercent - 1);
+  const [displayedPercent, setDisplayedPercent] = useState(0);
+  useEffect(() => {
+    if (isDone || isFailed) return;
+    const interval = setInterval(() => {
+      setDisplayedPercent((current) => {
+        const floor = Math.max(current, progressPercent);
+        return floor < creepCeiling ? Math.min(creepCeiling, floor + 1) : floor;
+      });
+    }, CREEP_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isDone, isFailed, progressPercent, creepCeiling]);
+
+  // Same real-checkpoint-floor-plus-1%-creep pattern as displayedPercent
+  // above, scoped to the IMPORTING stage - it's a standalone screen (not
+  // one of the 3 STAGES/STAGE_ORDER entries), so it gets its own 0-99
+  // range rather than a slice of the multi-stage bar. Real percentages
+  // come from yt-dlp's own download progress (see
+  // import-youtube.worker.ts's reportProgress) - a large video on a slow/
+  // variable connection can legitimately sit at one number for a while;
+  // the creep exists so that wait doesn't read as a dead screen.
+  const importProgressPercent = video.importProgress ?? 0;
+  const [importDisplayedPercent, setImportDisplayedPercent] = useState(0);
+  useEffect(() => {
+    if (!isImporting) return;
+    const interval = setInterval(() => {
+      setImportDisplayedPercent((current) => {
+        const floor = Math.max(current, importProgressPercent);
+        return floor < 99 ? Math.min(99, floor + 1) : floor;
+      });
+    }, CREEP_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [isImporting, importProgressPercent]);
 
   // Real elapsed wall-clock time since this screen started watching the
   // job - a ticking clock, not a progress fabrication. Freezes once the
@@ -169,10 +220,15 @@ export function ProcessingStatus({
               Mengunduh dari YouTube... {formatElapsed(elapsedSeconds)}
             </p>
             <p className="mt-2 font-body text-sm text-muted-foreground">
-              Setelah unduhan selesai, video masuk ke pipeline yang sama seperti upload langsung.
+              Video besar di koneksi yang lambat bisa makan waktu - setelah unduhan selesai, video
+              masuk ke pipeline yang sama seperti upload langsung.
             </p>
             <div className="mt-10 w-full">
-              <LiveReel variant="idle" />
+              <LiveReel
+                variant="progress"
+                progress={importDisplayedPercent}
+                label="Mengunduh dari YouTube"
+              />
             </div>
           </div>
         ) : (
@@ -182,7 +238,7 @@ export function ProcessingStatus({
             </p>
 
             <div className="mt-10">
-              <LiveReel variant="progress" progress={progressPercent} label={activeStage?.activeCopy} />
+              <LiveReel variant="progress" progress={displayedPercent} label={activeStage?.activeCopy} />
             </div>
 
             <div className="mt-12 grid grid-cols-3 gap-4">

@@ -24,6 +24,8 @@ import {
   toSharedAudioFeatures,
   toSharedCaptionStyle,
   toSharedClipScores,
+  toSharedFaceLandmarkFeatures,
+  toSharedFaceLandmarks,
   toSharedFacialEmotions,
   toSharedFacialFeatures,
   toSharedGestureFeatures,
@@ -33,7 +35,17 @@ import {
   toSharedHighlightPrediction,
   toSharedHighlightRecommendation,
   toSharedLlmFeatures,
+  toSharedOcrFeatures,
+  toSharedOcrText,
+  toSharedCameraMotion,
+  toSharedCameraMotionFeatures,
+  toSharedEditingRhythmFeatures,
+  toSharedMotionEnergy,
+  toSharedMotionEnergyFeatures,
+  toSharedOcrTracks,
+  toSharedSceneCutEvents,
   toSharedSceneFeatures,
+  toSharedTrackingQualityMetrics,
   toSharedTranscriptionProvider,
   toSharedTranscriptSegment,
 } from './transcript-segment.util';
@@ -205,7 +217,13 @@ export class VideosService {
     // fail again trying to read an empty object key. Re-run the import
     // instead, using the YouTube URL saved at creation time.
     if (video.importSourceUrl && video.sourceUrl === '') {
-      await updateVideoStatus(this.prisma, id, VideoStatus.IMPORTING);
+      // importProgress reset immediately, same reasoning as
+      // transcribeProgress below - a retry click shouldn't briefly show a
+      // stale value from the failed attempt before the worker picks the job
+      // back up.
+      await updateVideoStatus(this.prisma, id, VideoStatus.IMPORTING, {
+        data: { importProgress: 0 },
+      });
       await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
         videoId: id,
         url: video.importSourceUrl,
@@ -355,11 +373,23 @@ export class VideosService {
           publishRecords,
           scores,
           facialEmotions,
+          sceneCutEvents,
+          motionEnergy,
+          motionEnergyFeatures,
+          cameraMotion,
+          cameraMotionFeatures,
+          editingRhythmFeatures,
           gestures,
           audioFeatures,
           sceneFeatures,
           facialFeatures,
           gestureFeatures,
+          faceLandmarks,
+          faceLandmarkFeatures,
+          trackingQualityMetrics,
+          ocrText,
+          ocrTracks,
+          ocrFeatures,
           highlightBreakdown,
           highlightExplainability,
           llmFeatures,
@@ -376,11 +406,23 @@ export class VideosService {
           // findAll/findOne/retry).
           scores: toSharedClipScores(scores),
           facialEmotions: toSharedFacialEmotions(facialEmotions),
+          sceneCutEvents: toSharedSceneCutEvents(sceneCutEvents),
           gestures: toSharedGestures(gestures),
           audioFeatures: toSharedAudioFeatures(audioFeatures),
           sceneFeatures: toSharedSceneFeatures(sceneFeatures),
+          motionEnergy: toSharedMotionEnergy(motionEnergy),
+          motionEnergyFeatures: toSharedMotionEnergyFeatures(motionEnergyFeatures),
+          cameraMotion: toSharedCameraMotion(cameraMotion),
+          cameraMotionFeatures: toSharedCameraMotionFeatures(cameraMotionFeatures),
+          editingRhythmFeatures: toSharedEditingRhythmFeatures(editingRhythmFeatures),
           facialFeatures: toSharedFacialFeatures(facialFeatures),
           gestureFeatures: toSharedGestureFeatures(gestureFeatures),
+          faceLandmarks: toSharedFaceLandmarks(faceLandmarks),
+          faceLandmarkFeatures: toSharedFaceLandmarkFeatures(faceLandmarkFeatures),
+          trackingQualityMetrics: toSharedTrackingQualityMetrics(trackingQualityMetrics),
+          ocrText: toSharedOcrText(ocrText),
+          ocrTracks: toSharedOcrTracks(ocrTracks),
+          ocrFeatures: toSharedOcrFeatures(ocrFeatures),
           highlightBreakdown: toSharedHighlightBreakdown(highlightBreakdown),
           highlightExplainability: toSharedHighlightExplainability(highlightExplainability),
           llmFeatures: toSharedLlmFeatures(llmFeatures),

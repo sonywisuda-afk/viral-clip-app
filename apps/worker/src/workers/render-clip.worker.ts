@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
-import type { CaptionStyleValue, SubtitleSegment } from '@speedora/contracts';
+import type { CaptionStyleValue, OcrTextTrack, SubtitleSegment } from '@speedora/contracts';
 import {
   computeFillerCuts,
   computeSilenceCuts,
@@ -13,6 +13,7 @@ import {
 } from '@speedora/cutlist';
 import { deriveAudioFeatures } from '@speedora/audio-intelligence';
 import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
+import { deriveEditingRhythmFeatures } from '@speedora/editing-rhythm';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import {
   QueueName,
@@ -21,8 +22,13 @@ import {
   type TranscriptWord,
 } from '@speedora/shared';
 import {
+  deriveFaceLandmarkFeatures,
   deriveFacialEmotionFeatures,
+  deriveTrackingQualityMetrics,
+  detectFaceLandmarks,
   detectFacialEmotion,
+  type AudioActivityWindow,
+  type FaceLandmarkSample,
   type FacialEmotionSample,
 } from '@speedora/facial-intelligence';
 import {
@@ -31,6 +37,14 @@ import {
   type GestureSample,
 } from '@speedora/gesture-intelligence';
 import {
+  classifyOcrTrack,
+  deriveOcrFeatures,
+  detectOcrText,
+  trackOcrText,
+  type FaceBoundingBoxSample,
+  type OcrSample,
+} from '@speedora/ocr-intelligence';
+import {
   buildCropPath,
   buildSendCmdScript,
   computeCropDimensions,
@@ -38,7 +52,18 @@ import {
   findEmphasisWords,
   type FaceSample,
 } from '@speedora/reframe';
-import { deriveSceneFeatures, detectSceneCuts } from '@speedora/scene-intelligence';
+import {
+  analyzeMotionEnergy,
+  classifySceneCutTypes,
+  deriveCameraMotionFeatures,
+  deriveMotionEnergyFeatures,
+  deriveSceneFeatures,
+  detectCameraMotion,
+  detectSceneCuts,
+  type CameraMotionSample,
+  type MotionEnergySample,
+  type SceneCutEvent,
+} from '@speedora/scene-intelligence';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { buildAss } from '@speedora/subtitles';
 import { Worker, type Job } from 'bullmq';
@@ -49,7 +74,9 @@ import {
   downloadStockAsset,
   findBRollMoments,
 } from '../broll';
+import { cameraMotionDeps } from '../cameraMotionDeps';
 import { faceDetectionDeps } from '../faceDetectionDeps';
+import { faceLandmarksDeps } from '../faceLandmarksDeps';
 import { facialIntelligenceDeps } from '../facialIntelligenceDeps';
 import {
   fadeOutBRoll,
@@ -61,6 +88,7 @@ import {
   type ReframeOptions,
 } from '../ffmpeg';
 import { gestureIntelligenceDeps } from '../gestureIntelligenceDeps';
+import { ocrIntelligenceDeps } from '../ocrIntelligenceDeps';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 import { sceneIntelligenceDeps } from '../sceneIntelligenceDeps';
@@ -77,6 +105,51 @@ function toClipRelativeWords(
   return transcript
     .flatMap((segment) => segment.words ?? [])
     .map((word) => ({ ...word, start: word.start - startTime, end: word.end - startTime }));
+}
+
+// Batch 4 (Speaker Face Selection's "real" version) - a segment's own mean
+// RMS at/above this reads as "audible speech happening" for
+// speakerAudioSyncRate's purposes. A reasonable guess, not calibrated
+// against real recordings (rmsDb itself is "not comparable across
+// recordings" per TranscriptSegment's own caveat) - same honesty as every
+// other threshold in this pipeline.
+const SILENCE_RMS_DB_THRESHOLD = -40;
+
+// Re-anchors transcript segments' own start/end onto the clip's timeline
+// (same shift as toClipRelativeWords) into the narrow shape
+// deriveFaceLandmarkFeatures actually needs - segments with no rmsDb
+// measurement at all are dropped rather than guessed, so a gap in
+// audio-timing coverage stays a gap (audioActiveAt returns null there),
+// not a fabricated "no audio".
+function toAudioActivityWindows(
+  transcript: RenderClipJobData['transcript'],
+  startTime: number,
+): AudioActivityWindow[] {
+  return transcript
+    .filter((segment) => segment.rmsDb !== undefined)
+    .map((segment) => ({
+      start: segment.start - startTime,
+      end: segment.end - startTime,
+      hasAudio: segment.rmsDb! >= SILENCE_RMS_DB_THRESHOLD,
+    }));
+}
+
+// OCR initiative Batch OCR-2 - narrows @speedora/facial-intelligence's
+// FaceLandmarkSample[] down to @speedora/ocr-intelligence's own
+// FaceBoundingBoxSample[] input contract for the `nearFace` feature (same
+// "narrow input contract flowing across module boundaries" pattern as
+// toAudioActivityWindows above) - samples with no detected face at all
+// are dropped, not fabricated.
+function toFaceBoundingBoxes(faceLandmarks: FaceLandmarkSample[]): FaceBoundingBoxSample[] {
+  return faceLandmarks
+    .filter(
+      (
+        sample,
+      ): sample is FaceLandmarkSample & {
+        boundingBox: NonNullable<FaceLandmarkSample['boundingBox']>;
+      } => sample.boundingBox !== null,
+    )
+    .map((sample) => ({ t: sample.t, boundingBox: sample.boundingBox }));
 }
 
 // Narrows a DB-shaped TranscriptSegment (which also carries speaker/emotion
@@ -261,6 +334,19 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         keywords,
         scores,
       } = job.data;
+      // Same orphaned-job guard as transcribe/detect-clips workers - checked
+      // against Clip rather than Video since this job's real unit of work is
+      // one clip, and either the whole video (cascade) or just this one clip
+      // (ClipsService.remove) being deleted while the job was still queued
+      // makes it equally moot. Without this, a stale job would burn a full
+      // render (source download, face/scene/facial/gesture detection,
+      // FFmpeg) before failing on the final prisma.clip.update().
+      const clipStillExists = await prisma.clip.count({ where: { id: clipId } });
+      if (clipStillExists === 0) {
+        console.log(`[render-clip] clip ${clipId} was deleted - skipping orphaned job`);
+        return { clipId, outputUrl: '' };
+      }
+
       console.log(
         `[render-clip] rendering clip ${clipId} for video ${videoId} (${startTime}s - ${endTime}s)`,
       );
@@ -304,6 +390,72 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           );
         }
 
+        // Batch SC-1 (Scene Intelligence taxonomy expansion, on top of the
+        // detection above) - classifies whichever cuts were just found as
+        // hard cuts vs. fades. Null (not []) when classification wasn't run
+        // or failed entirely, distinct from an empty array (no cuts to
+        // classify) - same "never fails the job" pattern as every detector
+        // above, even though classifySceneCutTypes already catches its own
+        // ffmpeg failures internally (defense in depth, same as
+        // detectSceneCuts's own wrapping here).
+        let sceneCutEvents: SceneCutEvent[] | null = null;
+        try {
+          const result = await classifySceneCutTypes(
+            { videoPath: sourcePath, startTime, endTime, cuts: sceneCuts },
+            sceneIntelligenceDeps,
+          );
+          sceneCutEvents = result.events;
+        } catch (error) {
+          console.warn(
+            `[render-clip] scene cut type classification failed for clip ${clipId}, continuing ` +
+              'without cut-type data:',
+            error,
+          );
+        }
+
+        // Batch SC-2 (Scene Intelligence taxonomy expansion, continuing
+        // Batch SC-1) - a SEPARATE signal from cuts above (motion
+        // magnitude/Static-Dynamic Scene classification, not cut events).
+        // Never fails the job, same pattern as every detector above -
+        // analyzeMotionEnergy already catches its own ffmpeg failures
+        // internally (defense in depth, same as detectSceneCuts's own
+        // wrapping here).
+        let motionEnergy: MotionEnergySample[] = [];
+        try {
+          const result = await analyzeMotionEnergy(
+            { videoPath: sourcePath, startTime, endTime },
+            sceneIntelligenceDeps,
+          );
+          motionEnergy = result.samples;
+        } catch (error) {
+          console.warn(
+            `[render-clip] motion energy analysis failed for clip ${clipId}, continuing without ` +
+              'motion data:',
+            error,
+          );
+        }
+
+        // Batch SC-3 (Scene Intelligence taxonomy expansion, continuing
+        // Batch SC-1/SC-2) - DIRECTIONAL camera motion (pan/tilt/zoom/
+        // shake), a SEPARATE signal from motionEnergy above (undirected
+        // magnitude). A Python/OpenCV subprocess (unlike motionEnergy's
+        // ffmpeg-based analyzeMotionEnergy), so it follows facialEmotions/
+        // gestures' "module throws, adapter catches" pattern instead of
+        // catching its own failures internally.
+        let cameraMotion: CameraMotionSample[] | null = null;
+        try {
+          cameraMotion = await detectCameraMotion(
+            { sourcePath, startTime, endTime },
+            cameraMotionDeps,
+          );
+        } catch (error) {
+          console.warn(
+            `[render-clip] camera motion detection failed for clip ${clipId}, continuing ` +
+              'without camera motion data:',
+            error,
+          );
+        }
+
         // Facial Intelligence (Fase 27, Phase C of the AI Fusion roadmap) -
         // per-sampled-frame facial expression within this clip's own time
         // range. Never fails the job, same "optional signal" pattern as
@@ -341,18 +493,90 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           );
         }
 
+        // Face Intelligence initiative Batch 1 (AI Fusion roadmap) - same
+        // "never fails the job" pattern as facial emotion/gesture above.
+        // Distinct subprocess/model from facial emotion (MediaPipe
+        // FaceLandmarker vs. a ViT expression classifier) - see
+        // detect_face_landmarks.py's module comment.
+        let faceLandmarks: FaceLandmarkSample[] | null = null;
+        try {
+          faceLandmarks = await detectFaceLandmarks(
+            { sourcePath, startTime, endTime },
+            faceLandmarksDeps,
+          );
+        } catch (error) {
+          console.warn(
+            `[render-clip] face landmark detection failed for clip ${clipId}, continuing ` +
+              'without face landmark data:',
+            error,
+          );
+        }
+
+        // OCR initiative Batch OCR-1 (AI Fusion roadmap) - same "never
+        // fails the job" pattern as every other detector above. Raw
+        // detection only (text + bounding box + confidence per sampled
+        // frame) - no derived/classified features yet (that's OCR-2's
+        // cross-frame tracking + rule-based Subtitle/Slide/Caption/Logo/
+        // Price/Name classification), so there's no `ocrFeatures`
+        // counterpart to compute here, unlike every other signal below.
+        let ocrText: OcrSample[] | null = null;
+        try {
+          ocrText = await detectOcrText({ sourcePath, startTime, endTime }, ocrIntelligenceDeps);
+        } catch (error) {
+          console.warn(
+            `[render-clip] OCR text detection failed for clip ${clipId}, continuing without ` +
+              'OCR data:',
+            error,
+          );
+        }
+
         // Mini Fusion Engine v1/v2 prep (Fase 28/30, Checkpoint 1/2 of the
         // AI Fusion roadmap) - dense derived summaries computed from the
         // raw signals above (see packages/contracts/src/intelligence-
         // signal.ts's raw/features convention). sceneFeatures/
         // audioFeatures are always computed (their raw inputs are always
-        // arrays, even if empty); facialFeatures/gestureFeatures are null
-        // exactly when facialEmotions/gestures are null (total analysis
-        // failure), matching those fields' own null-vs-empty-array
-        // distinction rather than fabricating a summary from nothing.
-        const sceneFeatures = deriveSceneFeatures(sceneCuts, endTime - startTime);
+        // arrays, even if empty); facialFeatures/gestureFeatures/
+        // faceLandmarkFeatures are null exactly when their raw signal is
+        // null (total analysis failure), matching those fields' own
+        // null-vs-empty-array distinction rather than fabricating a
+        // summary from nothing.
+        const sceneFeatures = deriveSceneFeatures(
+          sceneCuts,
+          endTime - startTime,
+          sceneCutEvents ?? [],
+        );
+        // Batch SC-2 - always computed (motionEnergy is always an array,
+        // even if empty), same convention as sceneFeatures above.
+        const motionEnergyFeatures = deriveMotionEnergyFeatures(motionEnergy);
+        // Batch SC-3 - null exactly when cameraMotion is null, same
+        // convention as facialFeatures/gestureFeatures below.
+        const cameraMotionFeatures = cameraMotion ? deriveCameraMotionFeatures(cameraMotion) : null;
         const facialFeatures = facialEmotions ? deriveFacialEmotionFeatures(facialEmotions) : null;
         const gestureFeatures = gestures ? deriveGestureFeatures(gestures) : null;
+        const faceLandmarkFeatures = faceLandmarks
+          ? deriveFaceLandmarkFeatures(faceLandmarks, toAudioActivityWindows(transcript, startTime))
+          : null;
+        // Batch 4.5 (Quality Metrics & Telemetry) - explainability/audit
+        // telemetry over faceLandmarks' own tracking, NOT fed into
+        // computeHighlightScore below (explicitly not a scoring signal,
+        // see @speedora/contracts' faceTrackingQualityMetricsSchema).
+        const trackingQualityMetrics = faceLandmarks
+          ? deriveTrackingQualityMetrics(faceLandmarks)
+          : null;
+        // OCR initiative Batch OCR-2 - cross-frame tracking + rule-based
+        // classification over Batch OCR-1's own raw ocrText (see
+        // @speedora/ocr-intelligence's own module comments for why this
+        // is pure TypeScript, not a Python-script change). nearFace
+        // resolves to null on every track (not false) when faceLandmarks
+        // itself is null - "no face data supplied at all" per
+        // trackOcrText's own contract, same distinction
+        // speakerAudioSyncRate already makes for audio data.
+        const ocrTracks: OcrTextTrack[] | null = ocrText
+          ? trackOcrText(ocrText, faceLandmarks ? toFaceBoundingBoxes(faceLandmarks) : []).map(
+              classifyOcrTrack,
+            )
+          : null;
+        const ocrFeatures = ocrText ? deriveOcrFeatures(ocrTracks ?? [], ocrText.length) : null;
         const audioFeatures = deriveAudioFeatures(
           transcript.map((segment) => ({
             rmsDb: segment.rmsDb ?? null,
@@ -360,6 +584,25 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             speakingRateWordsPerSecond: segment.speakingRateWordsPerSecond ?? null,
           })),
         );
+
+        // Taxonomy category F (Editing Rhythm) - a COMPOSITE signal, per
+        // explicit user architectural rule: its own package
+        // (@speedora/editing-rhythm) combines OTHER signals' already-
+        // computed output (sceneCuts/motionEnergy raw timelines, plus the
+        // sceneFeatures/motionEnergyFeatures/audioFeatures aggregates just
+        // computed above) rather than running a fresh subprocess/ffmpeg
+        // call of its own. Always computed (never wrapped in try/catch) -
+        // deriveEditingRhythmFeatures is pure/synchronous and degrades
+        // gracefully to null fields on missing data, same as every other
+        // deriveXFeatures in this pipeline.
+        const editingRhythmFeatures = deriveEditingRhythmFeatures({
+          clipDurationSeconds: endTime - startTime,
+          sceneCuts,
+          motionEnergySamples: motionEnergy,
+          cutsPerMinute: sceneFeatures.cutsPerMinute,
+          averageMotionEnergy: motionEnergyFeatures.averageMotionEnergy,
+          averageSpeakingRateWordsPerSecond: audioFeatures.averageSpeakingRateWordsPerSecond,
+        });
 
         // Mini Fusion Engine v2 (Fase 29/31) - combines whichever of the
         // features above are actually available into one explainable,
@@ -373,8 +616,21 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           clipId,
           audio: audioFeatures,
           scene: sceneFeatures,
+          // Batch SC-2 - a SEPARATE signal from `scene` above (weight 0
+          // until calibrated, see @speedora/fusion-engine's weights.ts).
+          sceneMotion: motionEnergyFeatures,
+          // Batch SC-3 - also weight 0 until calibrated (see weights.ts).
+          cameraMotion: cameraMotionFeatures ?? undefined,
+          // Taxonomy category F - also weight 0 until calibrated (see
+          // weights.ts).
+          editingRhythm: editingRhythmFeatures,
           facial: facialFeatures ?? undefined,
           gesture: gestureFeatures ?? undefined,
+          faceGeometry: faceLandmarkFeatures ?? undefined,
+          // OCR initiative Batch OCR-2 - the FIRST batch to actually fill
+          // the 'ocr' signal's already-reserved 0.1 weight (see
+          // weights.ts) since Fase 31.
+          ocr: ocrFeatures ?? undefined,
           // Fase 32 - the clip's own Fase 8 Content Intelligence scores,
           // threaded through the job payload (see RenderClipJobData) rather
           // than re-queried here, same "payload carries what the adapter
@@ -452,12 +708,36 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // needs this sentinel to write an actual SQL NULL rather than
             // being ambiguous with "field not provided" (same reasoning
             // Prisma applies to every other Json? column in this schema).
+            sceneCutEvents: sceneCutEvents ?? Prisma.JsonNull,
+            // Batch SC-2 - motionEnergy is a plain JSON array (never
+            // JsonNull, see schema.prisma's own comment - always an array,
+            // same convention as sceneCuts), so it's cast the same way
+            // llmFeatures already is (ClipScores/MotionEnergySample[] are
+            // closed types with no index signature, which Prisma's Json
+            // input type requires).
+            motionEnergy: motionEnergy as unknown as Prisma.InputJsonValue,
+            motionEnergyFeatures,
+            // Batch SC-3 - cameraMotion CAN be null (Python subprocess,
+            // same null-vs-empty-array convention as facialEmotions below),
+            // unlike motionEnergy above.
+            cameraMotion: cameraMotion ?? Prisma.JsonNull,
+            cameraMotionFeatures: cameraMotionFeatures ?? Prisma.JsonNull,
+            // Taxonomy category F - always computed (deriveEditingRhythmFeatures
+            // never returns null, only all-null fields), same "always
+            // populated" convention as sceneFeatures/audioFeatures.
+            editingRhythmFeatures,
             facialEmotions: facialEmotions ?? Prisma.JsonNull,
             gestures: gestures ?? Prisma.JsonNull,
             audioFeatures,
             sceneFeatures,
             facialFeatures: facialFeatures ?? Prisma.JsonNull,
             gestureFeatures: gestureFeatures ?? Prisma.JsonNull,
+            faceLandmarks: faceLandmarks ?? Prisma.JsonNull,
+            faceLandmarkFeatures: faceLandmarkFeatures ?? Prisma.JsonNull,
+            trackingQualityMetrics: trackingQualityMetrics ?? Prisma.JsonNull,
+            ocrText: ocrText ?? Prisma.JsonNull,
+            ocrTracks: ocrTracks ?? Prisma.JsonNull,
+            ocrFeatures: ocrFeatures ?? Prisma.JsonNull,
             // ClipScores is a closed interface (no index signature), which
             // Prisma's Json input type requires - same reasoning as
             // detect-clips.worker.ts's own scores write.
