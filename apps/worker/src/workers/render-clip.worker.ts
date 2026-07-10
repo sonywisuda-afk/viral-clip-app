@@ -26,7 +26,7 @@ import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
 import { deriveEditingRhythmFeatures } from '@speedora/editing-rhythm';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import { buildSpeakerTimeline, detectSpeakerTransitions } from '@speedora/speaker-diarization';
-import { deriveClipSpeakerScores } from '@speedora/speaker-scoring';
+import { deriveClipSpeakerScores, deriveSpeakerFusionFeatures } from '@speedora/speaker-scoring';
 import {
   QueueName,
   type RenderClipJobData,
@@ -707,6 +707,16 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         // fusionInputSchema's .optional() fields), only for a malformed
         // input shape, which can't happen given the values constructed
         // just above.
+        // Speaker Intelligence roadmap, Milestone D - collapses Milestone
+        // C's per-speaker/per-moment output into the single clip-level
+        // feature set the Fusion Engine consumes (weight 0 until
+        // calibrated, see weights.ts). undefined (not passed at all) when
+        // speakerScores itself is null, same "optional signal" convention
+        // as every other field below.
+        const speakerFusionFeatures = speakerScores
+          ? deriveSpeakerFusionFeatures(speakerScores)
+          : undefined;
+
         const highlight = computeHighlightScore({
           clipId,
           audio: audioFeatures,
@@ -731,6 +741,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           // than re-queried here, same "payload carries what the adapter
           // already computed" convention as keywords/transcript above.
           llm: scores ?? undefined,
+          speaker: speakerFusionFeatures,
         });
 
         const { overlays: broll, finalPaths } = await buildBRollOverlays(

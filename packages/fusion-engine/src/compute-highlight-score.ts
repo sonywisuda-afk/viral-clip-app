@@ -234,6 +234,14 @@ function describeFeature(item: WeightedFeature): string {
       return `dominant on-screen text was a ${item.label}`;
     case 'averageTextBlockCount':
       return `${intensity} on-screen text density (avg ${item.value.toFixed(1)} block${item.value === 1 ? '' : 's'}/frame)`;
+    case 'dominantSpeakerConfidence':
+      return `${intensity} confidence from the clip's dominant speaker`;
+    case 'dominantSpeakerEngagement':
+      return `${intensity} engagement from the clip's dominant speaker`;
+    case 'dominantSpeakerImportance':
+      return `${intensity} importance (talk-time/screen-time share) for the clip's dominant speaker`;
+    case 'averageSpeakerHighlightScore':
+      return `${intensity} average highlight-worthiness across this clip's speaker turns`;
     default: {
       const llmLabel = LLM_FEATURE_LABELS[item.feature];
       return llmLabel

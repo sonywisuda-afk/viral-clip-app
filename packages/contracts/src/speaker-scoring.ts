@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { CONVERSATION_TYPES } from './conversation-intelligence';
 
 // Speaker Intelligence roadmap, Level 3 (product differentiation). Every
 // score below is a deterministic composite over ALREADY-computed features
@@ -7,11 +6,15 @@ import { CONVERSATION_TYPES } from './conversation-intelligence';
 // speaker) - none is a new raw detector. Same "heuristic, unvalidated
 // against real engagement data until calibrated" honesty as the Fusion
 // Engine itself (see ai/fusion.md and this repo's editingRhythm weight-
-// calibration precedent). These are designed to sit ALONGSIDE the existing
-// per-clip Fusion Engine, feeding it as a future `speaker` signal (see
-// speakerFusionFeaturesSchema below) rather than replacing it. Contracts-
-// first, no scoring function implemented yet - see
-// docs/ai/speaker-intelligence.md.
+// calibration precedent). These sit ALONGSIDE the existing per-clip Fusion
+// Engine, feeding it as a `speaker` signal (see speakerFusionFeaturesSchema
+// below) rather than replacing it.
+//
+// Milestone C (@speedora/speaker-scoring) implemented deriving functions
+// for speakerConfidenceScoreSchema/speakerEngagementScoreSchema/
+// speakerImportanceScoreSchema/speakerHighlightMomentSchema.
+// speakerAttentionScoreSchema and rankedSpeakerMomentSchema remain
+// contracts-only below - no deriving function exists for either yet.
 
 export const speakerConfidenceScoreSchema = z.object({
   speakerId: z.string(),
@@ -91,20 +94,32 @@ export const rankedSpeakerMomentSchema = z.object({
   rank: z.number().int().positive(),
 });
 
-// The shape @speedora/fusion-engine would consume as a future `speaker`
-// FUSION_SIGNALS entry (see fusion.ts), mirroring how editingRhythm's
-// composite features are consumed today. Reserved: NOT added to
-// fusionInputSchema/weights.ts yet, deliberately - unlike editingRhythm/ocr
-// (which were wired in at weight 0 once their own detectors existed),
-// nothing in this file has an implementation yet either, so wiring this in
-// now would just be inert scaffolding with zero real inputs. Wire it in once
-// the Level 1/2 detectors it depends on actually exist.
+// Speaker Intelligence roadmap, Milestone D - the shape
+// @speedora/fusion-engine consumes as its `speaker` FUSION_SIGNALS entry
+// (see fusion.ts), mirroring how editingRhythm's composite features are
+// consumed. Deliberately narrower than an earlier draft of this schema: it
+// used to also carry `dominantSpeakerAttention` (Speaker Attention Score)
+// and `conversationType` (Conversation Type Classification) - both
+// speculative Level 3 items with NO deriving function ever implemented
+// (see speakerAttentionScoreSchema above, still unused by anything, and
+// conversation-intelligence.ts). Wiring null-forever fields into the
+// Fusion Engine would be indistinguishable from a real "not available for
+// this clip" null and just add dead weight - dropped rather than kept as
+// permanent scaffolding. `dominantSpeaker*` means the score belonging to
+// whichever speaker in the clip has the highest speakerImportanceScore
+// (same "dominant X" naming convention as dominantEmotion/dominantGesture
+// elsewhere in this pipeline) - see @speedora/speaker-scoring's
+// deriveSpeakerFusionFeatures.
 export const speakerFusionFeaturesSchema = z.object({
   dominantSpeakerConfidence: z.number().min(0).max(1).nullable(),
   dominantSpeakerEngagement: z.number().min(0).max(1).nullable(),
   dominantSpeakerImportance: z.number().min(0).max(1).nullable(),
-  dominantSpeakerAttention: z.number().min(0).max(1).nullable(),
-  conversationType: z.enum(CONVERSATION_TYPES).nullable(),
+  // Average of speakerHighlightMomentSchema.score across every turn in the
+  // clip (already 0-100, normalized to 0-1 here to match every other field
+  // in this object) - the Highlight Score signal, at the clip-summary
+  // grain the Fusion Engine actually consumes (a single moment-level score
+  // has no clip-level meaning on its own).
+  averageSpeakerHighlightScore: z.number().min(0).max(1).nullable(),
 });
 
 export type SpeakerConfidenceScore = z.infer<typeof speakerConfidenceScoreSchema>;

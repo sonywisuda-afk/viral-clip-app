@@ -60,13 +60,22 @@ describe('rankedSpeakerMomentSchema', () => {
 });
 
 describe('speakerFusionFeaturesSchema', () => {
-  it('accepts all-null fields (no Level 1/2 detectors implemented yet)', () => {
+  it('accepts all-null fields (no speaker turns for this clip)', () => {
     const result = speakerFusionFeaturesSchema.safeParse({
       dominantSpeakerConfidence: null,
       dominantSpeakerEngagement: null,
       dominantSpeakerImportance: null,
-      dominantSpeakerAttention: null,
-      conversationType: null,
+      averageSpeakerHighlightScore: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('accepts a fully-populated feature set', () => {
+    const result = speakerFusionFeaturesSchema.safeParse({
+      dominantSpeakerConfidence: 0.8,
+      dominantSpeakerEngagement: 0.7,
+      dominantSpeakerImportance: 0.9,
+      averageSpeakerHighlightScore: 0.65,
     });
     expect(result.success).toBe(true);
   });

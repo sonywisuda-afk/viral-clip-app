@@ -282,27 +282,32 @@ const noOcrFeatures = {
   averageTextBlockCount: null,
 };
 // Real computeHighlightScore() (v2, Fase 31) output for a clip with zero
-// scene cuts (the baseline scene score, 0.2 normalized -> 20/100) and no
-// audio/facial/gesture signal - most tests here don't set up cuts/audio/
-// facial/gesture data.
+// scene cuts (the baseline scene score, 0.2 normalized) and no audio/
+// facial/gesture signal - most tests here don't set up cuts/audio/facial/
+// gesture data. editingRhythm's tempoScore (0, from zero cuts/motion/
+// speaking-rate) also contributes at its own weight - unlike before the
+// scene 0.30->0.25 / editingRhythm 0->0.05 weight-calibration change
+// (see weights.ts's own comment), editingRhythm now actually moves the
+// score (its weighted contribution here happens to be 0 only because
+// tempoScore's own normalized value is 0, not because its weight is 0).
 const baselineHighlight = {
-  highlightScore: 20,
-  highlightConfidence: 0.30000000000000004,
+  highlightScore: 17,
+  highlightConfidence: 0.3,
   highlightBreakdown: [
     {
       signal: 'scene',
       feature: 'cutsPerMinute',
       rawValue: 0,
       normalizedValue: 0.2,
-      weight: 0.3,
-      weightedContribution: 0.06,
+      weight: 0.25,
+      weightedContribution: 0.05,
     },
     {
       signal: 'editingRhythm',
       feature: 'tempoScore',
       rawValue: 0,
       normalizedValue: 0,
-      weight: 0,
+      weight: 0.05,
       weightedContribution: 0,
     },
   ],
@@ -311,16 +316,22 @@ const baselineHighlight = {
       {
         signal: 'scene',
         feature: 'cutsPerMinute',
-        weightedContribution: 0.06,
+        weightedContribution: 0.05,
         description: 'low visual dynamism (0.0 cuts/min)',
+      },
+      {
+        signal: 'editingRhythm',
+        feature: 'tempoScore',
+        weightedContribution: 0,
+        description: 'low overall editing tempo',
       },
     ],
   },
-  highlightReason: 'Low visual dynamism (0.0 cuts/min).',
+  highlightReason: 'Low visual dynamism (0.0 cuts/min); low overall editing tempo.',
   highlightPrediction: {
     bucket: 'uncertain',
     rationale:
-      'Score is 20 but confidence is low (30%) - too few signals were available to trust this prediction.',
+      'Score is 17 but confidence is low (30%) - too few signals were available to trust this prediction.',
   },
   highlightRecommendation: {
     action: 'review_manually',
@@ -935,39 +946,39 @@ describe('render-clip worker', () => {
           ocrTracks: [],
           ocrFeatures: noOcrFeatures,
           llmFeatures: Prisma.JsonNull,
-          highlightScore: 68,
-          highlightConfidence: 0.30000000000000004,
+          highlightScore: 64,
+          highlightConfidence: 0.3,
           highlightBreakdown: [
             {
               signal: 'scene',
               feature: 'cutsPerMinute',
               rawValue: 12,
               normalizedValue: 0.6799999999999999,
-              weight: 0.3,
-              weightedContribution: 0.204,
+              weight: 0.25,
+              weightedContribution: 0.16999999999999998,
             },
             {
               signal: 'editingRhythm',
               feature: 'tempoScore',
               rawValue: 0.6,
               normalizedValue: 0.6,
-              weight: 0,
-              weightedContribution: 0,
+              weight: 0.016666666666666666,
+              weightedContribution: 0.01,
             },
             {
               signal: 'editingRhythm',
               feature: 'pacingScore',
               rawValue: 0.6478752062616411,
               normalizedValue: 0.6478752062616411,
-              weight: 0,
-              weightedContribution: 0,
+              weight: 0.016666666666666666,
+              weightedContribution: 0.010797920104360684,
             },
             {
               signal: 'editingRhythm',
               feature: 'accelerationScore',
               rawValue: -1,
               normalizedValue: 0,
-              weight: 0,
+              weight: 0.016666666666666666,
               weightedContribution: 0,
             },
           ],
@@ -976,16 +987,29 @@ describe('render-clip worker', () => {
               {
                 signal: 'scene',
                 feature: 'cutsPerMinute',
-                weightedContribution: 0.204,
+                weightedContribution: 0.16999999999999998,
                 description: 'moderate visual dynamism (12.0 cuts/min)',
+              },
+              {
+                signal: 'editingRhythm',
+                feature: 'pacingScore',
+                weightedContribution: 0.010797920104360684,
+                description: 'moderate pacing regularity (how evenly cuts were spaced)',
+              },
+              {
+                signal: 'editingRhythm',
+                feature: 'tempoScore',
+                weightedContribution: 0.01,
+                description: 'moderate overall editing tempo',
               },
             ],
           },
-          highlightReason: 'Moderate visual dynamism (12.0 cuts/min).',
+          highlightReason:
+            'Moderate visual dynamism (12.0 cuts/min); moderate pacing regularity (how evenly cuts were spaced); moderate overall editing tempo.',
           highlightPrediction: {
             bucket: 'uncertain',
             rationale:
-              'Score is 68 but confidence is low (30%) - too few signals were available to trust this prediction.',
+              'Score is 64 but confidence is low (30%) - too few signals were available to trust this prediction.',
           },
           highlightRecommendation: {
             action: 'review_manually',
@@ -1320,23 +1344,23 @@ describe('render-clip worker', () => {
           ocrTracks: [],
           ocrFeatures: noOcrFeatures,
           llmFeatures: Prisma.JsonNull,
-          highlightScore: 48,
-          highlightConfidence: 0.4500000000000001,
+          highlightScore: 46,
+          highlightConfidence: 0.45,
           highlightBreakdown: [
             {
               signal: 'scene',
               feature: 'cutsPerMinute',
               rawValue: 0,
               normalizedValue: 0.2,
-              weight: 0.3,
-              weightedContribution: 0.06,
+              weight: 0.25,
+              weightedContribution: 0.05,
             },
             {
               signal: 'editingRhythm',
               feature: 'tempoScore',
               rawValue: 0,
               normalizedValue: 0,
-              weight: 0,
+              weight: 0.05,
               weightedContribution: 0,
             },
             {
@@ -1373,7 +1397,7 @@ describe('render-clip worker', () => {
               {
                 signal: 'scene',
                 feature: 'cutsPerMinute',
-                weightedContribution: 0.06,
+                weightedContribution: 0.05,
                 description: 'low visual dynamism (0.0 cuts/min)',
               },
             ],
@@ -1383,7 +1407,7 @@ describe('render-clip worker', () => {
             '(90%); low visual dynamism (0.0 cuts/min).',
           highlightPrediction: {
             bucket: 'uncertain',
-            rationale: 'Score of 48 is in the middle range - not clearly strong or weak.',
+            rationale: 'Score of 46 is in the middle range - not clearly strong or weak.',
           },
           highlightRecommendation: {
             action: 'review_manually',
@@ -1937,8 +1961,8 @@ describe('render-clip worker', () => {
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            highlightScore: 73,
-            highlightConfidence: 0.765,
+            highlightScore: 71,
+            highlightConfidence: 0.7650000000000001,
             highlightBreakdown: [
               {
                 signal: 'audio',
@@ -1961,31 +1985,31 @@ describe('render-clip worker', () => {
                 feature: 'cutsPerMinute',
                 rawValue: 12,
                 normalizedValue: 0.6799999999999999,
-                weight: 0.3,
-                weightedContribution: 0.204,
+                weight: 0.25,
+                weightedContribution: 0.16999999999999998,
               },
               {
                 signal: 'editingRhythm',
                 feature: 'tempoScore',
                 rawValue: 0.5857142857142856,
                 normalizedValue: 0.5857142857142856,
-                weight: 0,
-                weightedContribution: 0,
+                weight: 0.016666666666666666,
+                weightedContribution: 0.00976190476190476,
               },
               {
                 signal: 'editingRhythm',
                 feature: 'pacingScore',
                 rawValue: 0.6478752062616411,
                 normalizedValue: 0.6478752062616411,
-                weight: 0,
-                weightedContribution: 0,
+                weight: 0.016666666666666666,
+                weightedContribution: 0.010797920104360684,
               },
               {
                 signal: 'editingRhythm',
                 feature: 'accelerationScore',
                 rawValue: -1,
                 normalizedValue: 0,
-                weight: 0,
+                weight: 0.016666666666666666,
                 weightedContribution: 0,
               },
               {
@@ -2010,7 +2034,7 @@ describe('render-clip worker', () => {
                 {
                   signal: 'scene',
                   feature: 'cutsPerMinute',
-                  weightedContribution: 0.204,
+                  weightedContribution: 0.16999999999999998,
                   description: 'moderate visual dynamism (12.0 cuts/min)',
                 },
                 {

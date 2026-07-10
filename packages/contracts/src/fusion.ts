@@ -11,6 +11,7 @@ import {
   motionEnergyFeaturesSchema,
   sceneFeaturesSchema,
 } from './scene-intelligence';
+import { speakerFusionFeaturesSchema } from './speaker-scoring';
 
 // Defined ahead of the modules that produce every input (per explicit user
 // direction) - every signal module built from here on (Eye Contact, Visual
@@ -62,6 +63,17 @@ import {
 // treatment as sceneMotion/cameraMotion/gesture/faceGeometry. The Fusion
 // Engine itself never derives new features - it only ever combines/weighs
 // whatever `*Features` objects already exist.
+//
+// `speaker` (Speaker Intelligence roadmap, Milestone D) - another
+// COMPOSITE signal, same treatment as editingRhythm: its own package
+// (@speedora/speaker-scoring) combines diarization/face-tracking/audio/
+// gesture output (already consumed individually by the signals above)
+// into dominantSpeakerConfidence/Engagement/Importance +
+// averageSpeakerHighlightScore. Wired in at weight 0 (see weights.ts) -
+// same "collect first, calibrate later" reasoning, this time actually
+// backed by real per-clip detectors (Milestones A-C), unlike the
+// speakerFusionFeaturesSchema draft this replaced (see that schema's own
+// comment for what was cut for having no implementation at all).
 export const FUSION_SIGNALS = [
   'audio',
   'scene',
@@ -73,6 +85,7 @@ export const FUSION_SIGNALS = [
   'faceGeometry',
   'ocr',
   'llm',
+  'speaker',
 ] as const;
 export type FusionSignal = (typeof FUSION_SIGNALS)[number];
 
@@ -106,6 +119,7 @@ export const fusionInputSchema = z.object({
   faceGeometry: faceLandmarkFeaturesSchema.optional(),
   ocr: ocrFeaturesSchema.optional(),
   llm: clipScoresSchema.optional(),
+  speaker: speakerFusionFeaturesSchema.optional(),
 });
 
 // Per-signal weight table - the "Feature Weighting" pipeline stage's

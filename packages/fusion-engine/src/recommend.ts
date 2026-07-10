@@ -121,7 +121,8 @@ const MESSAGE_BY_FEATURE: Record<string, string> = {
     'Eye contact with the camera is low - consider a moment where the speaker looks more directly into the lens.',
   dominantLookingDirectionWeight:
     "The speaker's gaze is mostly away from the camera - consider a moment with more direct eye contact.",
-  averageSharpness: 'The footage looks soft/blurry - consider a sharper source clip or a steadier shot.',
+  averageSharpness:
+    'The footage looks soft/blurry - consider a sharper source clip or a steadier shot.',
   averageBrightness:
     'Lighting is too dark or too bright - consider a moment with better-exposed lighting.',
   occlusionRate:
@@ -161,7 +162,7 @@ const MESSAGE_BY_FEATURE: Record<string, string> = {
   dominantAffectWeight:
     'The overall affect reads as low-energy/neutral - consider a moment with more visible energy or warmth.',
   affectConfidence:
-    'Too little signal was available to read this clip\'s overall affect - review manually.',
+    "Too little signal was available to read this clip's overall affect - review manually.",
   subtitleCoverageRate:
     'On-screen subtitles are missing or sparse - consider burning in captions for more of this clip.',
   slidePresenceRate:

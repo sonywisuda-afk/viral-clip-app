@@ -52,6 +52,15 @@ import type { FusionWeights } from '@speedora/contracts';
 // user back in Fase 31, before any OCR module existed to fill it -
 // unvalidated against real engagement data now just as it was reserved
 // unvalidated then.
+//
+// `speaker` (Speaker Intelligence roadmap, Milestone D) - same "collect
+// first, calibrate later" treatment as sceneMotion/cameraMotion/gesture/
+// faceGeometry above: @speedora/speaker-scoring's dominantSpeakerConfidence/
+// Engagement/Importance/averageSpeakerHighlightScore are collected and
+// visible in `contributions`, but weight 0 until there's real engagement
+// data to calibrate against (same apps/worker/src/scripts/
+// check-calibration-coverage.ts checkpoint editingRhythm went through -
+// re-run it for this signal once production has real published clips).
 export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   audio: 0.35,
   scene: 0.25,
@@ -63,4 +72,5 @@ export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   faceGeometry: 0,
   ocr: 0.1,
   llm: 0.05,
+  speaker: 0,
 };

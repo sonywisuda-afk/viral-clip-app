@@ -12,6 +12,7 @@ import type {
   MotionEnergyFeatures,
   OcrFeatures,
   SceneFeatures,
+  SpeakerFusionFeatures,
 } from '@speedora/contracts';
 
 function clamp(value: number, min: number, max: number): number {
@@ -435,7 +436,9 @@ function extractLlmFeatures(scores: ClipScores | undefined): ExtractedFeature[] 
 // other extractor here - `visibilityScore` in particular is reported even
 // though its own signal's weight is 0 (see weights.ts), for the same
 // transparency reason gesture's features are.
-function extractFaceGeometryFeatures(features: FaceLandmarkFeatures | undefined): ExtractedFeature[] {
+function extractFaceGeometryFeatures(
+  features: FaceLandmarkFeatures | undefined,
+): ExtractedFeature[] {
   if (!features) return [];
   const items: ExtractedFeature[] = [];
   if (features.blinkRate !== null) {
@@ -826,7 +829,50 @@ export function extractFeatures(input: FusionInput): ExtractedFeature[] {
     ...extractFaceGeometryFeatures(input.faceGeometry),
     ...extractOcrFeatures(input.ocr),
     ...extractLlmFeatures(input.llm),
+    ...extractSpeakerFeatures(input.speaker),
   ];
+}
+
+// Speaker Intelligence roadmap, Milestone D - a COMPOSITE signal (like
+// editingRhythm), every field a plain [0,1]-or-null measurement, same
+// "only push what's non-null" pattern as extractAudioFeatures above (no
+// category-derived weight table here either).
+function extractSpeakerFeatures(features: SpeakerFusionFeatures | undefined): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.dominantSpeakerConfidence !== null) {
+    items.push({
+      signal: 'speaker',
+      feature: 'dominantSpeakerConfidence',
+      value: features.dominantSpeakerConfidence,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dominantSpeakerEngagement !== null) {
+    items.push({
+      signal: 'speaker',
+      feature: 'dominantSpeakerEngagement',
+      value: features.dominantSpeakerEngagement,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.dominantSpeakerImportance !== null) {
+    items.push({
+      signal: 'speaker',
+      feature: 'dominantSpeakerImportance',
+      value: features.dominantSpeakerImportance,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageSpeakerHighlightScore !== null) {
+    items.push({
+      signal: 'speaker',
+      feature: 'averageSpeakerHighlightScore',
+      value: features.averageSpeakerHighlightScore,
+      isCategoryDerived: false,
+    });
+  }
+  return items;
 }
 
 // Step 2: Feature Normalization. Every extracted feature, whatever its
@@ -986,8 +1032,7 @@ const NORMALIZERS: Record<string, (value: number) => number> = {
   sizeScore: (value) => clamp(value, 0, 1),
   visibilityScore: (value) => clamp(value, 0, 1),
   averageAbsoluteYaw: (value) => clamp(mapRange(value, 0, HEAD_ROTATION_CAP_DEGREES, 0, 1), 0, 1),
-  averageAbsolutePitch: (value) =>
-    clamp(mapRange(value, 0, HEAD_ROTATION_CAP_DEGREES, 0, 1), 0, 1),
+  averageAbsolutePitch: (value) => clamp(mapRange(value, 0, HEAD_ROTATION_CAP_DEGREES, 0, 1), 0, 1),
   // Already 0-1 by contract (FaceLandmarkFeatures.eyeContactRate).
   eyeContactRate: (value) => clamp(value, 0, 1),
   dominantLookingDirectionWeight: (value) => clamp(value / 100, 0, 1),
@@ -1015,13 +1060,11 @@ const NORMALIZERS: Record<string, (value: number) => number> = {
   averageEyeSquint: (value) => clamp(value, 0, 1),
   genuineSmileRate: (value) => clamp(value, 0, 1),
   blinkFrequencyPerMinute: (value) => clamp(mapRange(value, 0, BLINK_FREQUENCY_CAP, 0, 1), 0, 1),
-  prolongedClosureCount: (value) =>
-    clamp(mapRange(value, 0, PROLONGED_CLOSURE_CAP, 0, 1), 0, 1),
+  prolongedClosureCount: (value) => clamp(mapRange(value, 0, PROLONGED_CLOSURE_CAP, 0, 1), 0, 1),
   // Already 0-1 by contract (FaceLandmarkFeatures.gazeStabilityScore).
   gazeStabilityScore: (value) => clamp(value, 0, 1),
   averageBrowActivity: (value) => clamp(value, 0, 1),
-  averageHeadMovementRate: (value) =>
-    clamp(mapRange(value, 0, HEAD_MOVEMENT_RATE_CAP, 0, 1), 0, 1),
+  averageHeadMovementRate: (value) => clamp(mapRange(value, 0, HEAD_MOVEMENT_RATE_CAP, 0, 1), 0, 1),
   dominantAffectWeight: (value) => clamp(value / 100, 0, 1),
   affectConfidence: (value) => clamp(value, 0, 1),
   // Already 0-1 by contract (OcrFeatures - see ocr.ts).
@@ -1043,6 +1086,11 @@ const NORMALIZERS: Record<string, (value: number) => number> = {
   'knowledge.novelty': LLM_SCORE_NORMALIZER,
   'knowledge.trustAuthority': LLM_SCORE_NORMALIZER,
   'conversion.ctaStrength': LLM_SCORE_NORMALIZER,
+  // Already 0-1 by contract (SpeakerFusionFeatures - see speaker-scoring.ts).
+  dominantSpeakerConfidence: (value) => clamp(value, 0, 1),
+  dominantSpeakerEngagement: (value) => clamp(value, 0, 1),
+  dominantSpeakerImportance: (value) => clamp(value, 0, 1),
+  averageSpeakerHighlightScore: (value) => clamp(value, 0, 1),
 };
 
 export function normalizeFeatures(extracted: ExtractedFeature[]): NormalizedFeature[] {

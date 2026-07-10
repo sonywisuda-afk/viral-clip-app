@@ -663,6 +663,51 @@ describe('extractFeatures', () => {
       { signal: 'ocr', feature: 'averageTextBlockCount', value: 1.5, isCategoryDerived: false },
     ]);
   });
+
+  it('extracts every non-null speaker field, skipping null ones (Speaker Intelligence roadmap, Milestone D)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      speaker: {
+        dominantSpeakerConfidence: 0.8,
+        dominantSpeakerEngagement: null,
+        dominantSpeakerImportance: 0.6,
+        averageSpeakerHighlightScore: 0.5,
+      },
+    });
+    expect(result).toEqual([
+      {
+        signal: 'speaker',
+        feature: 'dominantSpeakerConfidence',
+        value: 0.8,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'speaker',
+        feature: 'dominantSpeakerImportance',
+        value: 0.6,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'speaker',
+        feature: 'averageSpeakerHighlightScore',
+        value: 0.5,
+        isCategoryDerived: false,
+      },
+    ]);
+  });
+
+  it('extracts nothing for speaker when every field is null', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      speaker: {
+        dominantSpeakerConfidence: null,
+        dominantSpeakerEngagement: null,
+        dominantSpeakerImportance: null,
+        averageSpeakerHighlightScore: null,
+      },
+    });
+    expect(result).toEqual([]);
+  });
 });
 
 describe('normalizeFeatures', () => {
@@ -1043,6 +1088,25 @@ describe('normalizeFeatures', () => {
         { signal: 'audio', feature: 'unknownFeature', value: 1, isCategoryDerived: false },
       ]),
     ).toThrow();
+  });
+
+  it('passes every speaker field through unchanged (already 0-1 by contract)', () => {
+    const result = normalizeFeatures([
+      {
+        signal: 'speaker',
+        feature: 'dominantSpeakerConfidence',
+        value: 0.42,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'speaker',
+        feature: 'averageSpeakerHighlightScore',
+        value: 0.9,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.42);
+    expect(result[1].normalizedValue).toBe(0.9);
   });
 });
 

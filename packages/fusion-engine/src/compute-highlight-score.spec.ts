@@ -274,4 +274,33 @@ describe('computeHighlightScore', () => {
       expect(result.recommendation.action).toBe('review_manually');
     });
   });
+
+  describe('speaker signal (Speaker Intelligence roadmap, Milestone D)', () => {
+    const speakerInput = {
+      clipId: 'clip-1',
+      speaker: {
+        dominantSpeakerConfidence: 0.8,
+        dominantSpeakerEngagement: 0.6,
+        dominantSpeakerImportance: null,
+        averageSpeakerHighlightScore: null,
+      },
+    };
+
+    it('is collected into contributions at weight 0 by default, moving nothing', () => {
+      const withSpeaker = computeHighlightScore(speakerInput);
+      const withoutSpeaker = computeHighlightScore({ clipId: 'clip-1' });
+
+      expect(withSpeaker.highlightScore).toBe(withoutSpeaker.highlightScore);
+      expect(withSpeaker.confidence).toBe(withoutSpeaker.confidence);
+      const speakerContribution = withSpeaker.contributions.find((c) => c.signal === 'speaker');
+      expect(speakerContribution).toMatchObject({ weight: 0, weightedContribution: 0 });
+    });
+
+    it('moves the score and appears in topFactors once given a non-zero weight', () => {
+      const result = computeHighlightScore(speakerInput, { speaker: 1 });
+
+      expect(result.highlightScore).toBe(70); // average of 0.8 and 0.6 -> 70%.
+      expect(result.explainability.topFactors[0].signal).toBe('speaker');
+    });
+  });
 });
