@@ -598,6 +598,52 @@ export interface SpeakerTimelineFeatures {
   transitionCount: number;
 }
 
+// Speaker Intelligence roadmap, Milestone C - mirrors
+// @speedora/contracts' speaker-scoring.ts shapes rather than importing
+// them, same duplication precedent as SpeakerSegment above. `role` is an
+// explicit input no detector in this codebase infers - see
+// @speedora/speaker-scoring's deriveSpeakerImportanceScore comment.
+export type SpeakerRole = 'host' | 'guest' | 'audience' | 'unknown';
+
+export interface SpeakerConfidenceScore {
+  speakerId: string;
+  eyeContactRate: number | null;
+  headPoseStability: number | null;
+  gestureActivity: number | null;
+  voiceStability: number | null;
+  speakingRateScore: number | null;
+  overallScore: number | null;
+}
+
+export interface SpeakerEngagementScore {
+  speakerId: string;
+  gestureScore: number | null;
+  voiceEnergyScore: number | null;
+  facialExpressionScore: number | null;
+  speakingRateScore: number | null;
+  overallScore: number | null;
+}
+
+export interface SpeakerImportanceScore {
+  speakerId: string;
+  role: SpeakerRole | null;
+  talkTimeRatio: number | null;
+  screenTimeRatio: number | null;
+  score: number | null;
+}
+
+export interface SpeakerHighlightMoment {
+  speakerId: string;
+  start: number;
+  end: number;
+  isActiveSpeaker: boolean | null;
+  emotionIntensity: number | null;
+  gestureIntensity: number | null;
+  eyeContactRate: number | null;
+  hookStrength: number | null;
+  score: number | null;
+}
+
 // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
 // feature-level breakdown: one entry per extracted+normalized+weighted
 // named feature (not one opaque sub-score per signal) - see

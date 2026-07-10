@@ -26,6 +26,7 @@ import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
 import { deriveEditingRhythmFeatures } from '@speedora/editing-rhythm';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import { buildSpeakerTimeline, detectSpeakerTransitions } from '@speedora/speaker-diarization';
+import { deriveClipSpeakerScores } from '@speedora/speaker-scoring';
 import {
   QueueName,
   type RenderClipJobData,
@@ -632,6 +633,31 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             : null;
         const speakerTimelineFeatures =
           speakerTurnsInClip.length > 0 ? detectSpeakerTransitions(speakerTurnsInClip) : null;
+        // Speaker Intelligence roadmap, Milestone C - Speaker Confidence/
+        // Engagement/Importance and per-turn Highlight Moments, scoped to
+        // each speaker in speakerTimeline. Reuses the SAME transcript
+        // (already has each segment's own speaker/rmsDb/peakDb/
+        // speakingRateWordsPerSecond) and faceLandmarks this adapter
+        // already has in scope - no new detection. hookStrength comes from
+        // this clip's own LLM scores (clip-level, not moment-level - see
+        // @speedora/speaker-scoring's own comment on that limitation).
+        // Null when speakerTimeline itself is null (nothing to score).
+        const speakerScores = speakerTimeline
+          ? deriveClipSpeakerScores({
+              speakerTimeline,
+              faceLandmarks: faceLandmarks ?? [],
+              audioActivity: toAudioActivityWindows(transcript, startTime),
+              transcriptSegments: transcript.map((segment) => ({
+                speaker: segment.speaker,
+                rmsDb: segment.rmsDb ?? null,
+                peakDb: segment.peakDb ?? null,
+                speakingRateWordsPerSecond: segment.speakingRateWordsPerSecond ?? null,
+              })),
+              gestureFeatures,
+              clipDurationSeconds: endTime - startTime,
+              hookStrength: scores?.hookStrength ?? null,
+            })
+          : null;
         // OCR initiative Batch OCR-2 - cross-frame tracking + rule-based
         // classification over Batch OCR-1's own raw ocrText (see
         // @speedora/ocr-intelligence's own module comments for why this
@@ -809,6 +835,10 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             lipSyncVerifications: lipSyncVerifications ?? Prisma.JsonNull,
             speakerTimeline: speakerTimeline ?? Prisma.JsonNull,
             speakerTimelineFeatures: speakerTimelineFeatures ?? Prisma.JsonNull,
+            speakerConfidenceScores: speakerScores?.confidence ?? Prisma.JsonNull,
+            speakerEngagementScores: speakerScores?.engagement ?? Prisma.JsonNull,
+            speakerImportanceScores: speakerScores?.importance ?? Prisma.JsonNull,
+            speakerHighlightMoments: speakerScores?.highlightMoments ?? Prisma.JsonNull,
             ocrText: ocrText ?? Prisma.JsonNull,
             ocrTracks: ocrTracks ?? Prisma.JsonNull,
             ocrFeatures: ocrFeatures ?? Prisma.JsonNull,

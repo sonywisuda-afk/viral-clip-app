@@ -31,7 +31,11 @@ import type {
   OcrTextTrack,
   SceneCutEvent,
   SceneFeatures,
+  SpeakerConfidenceScore,
+  SpeakerEngagementScore,
   SpeakerFaceAssociation,
+  SpeakerHighlightMoment,
+  SpeakerImportanceScore,
   SpeakerTimelineEntry,
   SpeakerTimelineFeatures,
   TranscriptionProvider,
@@ -254,6 +258,34 @@ export function toSharedSpeakerTimelineFeatures(
   speakerTimelineFeatures: unknown,
 ): SpeakerTimelineFeatures | null {
   return (speakerTimelineFeatures as SpeakerTimelineFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.speakerConfidenceScores/speakerEngagementScores/
+// speakerImportanceScores/speakerHighlightMoments (Speaker Intelligence
+// roadmap, Milestone C).
+export function toSharedSpeakerConfidenceScores(
+  speakerConfidenceScores: unknown,
+): SpeakerConfidenceScore[] | null {
+  return (speakerConfidenceScores as SpeakerConfidenceScore[] | null) ?? null;
+}
+
+export function toSharedSpeakerEngagementScores(
+  speakerEngagementScores: unknown,
+): SpeakerEngagementScore[] | null {
+  return (speakerEngagementScores as SpeakerEngagementScore[] | null) ?? null;
+}
+
+export function toSharedSpeakerImportanceScores(
+  speakerImportanceScores: unknown,
+): SpeakerImportanceScore[] | null {
+  return (speakerImportanceScores as SpeakerImportanceScore[] | null) ?? null;
+}
+
+export function toSharedSpeakerHighlightMoments(
+  speakerHighlightMoments: unknown,
+): SpeakerHighlightMoment[] | null {
+  return (speakerHighlightMoments as SpeakerHighlightMoment[] | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

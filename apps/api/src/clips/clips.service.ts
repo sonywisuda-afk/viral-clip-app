@@ -42,7 +42,11 @@ import {
   toSharedOcrTracks,
   toSharedSceneCutEvents,
   toSharedSceneFeatures,
+  toSharedSpeakerConfidenceScores,
+  toSharedSpeakerEngagementScores,
   toSharedSpeakerFaceAssociations,
+  toSharedSpeakerHighlightMoments,
+  toSharedSpeakerImportanceScores,
   toSharedSpeakerTimeline,
   toSharedSpeakerTimelineFeatures,
   toSharedTrackingQualityMetrics,
@@ -312,6 +316,10 @@ export class ClipsService {
     lipSyncVerifications: unknown;
     speakerTimeline: unknown;
     speakerTimelineFeatures: unknown;
+    speakerConfidenceScores: unknown;
+    speakerEngagementScores: unknown;
+    speakerImportanceScores: unknown;
+    speakerHighlightMoments: unknown;
     ocrText: unknown;
     ocrTracks: unknown;
     ocrFeatures: unknown;
@@ -364,6 +372,10 @@ export class ClipsService {
       lipSyncVerifications: toSharedLipSyncVerifications(clip.lipSyncVerifications),
       speakerTimeline: toSharedSpeakerTimeline(clip.speakerTimeline),
       speakerTimelineFeatures: toSharedSpeakerTimelineFeatures(clip.speakerTimelineFeatures),
+      speakerConfidenceScores: toSharedSpeakerConfidenceScores(clip.speakerConfidenceScores),
+      speakerEngagementScores: toSharedSpeakerEngagementScores(clip.speakerEngagementScores),
+      speakerImportanceScores: toSharedSpeakerImportanceScores(clip.speakerImportanceScores),
+      speakerHighlightMoments: toSharedSpeakerHighlightMoments(clip.speakerHighlightMoments),
       ocrText: toSharedOcrText(clip.ocrText),
       ocrTracks: toSharedOcrTracks(clip.ocrTracks),
       ocrFeatures: toSharedOcrFeatures(clip.ocrFeatures),

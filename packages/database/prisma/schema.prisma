@@ -500,6 +500,20 @@ model Clip {
   // nothing here) - not a fabricated empty timeline.
   speakerTimeline         Json?
   speakerTimelineFeatures Json?
+  // Speaker Intelligence roadmap, Milestone C - @speedora/speaker-scoring's
+  // deriveClipSpeakerScores() output: one entry per speaker in this clip's
+  // speakerTimeline for confidence/engagement/importance, one entry per
+  // timeline turn for highlightMoments (a speaker turn IS the moment
+  // boundary - see that package's own comments). Re-runs
+  // deriveFaceLandmarkFeatures/deriveAudioFeatures scoped to each
+  // speaker's own face track/transcript segments - not a new raw signal,
+  // a re-aggregation of faceLandmarks/audioFeatures/gestureFeatures/
+  // speakerTimeline above. Null when speakerTimeline itself is null
+  // (nothing to score).
+  speakerConfidenceScores Json?
+  speakerEngagementScores Json?
+  speakerImportanceScores Json?
+  speakerHighlightMoments Json?
   // AI Fusion roadmap's OCR initiative, Batch OCR-1 - @speedora/ocr-
   // intelligence's detectOcrText() per-sample output (Tesseract: text +
   // bounding box + confidence per detected on-screen text region, per
