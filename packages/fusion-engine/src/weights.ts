@@ -67,6 +67,21 @@ import type { FusionWeights } from '@speedora/contracts';
 // @speedora/object-intelligence's deriveObjectFeatures() output is
 // collected and visible in `contributions`, but weight 0 until there's real
 // engagement data to calibrate against.
+//
+// `composition` (Composition Intelligence roadmap, Batch RB-2) - weight 0,
+// same as every signal above. Worth flagging explicitly (see fusion.ts's
+// own comment on this key): unlike object/gesture/editingRhythm, which
+// already had a real worker adapter producing per-clip data by the time
+// they were wired in here, `composition` currently has no caller anywhere
+// in apps/worker - @speedora/composition-intelligence's
+// deriveCompositionFeatures() exists and is fully tested, but nothing
+// invokes it against real clips yet (Primary Subject Selection, the
+// render-clip adapter, and a Clip.compositionFeatures column are all still
+// open - see docs/ai/composition-intelligence.md's "What's next"). This
+// key is reserved ahead of that the same way `ocr` was reserved here before
+// Batch OCR-2 gave it a real producer - not a claim that data is flowing
+// yet, just that the weight-table slot and the FUSION_SIGNALS/
+// fusionInputSchema/NORMALIZERS plumbing are ready for when it does.
 export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   audio: 0.35,
   scene: 0.25,
@@ -80,4 +95,5 @@ export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   object: 0,
   llm: 0.05,
   speaker: 0,
+  composition: 0,
 };

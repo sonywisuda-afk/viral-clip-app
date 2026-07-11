@@ -824,6 +824,50 @@ describe('extractFeatures', () => {
     });
     expect(result).toEqual([]);
   });
+
+  it('extracts every non-null composition field, skipping null ones (Composition Intelligence roadmap, Batch RB-2)', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      composition: {
+        ruleOfThirdsScore: 0.7,
+        headroomScore: 0.6,
+        leadRoomScore: null,
+        centeringScore: 0.5,
+        subjectLossRatio: 0.1,
+        compositionStability: 0.2,
+        framingConsistency: 2,
+      },
+    });
+    expect(result).toEqual([
+      { signal: 'composition', feature: 'ruleOfThirdsScore', value: 0.7, isCategoryDerived: false },
+      { signal: 'composition', feature: 'headroomScore', value: 0.6, isCategoryDerived: false },
+      { signal: 'composition', feature: 'centeringScore', value: 0.5, isCategoryDerived: false },
+      { signal: 'composition', feature: 'subjectLossRatio', value: 0.1, isCategoryDerived: false },
+      {
+        signal: 'composition',
+        feature: 'compositionStability',
+        value: 0.2,
+        isCategoryDerived: false,
+      },
+      { signal: 'composition', feature: 'framingConsistency', value: 2, isCategoryDerived: false },
+    ]);
+  });
+
+  it('extracts nothing for composition when every field is null', () => {
+    const result = extractFeatures({
+      clipId: 'clip-1',
+      composition: {
+        ruleOfThirdsScore: null,
+        headroomScore: null,
+        leadRoomScore: null,
+        centeringScore: null,
+        subjectLossRatio: null,
+        compositionStability: null,
+        framingConsistency: null,
+      },
+    });
+    expect(result).toEqual([]);
+  });
 });
 
 describe('normalizeFeatures', () => {
@@ -1289,6 +1333,50 @@ describe('normalizeFeatures', () => {
         { signal: 'audio', feature: 'unknownFeature', value: 1, isCategoryDerived: false },
       ]),
     ).toThrow();
+  });
+
+  it("passes composition's already-0-1 placement scores through unchanged (Batch RB-2)", () => {
+    const result = normalizeFeatures([
+      { signal: 'composition', feature: 'ruleOfThirdsScore', value: 0.7, isCategoryDerived: false },
+      { signal: 'composition', feature: 'headroomScore', value: 0.6, isCategoryDerived: false },
+      { signal: 'composition', feature: 'leadRoomScore', value: 0.55, isCategoryDerived: false },
+      { signal: 'composition', feature: 'centeringScore', value: 0.5, isCategoryDerived: false },
+    ]);
+    expect(result.map((item) => item.normalizedValue)).toEqual([0.7, 0.6, 0.55, 0.5]);
+  });
+
+  it('inverts subjectLossRatio (higher raw ratio = lower normalizedValue, unambiguously bad)', () => {
+    const neverLost = normalizeFeatures([
+      { signal: 'composition', feature: 'subjectLossRatio', value: 0, isCategoryDerived: false },
+    ]);
+    const alwaysLost = normalizeFeatures([
+      { signal: 'composition', feature: 'subjectLossRatio', value: 1, isCategoryDerived: false },
+    ]);
+    expect(neverLost[0].normalizedValue).toBe(1);
+    expect(alwaysLost[0].normalizedValue).toBe(0);
+  });
+
+  it('passes compositionStability through unchanged, not inverted (naturally bounded [0, 1])', () => {
+    const result = normalizeFeatures([
+      {
+        signal: 'composition',
+        feature: 'compositionStability',
+        value: 0.3,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.3);
+  });
+
+  it('maps framingConsistency through its rate cap, not inverted', () => {
+    const atCap = normalizeFeatures([
+      { signal: 'composition', feature: 'framingConsistency', value: 6, isCategoryDerived: false },
+    ]);
+    const halfCap = normalizeFeatures([
+      { signal: 'composition', feature: 'framingConsistency', value: 3, isCategoryDerived: false },
+    ]);
+    expect(atCap[0].normalizedValue).toBe(1);
+    expect(halfCap[0].normalizedValue).toBe(0.5);
   });
 
   it('passes every speaker field through unchanged (already 0-1 by contract)', () => {

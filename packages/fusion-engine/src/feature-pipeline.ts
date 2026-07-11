@@ -2,6 +2,7 @@ import type {
   AudioFeatures,
   CameraMotionFeatures,
   ClipScores,
+  CompositionFeatures,
   EditingRhythmFeatures,
   FaceLandmarkFeatures,
   FacialEmotionFeatures,
@@ -975,6 +976,77 @@ function extractObjectFeatures(features: ObjectFeatures | undefined): ExtractedF
   return items;
 }
 
+// Composition Intelligence roadmap, Batch RB-2 (see docs/ai/composition-
+// intelligence.md) - ruleOfThirdsScore/headroomScore/leadRoomScore/
+// centeringScore are already 0-1 by contract, extracted as plain
+// measurements, same as every other already-normalized feature in this
+// file. subjectLossRatio/compositionStability/framingConsistency are
+// extracted as their RAW contract values too - each one's own polarity
+// call (inverted vs. left as-is) is made once, in NORMALIZERS below, not
+// here; extraction never applies a value judgment, only reports what the
+// module computed.
+function extractCompositionFeatures(features: CompositionFeatures | undefined): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.ruleOfThirdsScore !== null) {
+    items.push({
+      signal: 'composition',
+      feature: 'ruleOfThirdsScore',
+      value: features.ruleOfThirdsScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.headroomScore !== null) {
+    items.push({
+      signal: 'composition',
+      feature: 'headroomScore',
+      value: features.headroomScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.leadRoomScore !== null) {
+    items.push({
+      signal: 'composition',
+      feature: 'leadRoomScore',
+      value: features.leadRoomScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.centeringScore !== null) {
+    items.push({
+      signal: 'composition',
+      feature: 'centeringScore',
+      value: features.centeringScore,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.subjectLossRatio !== null) {
+    items.push({
+      signal: 'composition',
+      feature: 'subjectLossRatio',
+      value: features.subjectLossRatio,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.compositionStability !== null) {
+    items.push({
+      signal: 'composition',
+      feature: 'compositionStability',
+      value: features.compositionStability,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.framingConsistency !== null) {
+    items.push({
+      signal: 'composition',
+      feature: 'framingConsistency',
+      value: features.framingConsistency,
+      isCategoryDerived: false,
+    });
+  }
+  return items;
+}
+
 export function extractFeatures(input: FusionInput): ExtractedFeature[] {
   return [
     ...extractAudioFeatures(input.audio),
@@ -989,6 +1061,7 @@ export function extractFeatures(input: FusionInput): ExtractedFeature[] {
     ...extractObjectFeatures(input.object),
     ...extractLlmFeatures(input.llm),
     ...extractSpeakerFeatures(input.speaker),
+    ...extractCompositionFeatures(input.composition),
   ];
 }
 
@@ -1171,6 +1244,18 @@ const AVERAGE_TEXT_BLOCK_COUNT_CAP = 3;
 // every other cap in this file.
 const AVERAGE_OBJECT_COUNT_CAP = 3;
 
+// Composition Intelligence roadmap, Batch RB-2 - shot-type transitions per
+// minute at/above which framing reads as "maximally choppy" - a reasonable
+// guess (a handheld vlog-style clip might flip shot type a couple times a
+// minute; a static talking-head clip typically has none), NOT calibrated
+// against real footage, same caveat as every other cap in this file. Same
+// "more is simply more, direction unproven" honesty as SPEAKER_CHANGE_CAP/
+// PAUSE_COUNT_CAP above - a shot-type change is not automatically bad (see
+// docs/ai/composition-intelligence.md's framingConsistency section), so
+// this is scored uninverted pending real engagement data, not presumed to
+// always hurt highlightScore.
+const FRAMING_CONSISTENCY_RATE_CAP = 6;
+
 const NORMALIZERS: Record<string, (value: number) => number> = {
   averageRmsDb: (value) => clamp(mapRange(value, AUDIO_QUIET_DB, AUDIO_LOUD_DB, 0, 1), 0, 1),
   speakingRateStdDev: (value) => clamp(mapRange(value, 0, SPEAKING_RATE_STD_DEV_CAP, 0, 1), 0, 1),
@@ -1294,6 +1379,32 @@ const NORMALIZERS: Record<string, (value: number) => number> = {
   dominantSpeakerEngagement: (value) => clamp(value, 0, 1),
   dominantSpeakerImportance: (value) => clamp(value, 0, 1),
   averageSpeakerHighlightScore: (value) => clamp(value, 0, 1),
+  // Composition Intelligence roadmap, Batch RB-2 - already 0-1 by contract
+  // (CompositionFeatures - see composition-intelligence.ts).
+  ruleOfThirdsScore: (value) => clamp(value, 0, 1),
+  headroomScore: (value) => clamp(value, 0, 1),
+  leadRoomScore: (value) => clamp(value, 0, 1),
+  centeringScore: (value) => clamp(value, 0, 1),
+  // Inverted (1 - ratio), NOT a passthrough - same reasoning as
+  // occlusionRate above: subjectLossRatio's raw semantics ("higher =
+  // more of the clip had no subject visible at all") are unambiguously
+  // bad, a framing FAILURE, unlike object-intelligence's
+  // averageOcclusionScore (genuinely uncertain polarity, deliberately
+  // left uninverted) - inverting keeps this pipeline's "higher
+  // normalizedValue = better" convention consistent so a future non-zero
+  // weight moves the score the right direction without a special case.
+  subjectLossRatio: (value) => clamp(1 - value, 0, 1),
+  // Already naturally bounded to [0, 1] by construction - the mean
+  // absolute delta between two [0, 1] placement scores can never exceed 1,
+  // so a plain clamp is enough, no CAP constant needed. NOT inverted -
+  // same "erratic-magnitude metric, direction left uninverted pending real
+  // data" precedent as shakeScore above (higher = more frame-to-frame
+  // oscillation is reported as-is, not presumed worse).
+  compositionStability: (value) => clamp(value, 0, 1),
+  // Same "more is simply more, direction unproven" treatment as
+  // FRAMING_CONSISTENCY_RATE_CAP's own comment explains.
+  framingConsistency: (value) =>
+    clamp(mapRange(value, 0, FRAMING_CONSISTENCY_RATE_CAP, 0, 1), 0, 1),
 };
 
 export function normalizeFeatures(extracted: ExtractedFeature[]): NormalizedFeature[] {

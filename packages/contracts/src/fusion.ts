@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { audioFeaturesSchema } from './audio-intelligence';
 import { clipScoresSchema } from './clip-scoring';
+import { compositionFeaturesSchema } from './composition-intelligence';
 import { editingRhythmFeaturesSchema } from './editing-rhythm';
 import { faceLandmarkFeaturesSchema } from './face-landmarks';
 import { facialEmotionFeaturesSchema } from './facial-intelligence';
@@ -80,6 +81,22 @@ import { speakerFusionFeaturesSchema } from './speaker-scoring';
 // faceGeometry: @speedora/object-intelligence's deriveObjectFeatures()
 // output is collected and visible in `contributions`, but weight 0 (see
 // weights.ts) until there's real engagement data to calibrate against.
+//
+// `composition` (Composition Intelligence roadmap, Batch RB-2 - see
+// docs/ai/composition-intelligence.md) - a SEPARATE signal from
+// `cameraMotion`, deliberately: `cameraMotion` answers how the camera
+// moved (Scene Intelligence's Batch SC-3), `composition` answers WHERE the
+// already-selected primary subject sat in the frame (rule of thirds,
+// headroom, lead room, centering, stability, framing consistency, subject
+// loss - @speedora/composition-intelligence's deriveCompositionFeatures()).
+// Reusing `cameraMotion` for this would silently overwrite Scene
+// Intelligence's existing contribution. Unlike object/gesture/
+// editingRhythm at the time THEY were wired in, this signal has no worker
+// adapter, DB column, or Primary Subject Selection implementation yet
+// (RB-1's package alone doesn't produce real per-clip data) - closer to
+// `ocr`'s "reserved key ahead of a real fusionInputSchema producer" history
+// (see that field's own comment above and weights.ts) than to a detector
+// that already runs in production. Weight 0 either way.
 export const FUSION_SIGNALS = [
   'audio',
   'scene',
@@ -93,6 +110,7 @@ export const FUSION_SIGNALS = [
   'object',
   'llm',
   'speaker',
+  'composition',
 ] as const;
 export type FusionSignal = (typeof FUSION_SIGNALS)[number];
 
@@ -128,6 +146,7 @@ export const fusionInputSchema = z.object({
   object: objectFeaturesSchema.optional(),
   llm: clipScoresSchema.optional(),
   speaker: speakerFusionFeaturesSchema.optional(),
+  composition: compositionFeaturesSchema.optional(),
 });
 
 // Per-signal weight table - the "Feature Weighting" pipeline stage's
