@@ -1,0 +1,37 @@
+{
+  "name": "@speedora/primary-subject",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): Primary Subject Selection - decides which tracked entity is 'the subject' of a given sampled instant (active speaker > largest visible face > largest tracked person > highest objectAttentionScore > largest tracked object), over Facial/Active-Speaker/Object Intelligence's already-computed output. Deliberately NOT composition-specific (see docs/ai/composition-intelligence.md) - a standalone building block also intended for Thumbnail Intelligence, Reframe, and future Multi-Subject work, not buried as a private detail of any one consumer. selectPrimarySubject() never detects/tracks anything itself, only chooses among already-tracked candidates. No DB/queue access at all; see root ARCHITECTURE.md. Consumed by apps/worker's render-clip adapter and @speedora/composition-intelligence.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.5"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

@@ -558,6 +558,19 @@ model Clip {
   // Both null exactly when objects is null.
   objectTracks            Json?
   objectFeatures          Json?
+  // Composition Intelligence roadmap, Batch RB-1/RB-2 (see docs/ai/
+  // composition-intelligence.md) - @speedora/composition-intelligence's
+  // deriveCompositionFeatures() output (ruleOfThirdsScore/headroomScore/
+  // leadRoomScore/centeringScore/subjectLossRatio/compositionStability/
+  // framingConsistency). NO separate "raw" column - same COMPOSITE
+  // reasoning as editingRhythmFeatures above: its input is @speedora/
+  // primary-subject's already-selected per-instant subject boxes (built
+  // FROM Facial/Active-Speaker/Object Intelligence's already-computed
+  // faceLandmarks/activeSpeakerSamples/objectTracks columns above, not a
+  // fresh detector of its own), so there's no independent raw timeline to
+  // persist here. Null when there were zero usable primary-subject samples
+  // for this clip (not a fabricated all-null features object).
+  compositionFeatures     Json?
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 
