@@ -1,0 +1,37 @@
+{
+  "name": "@speedora/composition-intelligence",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): Composition Intelligence, Batch RB-1 - a COMPOSITE signal derived from Facial/Object Intelligence's already-computed primary-subject bounding boxes (selected upstream by the worker orchestrator's Primary Subject Selection order, see docs/ai/composition-intelligence.md), not a fresh detector/subprocess of its own. calculateRuleOfThirdsScore/calculateHeadroomScore/calculateLeadRoomScore/calculateCenteringScore/calculateSubjectLossRatio/calculateCompositionStability/calculateFramingConsistency are independently exported and testable; deriveCompositionFeatures() orchestrates them. No DB/queue access at all; see root ARCHITECTURE.md. Consumed by apps/worker's render-clip adapter and @speedora/fusion-engine (Batch RB-2, not wired yet).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.5"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}
