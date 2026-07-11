@@ -1,6 +1,7 @@
 export * from './active-speaker';
 export * from './audio-intelligence';
 export * from './clip-scoring';
+export * from './composition-intelligence';
 export * from './conversation-intelligence';
 export * from './cutlist';
 export * from './editing-rhythm';
