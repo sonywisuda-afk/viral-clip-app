@@ -41,6 +41,7 @@ packages/
   clip-scoring/, cutlist/, subtitles/, reframe/, emoji-suggester/,
   audio-intelligence/, scene-intelligence/, facial-intelligence/,
   gesture-intelligence/, ocr-intelligence/, object-intelligence/, editing-rhythm/,
+  primary-subject/, composition-intelligence/,
   fusion-engine/                                       # stateless JSON-in/JSON-out AI modules
 ```
 
@@ -73,6 +74,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/scoring.md`](docs/ai/scoring.md) | How `viralityScore`/`ClipScores`/`highlightScore` relate (they are three different systems) |
 | [`docs/ai/speaker-intelligence.md`](docs/ai/speaker-intelligence.md) | Speaker Intelligence roadmap (VAD, Active Speaker Detection, Face-Voice Association, Speaker Timeline/Scoring) — contracts-only status vs. what's already covered by Face/Audio/Gesture Intelligence |
 | [`docs/ai/object-intelligence.md`](docs/ai/object-intelligence.md) | Object Intelligence roadmap (per-entity detection/tracking/behavioral features — a separate package from Scene Intelligence) — MediaPipe detector choice, multi-object tracker design, Batch OI-1 through OI-5 (complete) |
+| [`docs/ai/composition-intelligence.md`](docs/ai/composition-intelligence.md) | Composition Intelligence roadmap (rule of thirds, headroom, lead room, centering, composition stability, framing consistency, subject loss ratio) — reclassifies an earlier 15-batch "Camera Intelligence" proposal, most of which turned out to already be Scene/Motion/Object Intelligence; **complete** — contract, `packages/composition-intelligence` derive functions, the standalone `packages/primary-subject` selection package, worker adapter, and Fusion Engine wiring (RB-1/RB-2) are all done at weight 0, pending calibration |
 
 ## Status
 
@@ -129,19 +131,32 @@ High-level state of each major initiative (see the linked docs for what's actual
   See `ai/fusion.md`.
 - **Speaker Intelligence roadmap** (VAD, Active Speaker Detection, Face-Voice Association, Lip
   Sync Verification, Speaker Timeline, Speaker Quality/Confidence/Importance/Engagement/
-  Attention/Highlight scoring, Conversation Type Classification) — **contracts only**
-  (`packages/contracts/src/{voice-activity,speaker-diarization,vocal-emotion,active-speaker,
-  speaker-timeline,speaker-quality,speaking-style,conversation-intelligence,speaker-scoring}.ts`),
-  no detectors/wiring built yet. Speaker Diarization and Vocal Emotion Detection (already shipped
-  in `apps/worker`) were formalized into real Zod contracts in the same pass, closing a gap where
-  they were the only two Python-subprocess detectors using an unchecked cast instead of
-  `OutputSchema.parse()`. See `ai/speaker-intelligence.md`.
-- **Open**: Visual Composition (rule-of-thirds, shot framing), real dissolve-transition detection,
-  Eye Contact/Gesture/OCR/etc. weight calibration against real engagement data,
-  pitch/F0 audio tracking, every Speaker Intelligence detector above, and the eventual Multi-Modal
-  Fusion Engine (whether it enriches `clip-scoring`'s LLM-selected candidates or replaces
-  selection with a continuous importance timeline is an explicit open architectural question — see
-  `ai/fusion.md`).
+  Attention/Highlight scoring, Conversation Type Classification) — **this doc's "contracts only,
+  no detectors/wiring built yet" status is stale** (confirmed while wiring Composition
+  Intelligence's Primary Subject Selection, which consumes Active Speaker Detection's real output
+  directly): `packages/active-speaker-intelligence` (`detectActiveSpeaker`,
+  `associateSpeakersWithFaces`, `verifyLipSync`) and `packages/speaker-scoring`
+  (confidence/engagement/importance/highlight scoring) are fully implemented and already wired into
+  `render-clip.worker.ts` and the Fusion Engine (`speaker` key, weight 0). A full re-audit of
+  exactly which roadmap items are done vs. still contracts-only hasn't been done — treat this bullet
+  and `ai/speaker-intelligence.md` as needing a refresh pass, not as accurate today.
+- **Composition Intelligence roadmap** (rule of thirds, headroom, lead room, centering, composition
+  stability, framing consistency, subject loss ratio) — a reclassification of an earlier proposed
+  15-batch "Camera Intelligence" subsystem, most of which turned out to already be Scene/Motion/
+  Object Intelligence under a camera-flavored name. **Complete**: the contract
+  (`packages/contracts/src/composition-intelligence.ts`), the derive-function package
+  (`packages/composition-intelligence`), a standalone, deliberately non-composition-specific
+  Primary Subject Selection package (`packages/primary-subject` — reusable by a future Thumbnail
+  Intelligence/Reframe/Multi-Subject initiative, not buried as a private detail of this one), the
+  `render-clip.worker.ts` adapter, and Fusion Engine wiring (a new `composition` key, weight 0) are
+  all done. See `ai/composition-intelligence.md`.
+- **Open**: real dissolve-transition detection, Eye Contact/Gesture/OCR/Composition/etc. weight
+  calibration against real engagement data, pitch/F0 audio tracking, a Speaker Intelligence
+  re-audit (see above), Video Quality Intelligence (focus/exposure/noise/compression — a separate,
+  not-yet-scoped roadmap explicitly split out of Composition Intelligence), and the eventual
+  Multi-Modal Fusion Engine (whether it enriches `clip-scoring`'s LLM-selected candidates or
+  replaces selection with a continuous importance timeline is an explicit open architectural
+  question — see `ai/fusion.md`).
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and
