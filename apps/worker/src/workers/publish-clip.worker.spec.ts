@@ -208,6 +208,37 @@ describe('publish-clip worker', () => {
     );
   });
 
+  it('still publishes using the in-memory refreshed token when persisting it fails', async () => {
+    resolveAccessTokenMock.mockResolvedValue({
+      accessToken: 'new-plaintext-access',
+      refreshed: true,
+      updated: {
+        accessToken: 'new-encrypted-access',
+        refreshToken: 'new-encrypted-refresh',
+        tokenExpiresAt: new Date('2099-02-01'),
+      },
+    });
+    socialAccountUpdateMock.mockRejectedValue(new Error('connection reset'));
+
+    const processor = getProcessor();
+    const result = await processor(baseJob());
+
+    // The cache-write failure must not abort this attempt - the token was
+    // already resolved in-memory and the upload proceeds with it.
+    expect(uploadYouTubeVideoMock).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: 'new-plaintext-access' }),
+    );
+    expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'record-1' },
+      data: {
+        status: PublishStatus.PUBLISHED,
+        platformPostId: 'yt-video-1',
+        publishedAt: expect.any(Date),
+      },
+    });
+    expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'yt-video-1' });
+  });
+
   it('throws without uploading when the clip has not finished rendering', async () => {
     publishRecordFindUniqueOrThrowMock.mockResolvedValue({
       ...baseRecord,

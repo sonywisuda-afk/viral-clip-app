@@ -99,14 +99,20 @@ async function sendResilient<Output>(command: {
 // peak-memory pressure and, more importantly, giving the upload a real bound: streamed through
 // this client, it inherits the SAME requestTimeout the PutObjectCommand itself already enforces
 // (see getClient() above), where an unbounded readFile() beforehand would not.
+// Returns the response's ETag (ETag header value, quotes included as S3
+// sends them) so a caller that wants integrity verification on top of an
+// ordinary upload can compare it against a locally-computed MD5 - see
+// render-clip.worker.ts's checksum check on the final rendered output.
+// Existing callers that don't need this just don't use the return value.
 export async function uploadObject(
   key: string,
   body: Buffer | Readable,
   contentType?: string,
-): Promise<void> {
-  await sendResilient(
+): Promise<string | undefined> {
+  const result = await sendResilient<{ ETag?: string }>(
     new PutObjectCommand({ Bucket: bucket(), Key: key, Body: body, ContentType: contentType }),
   );
+  return result.ETag;
 }
 
 export async function getObjectStream(key: string): Promise<Readable> {

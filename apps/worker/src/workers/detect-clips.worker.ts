@@ -13,10 +13,17 @@ import {
   type TranscriptSegment,
 } from '@speedora/shared';
 import { Worker, type Job } from 'bullmq';
+import { withJobTimeout } from '../jobTimeout';
 import { openai } from '../openai';
 import { prisma } from '../prisma';
 import { renderClipQueue } from '../queues';
 import { createRedisConnection } from '../redis';
+
+// Defense-in-depth outer bound (see jobTimeout.ts) - a single LLM call over
+// the full transcript, already bounded by the OpenAI SDK's own ~10 min
+// default request timeout; generous headroom above that for the
+// scoring/filtering/DB-write work around it.
+const DETECT_CLIPS_JOB_TIMEOUT_MS = 15 * 60 * 1000;
 
 // Adapter (see root ARCHITECTURE.md's DB-vs-JSON-contract pattern): this file
 // is the only place that touches Prisma/BullMQ/Sentry for the detect-clips
@@ -58,130 +65,138 @@ function emojiSuggestionsFor(
 export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClipsJobResult> {
   return new Worker<DetectClipsJobData, DetectClipsJobResult>(
     QueueName.DETECT_CLIPS,
-    async (job: Job<DetectClipsJobData>) => {
-      const { videoId, segments } = job.data;
+    (job: Job<DetectClipsJobData>) =>
+      withJobTimeout(
+        async () => {
+          const { videoId, segments } = job.data;
 
-      // Same orphaned-job guard as transcribe.worker.ts - a video deleted
-      // while this job was still queued would otherwise burn a real OpenAI
-      // API call before failing on the final prisma write.
-      const existingVideo = await prisma.video.findUnique({
-        where: { id: videoId },
-        select: { status: true },
-      });
-      if (!existingVideo) {
-        console.log(`[detect-clips] video ${videoId} was deleted - skipping orphaned job`);
-        return { videoId, candidates: [] };
-      }
+          // Same orphaned-job guard as transcribe.worker.ts - a video deleted
+          // while this job was still queued would otherwise burn a real OpenAI
+          // API call before failing on the final prisma write.
+          const existingVideo = await prisma.video.findUnique({
+            where: { id: videoId },
+            select: { status: true },
+          });
+          if (!existingVideo) {
+            console.log(`[detect-clips] video ${videoId} was deleted - skipping orphaned job`);
+            return { videoId, candidates: [] };
+          }
 
-      // Same idempotency guard/reasoning as transcribe.worker.ts (see its own comment) - both
-      // callers of this queue (transcribe.worker.ts, VideosService.retry) only enqueue right after
-      // setting status to TRANSCRIBED, so status having already moved past it means some execution
-      // of this same job already ran scoreClipCandidates() - a paid LLM call - and re-running it via
-      // a BullMQ stalled-job re-processing would just duplicate that cost.
-      if (existingVideo.status !== VideoStatus.TRANSCRIBED) {
-        console.log(
-          `[detect-clips] video ${videoId} is already past TRANSCRIBED (status: ${existingVideo.status}) - ` +
-            'skipping to avoid a duplicate LLM call',
-        );
-        return { videoId, candidates: [] };
-      }
+          // Same idempotency guard/reasoning as transcribe.worker.ts (see its own comment) - both
+          // callers of this queue (transcribe.worker.ts, VideosService.retry) only enqueue right after
+          // setting status to TRANSCRIBED, so status having already moved past it means some execution
+          // of this same job already ran scoreClipCandidates() - a paid LLM call - and re-running it via
+          // a BullMQ stalled-job re-processing would just duplicate that cost.
+          if (existingVideo.status !== VideoStatus.TRANSCRIBED) {
+            console.log(
+              `[detect-clips] video ${videoId} is already past TRANSCRIBED (status: ${existingVideo.status}) - ` +
+                'skipping to avoid a duplicate LLM call',
+            );
+            return { videoId, candidates: [] };
+          }
 
-      console.log(`[detect-clips] analyzing ${segments.length} segments for video ${videoId}`);
+          console.log(`[detect-clips] analyzing ${segments.length} segments for video ${videoId}`);
 
-      try {
-        const { candidates: rawCandidates } = await scoreClipCandidates(toScoringInput(segments), {
-          openai,
-        });
-
-        const clips = await prisma.$transaction(
-          rawCandidates.map((candidate) =>
-            prisma.clip.create({
-              data: {
-                videoId,
-                startTime: candidate.startTime,
-                endTime: candidate.endTime,
-                viralityScore: candidate.viralityScore,
-                hookText: candidate.hookText,
-                hashtags: candidate.hashtags,
-                // ClipScores is a closed interface (no index signature), which
-                // Prisma's Json input type requires - same reasoning as
-                // clip.scores's read-side cast to ClipScores below.
-                scores: candidate.scores as unknown as Prisma.InputJsonValue,
-                reason: candidate.reason,
-                topics: candidate.topics,
-                keywords: candidate.keywords,
-                intent: candidate.intent,
-                ctaText: candidate.ctaText,
-                emojiSuggestions: emojiSuggestionsFor(
-                  segments,
-                  candidate.startTime,
-                  candidate.endTime,
-                ),
+          try {
+            const { candidates: rawCandidates } = await scoreClipCandidates(
+              toScoringInput(segments),
+              {
+                openai,
               },
-            }),
-          ),
-        );
+            );
 
-        await updateVideoStatus(prisma, videoId, VideoStatus.CLIPS_DETECTED);
+            const clips = await prisma.$transaction(
+              rawCandidates.map((candidate) =>
+                prisma.clip.create({
+                  data: {
+                    videoId,
+                    startTime: candidate.startTime,
+                    endTime: candidate.endTime,
+                    viralityScore: candidate.viralityScore,
+                    hookText: candidate.hookText,
+                    hashtags: candidate.hashtags,
+                    // ClipScores is a closed interface (no index signature), which
+                    // Prisma's Json input type requires - same reasoning as
+                    // clip.scores's read-side cast to ClipScores below.
+                    scores: candidate.scores as unknown as Prisma.InputJsonValue,
+                    reason: candidate.reason,
+                    topics: candidate.topics,
+                    keywords: candidate.keywords,
+                    intent: candidate.intent,
+                    ctaText: candidate.ctaText,
+                    emojiSuggestions: emojiSuggestionsFor(
+                      segments,
+                      candidate.startTime,
+                      candidate.endTime,
+                    ),
+                  },
+                }),
+              ),
+            );
 
-        const candidates: ClipCandidate[] = clips.map((clip) => ({
-          id: clip.id,
-          videoId: clip.videoId,
-          startTime: clip.startTime,
-          endTime: clip.endTime,
-          viralityScore: clip.viralityScore,
-          transcript: filterSegmentsForClip(segments, clip.startTime, clip.endTime),
-          hookText: clip.hookText,
-          hashtags: clip.hashtags,
-          // Prisma types a Json column as the opaque JsonValue union - this
-          // narrows it back to the shape written above (same pattern as
-          // transcript-segment.util.ts's toSharedTranscriptSegment for
-          // TranscriptSegment.words).
-          scores: (clip.scores as unknown as ClipScores) ?? null,
-          reason: clip.reason,
-          topics: clip.topics,
-          keywords: clip.keywords,
-          intent: clip.intent,
-          ctaText: clip.ctaText,
-          emojiSuggestions: clip.emojiSuggestions,
-        }));
+            await updateVideoStatus(prisma, videoId, VideoStatus.CLIPS_DETECTED);
 
-        console.log(`[detect-clips] video ${videoId} -> ${candidates.length} candidates`);
+            const candidates: ClipCandidate[] = clips.map((clip) => ({
+              id: clip.id,
+              videoId: clip.videoId,
+              startTime: clip.startTime,
+              endTime: clip.endTime,
+              viralityScore: clip.viralityScore,
+              transcript: filterSegmentsForClip(segments, clip.startTime, clip.endTime),
+              hookText: clip.hookText,
+              hashtags: clip.hashtags,
+              // Prisma types a Json column as the opaque JsonValue union - this
+              // narrows it back to the shape written above (same pattern as
+              // transcript-segment.util.ts's toSharedTranscriptSegment for
+              // TranscriptSegment.words).
+              scores: (clip.scores as unknown as ClipScores) ?? null,
+              reason: clip.reason,
+              topics: clip.topics,
+              keywords: clip.keywords,
+              intent: clip.intent,
+              ctaText: clip.ctaText,
+              emojiSuggestions: clip.emojiSuggestions,
+            }));
 
-        if (candidates.length > 0) {
-          const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } });
-          await Promise.all(
-            candidates.map((candidate, index) =>
-              renderClipQueue.add(QueueName.RENDER_CLIP, {
-                clipId: candidate.id,
-                videoId: candidate.videoId,
-                sourceUrl: video.sourceUrl,
-                startTime: candidate.startTime,
-                endTime: candidate.endTime,
-                transcript: candidate.transcript,
-                // Newly-created clips always start at the schema default
-                // (CaptionStyle.DEFAULT) - picking a non-default preset is a
-                // manual PATCH /clips/:id + re-render, same flow as a manual
-                // trim (see ClipsService.update/.render).
-                captionStyle: clips[index].captionStyle,
-                keywords: candidate.keywords,
-                scores: candidate.scores,
-              }),
-            ),
-          );
-        }
+            console.log(`[detect-clips] video ${videoId} -> ${candidates.length} candidates`);
 
-        return { videoId, candidates };
-      } catch (error) {
-        console.error(`[detect-clips] video ${videoId} failed:`, error);
-        // Tags only - never the transcript text or OPENAI_API_KEY.
-        Sentry.captureException(error, { tags: { videoId } });
-        await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      }
-    },
+            if (candidates.length > 0) {
+              const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } });
+              await Promise.all(
+                candidates.map((candidate, index) =>
+                  renderClipQueue.add(QueueName.RENDER_CLIP, {
+                    clipId: candidate.id,
+                    videoId: candidate.videoId,
+                    sourceUrl: video.sourceUrl,
+                    startTime: candidate.startTime,
+                    endTime: candidate.endTime,
+                    transcript: candidate.transcript,
+                    // Newly-created clips always start at the schema default
+                    // (CaptionStyle.DEFAULT) - picking a non-default preset is a
+                    // manual PATCH /clips/:id + re-render, same flow as a manual
+                    // trim (see ClipsService.update/.render).
+                    captionStyle: clips[index].captionStyle,
+                    keywords: candidate.keywords,
+                    scores: candidate.scores,
+                  }),
+                ),
+              );
+            }
+
+            return { videoId, candidates };
+          } catch (error) {
+            console.error(`[detect-clips] video ${videoId} failed:`, error);
+            // Tags only - never the transcript text or OPENAI_API_KEY.
+            Sentry.captureException(error, { tags: { videoId } });
+            await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          }
+        },
+        DETECT_CLIPS_JOB_TIMEOUT_MS,
+        `detect-clips:${job.data.videoId}`,
+      ),
     {
       connection: createRedisConnection(),
       // Explicit, not the implicit default - same "one at a time per worker

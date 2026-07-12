@@ -9,6 +9,7 @@ jest.mock('@aws-sdk/client-s3', () => {
     PutObjectCommand: class extends FakeCommand {},
     GetObjectCommand: class extends FakeCommand {},
     DeleteObjectCommand: class extends FakeCommand {},
+    HeadBucketCommand: class extends FakeCommand {},
   };
 });
 
@@ -50,12 +51,12 @@ describe('packages/storage', () => {
     process.env.STORAGE_SECRET_ACCESS_KEY = 'test-secret';
   });
 
-  it('uploadObject sends a PutObjectCommand with the bucket, key, body, and content type', async () => {
-    sendMock.mockResolvedValue({});
+  it('uploadObject sends a PutObjectCommand with the bucket, key, body, and content type, returning the ETag', async () => {
+    sendMock.mockResolvedValue({ ETag: '"d41d8cd98f00b204e9800998ecf8427e"' });
     const { uploadObject } = await import('./index');
 
     const body = Buffer.from('hello world');
-    await uploadObject('videos/abc.mp4', body, 'video/mp4');
+    const etag = await uploadObject('videos/abc.mp4', body, 'video/mp4');
 
     expect(sendMock).toHaveBeenCalledTimes(1);
     const command = sendMock.mock.calls[0][0];
@@ -65,6 +66,25 @@ describe('packages/storage', () => {
       Body: body,
       ContentType: 'video/mp4',
     });
+    expect(etag).toBe('"d41d8cd98f00b204e9800998ecf8427e"');
+  });
+
+  it('checkStorageConnection sends a HeadBucketCommand for the configured bucket', async () => {
+    sendMock.mockResolvedValue({});
+    const { checkStorageConnection } = await import('./index');
+
+    await checkStorageConnection();
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    const command = sendMock.mock.calls[0][0];
+    expect(command.input).toEqual({ Bucket: 'test-bucket' });
+  });
+
+  it('checkStorageConnection propagates a failure (e.g. bucket unreachable)', async () => {
+    sendMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND'));
+    const { checkStorageConnection } = await import('./index');
+
+    await expect(checkStorageConnection()).rejects.toThrow('getaddrinfo ENOTFOUND');
   });
 
   it('getObjectStream sends a GetObjectCommand and returns the response Body', async () => {

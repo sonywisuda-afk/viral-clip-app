@@ -15,6 +15,16 @@ const YTDLP_PATH = process.env.YTDLP_PATH ?? 'yt-dlp';
 const PROGRESS_LINE_PREFIX = 'SPEEDORA_PROGRESS ';
 const PROGRESS_LINE_REGEX = /^SPEEDORA_PROGRESS\s+([\d.]+)%/;
 
+// Unlike every other subprocess call in this codebase (diarization,
+// vocal emotion, ffmpeg trim/render), this one had NO timeout at all until
+// now - a real gap, since a stalled/hung connection yt-dlp itself never
+// notices leaves onProgress silently stuck (observed for real: a download
+// sitting at importProgress 100 with no forward progress and no error).
+// 60 minutes is generous for a large source on a slow connection while
+// still bounding the worst case - ordinary downloads finish in a small
+// fraction of this.
+const YTDLP_TIMEOUT_MS = 60 * 60 * 1000;
+
 // Downloads to an exact path (not a template) - callers pass a path from
 // reserveScratchPath() ending in '.mp4', and --merge-output-format mp4
 // guarantees yt-dlp actually writes (merging via ffmpeg if the best video/
@@ -79,6 +89,12 @@ export function downloadYoutubeVideo(
     // buffer limit the way the old maxBuffer override was guarding against.
     let stderrOutput = '';
     let stdoutBuffer = '';
+    let timedOut = false;
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, YTDLP_TIMEOUT_MS);
 
     child.stdout.on('data', (chunk: Buffer) => {
       stdoutBuffer += chunk.toString();
@@ -94,8 +110,16 @@ export function downloadYoutubeVideo(
       stderrOutput += chunk.toString();
     });
 
-    child.on('error', reject);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
     child.on('close', (exitCode) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(new Error(`yt-dlp download exceeded ${YTDLP_TIMEOUT_MS}ms and was killed`));
+        return;
+      }
       if (exitCode === 0) {
         resolve();
       } else {

@@ -22,6 +22,13 @@ jest.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => (execFileMock as unknown as (...a: unknown[]) => void)(...args),
 }));
 
+const renameMock = jest.fn().mockResolvedValue(undefined);
+const unlinkMock = jest.fn().mockResolvedValue(undefined);
+jest.mock('node:fs/promises', () => ({
+  rename: (...args: unknown[]) => renameMock(...args),
+  unlink: (...args: unknown[]) => unlinkMock(...args),
+}));
+
 import {
   escapeFfmpegFilterPath,
   extractAudio,
@@ -51,9 +58,15 @@ describe('getVideoDimensions', () => {
   });
 
   it('parses width,height from ffprobe csv output', async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(null, { stdout: '320,240\n', stderr: '' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '320,240\n', stderr: '' });
+      },
+    );
 
     const result = await getVideoDimensions('/tmp/source.mp4');
 
@@ -113,9 +126,15 @@ describe('extractAudio', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+      },
+    );
 
     await expect(extractAudio('/tmp/source.mp4', '/tmp/audio.mp3')).rejects.toThrow(
       'ffmpeg exited with code 1',
@@ -129,9 +148,15 @@ describe('getMediaDurationSeconds', () => {
   });
 
   it('parses the duration in seconds from ffprobe', async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(null, { stdout: '3600.5\n', stderr: '' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '3600.5\n', stderr: '' });
+      },
+    );
 
     const result = await getMediaDurationSeconds('/tmp/source.mp4');
 
@@ -144,9 +169,15 @@ describe('getMediaDurationSeconds', () => {
   });
 
   it('returns NaN when ffprobe reports no duration', async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(null, { stdout: 'N/A\n', stderr: '' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: 'N/A\n', stderr: '' });
+      },
+    );
 
     expect(await getMediaDurationSeconds('/tmp/source.mp4')).toBeNaN();
   });
@@ -158,9 +189,15 @@ describe('getVideoCodec', () => {
   });
 
   it("reads the first video stream's codec name from ffprobe", async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(null, { stdout: 'av1\n', stderr: '' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: 'av1\n', stderr: '' });
+      },
+    );
 
     const codec = await getVideoCodec('/tmp/source.mp4');
 
@@ -200,9 +237,15 @@ describe('reencodeToH264', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+      },
+    );
 
     await expect(reencodeToH264('/tmp/av1.mp4', '/tmp/h264.mp4')).rejects.toThrow(
       'ffmpeg exited with code 1',
@@ -213,6 +256,8 @@ describe('reencodeToH264', () => {
 describe('renderClip', () => {
   beforeEach(() => {
     execFileMock.mockClear();
+    renameMock.mockClear();
+    unlinkMock.mockClear();
   });
 
   it('invokes ffmpeg with -ss/-t trimming and no -vf when there are no subtitles and no reframe', async () => {
@@ -228,9 +273,55 @@ describe('renderClip', () => {
     expect(execFileMock).toHaveBeenCalledTimes(1);
     const [, args] = execFileMock.mock.calls[0];
     expect(args).toEqual(
-      expect.arrayContaining(['-ss', '5', '-i', '/tmp/source.mp4', '-t', '10', '/tmp/output.mp4']),
+      expect.arrayContaining([
+        '-ss',
+        '5',
+        '-i',
+        '/tmp/source.mp4',
+        '-t',
+        '10',
+        '/tmp/output.mp4.tmp',
+      ]),
     );
     expect(args).not.toEqual(expect.arrayContaining(['-vf']));
+    // ffmpeg wrote to the .tmp sibling, not the final path directly - only
+    // visible at outputPath once rename() makes it so.
+    expect(args).not.toContain('/tmp/output.mp4');
+  });
+
+  it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      subtitlesPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: null,
+    });
+
+    expect(renameMock).toHaveBeenCalledWith('/tmp/output.mp4.tmp', '/tmp/output.mp4');
+    expect(unlinkMock).not.toHaveBeenCalled();
+  });
+
+  it('cleans up the .tmp output and does not rename when ffmpeg fails', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
+      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+    });
+
+    await expect(
+      renderClip({
+        inputPath: '/tmp/source.mp4',
+        startTime: 0,
+        endTime: 5,
+        subtitlesPath: null,
+        outputPath: '/tmp/output.mp4',
+        reframe: null,
+      }),
+    ).rejects.toThrow('ffmpeg exited with code 1');
+
+    expect(unlinkMock).toHaveBeenCalledWith('/tmp/output.mp4.tmp');
+    expect(renameMock).not.toHaveBeenCalled();
   });
 
   it('adds a subtitles filter when subtitlesPath is provided', async () => {
@@ -490,9 +581,15 @@ describe('trimAndFadeInBRoll', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+      },
+    );
 
     await expect(
       trimAndFadeInBRoll('/tmp/raw.mp4', '/tmp/faded-in.mov', 136, 240, 2.5, 0.3, 'video'),
@@ -525,9 +622,15 @@ describe('fadeOutBRoll', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
-      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
-    });
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+      },
+    );
 
     await expect(fadeOutBRoll('/tmp/faded-in.mov', '/tmp/final.mov', 2.5, 0.3)).rejects.toThrow(
       'ffmpeg exited with code 1',
@@ -538,6 +641,8 @@ describe('fadeOutBRoll', () => {
 describe('trimCutRanges', () => {
   beforeEach(() => {
     execFileMock.mockClear();
+    renameMock.mockClear();
+    unlinkMock.mockClear();
   });
 
   it('builds a select/aselect filter that keeps everything outside the given cut ranges, plus a single eq dip filter combining every junction', async () => {
@@ -567,9 +672,31 @@ describe('trimCutRanges', () => {
         // on why the audio-side equivalent was dropped after real testing).
         '-af',
         "aselect='not(between(t,2,4)+between(t,10,10.5))',asetpts=N/SR/TB",
-        '/tmp/trimmed.mp4',
+        '/tmp/trimmed.mp4.tmp',
       ]),
     );
+    expect(args).not.toContain('/tmp/trimmed.mp4');
+  });
+
+  it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
+    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10);
+
+    expect(renameMock).toHaveBeenCalledWith('/tmp/trimmed.mp4.tmp', '/tmp/trimmed.mp4');
+    expect(unlinkMock).not.toHaveBeenCalled();
+  });
+
+  it('cleans up the .tmp output and does not rename when ffmpeg fails', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
+      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+    });
+
+    await expect(
+      trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10),
+    ).rejects.toThrow('ffmpeg exited with code 1');
+
+    expect(unlinkMock).toHaveBeenCalledWith('/tmp/trimmed.mp4.tmp');
+    expect(renameMock).not.toHaveBeenCalled();
   });
 
   it('skips a junction transition too close to the very start or end of the output', async () => {

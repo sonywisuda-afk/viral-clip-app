@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -56,6 +57,7 @@ import {
   type BRollOverlay,
   type ReframeOptions,
 } from '../ffmpeg';
+import { withJobTimeout } from '../jobTimeout';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
@@ -286,310 +288,372 @@ async function buildBRollOverlays(
   return { overlays, finalPaths };
 }
 
+async function computeFileMd5Hex(filePath: string): Promise<string> {
+  const hash = createHash('md5');
+  await pipeline(createReadStream(filePath), hash);
+  return hash.digest('hex');
+}
+
+// A single-part PutObjectCommand's ETag is exactly the MD5 hex digest of the
+// uploaded bytes - a long-standing, broadly-implemented S3 behavior (true
+// for both MinIO in dev and R2 in production, not an AWS-only quirk).
+// Comparing it against a LOCALLY computed MD5 of the same file (see
+// computeFileMd5Hex above) catches silent corruption - a truncated/partial
+// write from a disk-full condition, a filesystem bug - that would otherwise
+// get uploaded and later served to a real user indistinguishable from a
+// correct render. Skipped (not treated as a mismatch, just unverified) when
+// the ETag is missing or multipart-shaped (contains '-') - this project's
+// uploads are never multipart, but a provider quirk producing one shouldn't
+// be misread as corruption.
+function verifyUploadChecksum(
+  etag: string | undefined,
+  expectedMd5Hex: string,
+  clipId: string,
+): void {
+  if (!etag) {
+    console.warn(
+      `[render-clip] clip ${clipId}: upload returned no ETag, skipping checksum verification`,
+    );
+    return;
+  }
+  const normalized = etag.replace(/"/g, '');
+  if (normalized.includes('-')) {
+    console.warn(
+      `[render-clip] clip ${clipId}: multipart-shaped ETag, skipping checksum verification`,
+    );
+    return;
+  }
+  if (normalized.toLowerCase() !== expectedMd5Hex.toLowerCase()) {
+    throw new Error(
+      `Uploaded clip ${clipId} failed checksum verification (local md5 ${expectedMd5Hex}, ` +
+        `remote ETag ${normalized}) - possible corrupted upload`,
+    );
+  }
+}
+
+// Defense-in-depth outer bound (see jobTimeout.ts) - RENDER_TIMEOUT_MS (15m)
+// + TRIM_TIMEOUT_MS (5m) from ffmpeg.ts, plus source download, B-roll
+// fetches, and every detector in the render graph (several of which,
+// unlike ffmpeg/diarization/vocal-emotion, have no timeout of their own
+// yet - this outer bound is real coverage for those, not just redundant
+// insurance).
+const RENDER_CLIP_JOB_TIMEOUT_MS = 45 * 60 * 1000;
+
 export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJobResult> {
   return new Worker<RenderClipJobData, RenderClipJobResult>(
     QueueName.RENDER_CLIP,
-    async (job: Job<RenderClipJobData>) => {
-      const {
-        clipId,
-        videoId,
-        sourceUrl,
-        startTime,
-        endTime,
-        transcript,
-        captionStyle,
-        keywords,
-        scores,
-      } = job.data;
-      // Same orphaned-job guard as transcribe/detect-clips workers - checked
-      // against Clip rather than Video since this job's real unit of work is
-      // one clip, and either the whole video (cascade) or just this one clip
-      // (ClipsService.remove) being deleted while the job was still queued
-      // makes it equally moot. Without this, a stale job would burn a full
-      // render (source download, face/scene/facial/gesture detection,
-      // FFmpeg) before failing on the final prisma.clip.update().
-      const existingClip = await prisma.clip.findUnique({
-        where: { id: clipId },
-        select: { outputUrl: true },
-      });
-      if (!existingClip) {
-        console.log(`[render-clip] clip ${clipId} was deleted - skipping orphaned job`);
-        return { clipId, outputUrl: '' };
-      }
-
-      // Same idempotency reasoning as transcribe.worker.ts/detect-clips.worker.ts (see their own
-      // comments) - a clip already having outputUrl set means some earlier execution of this same
-      // job already finished the real work (source download, every detector, the full FFmpeg
-      // render). Re-running it wastes CPU/time re-encoding an output nothing will read (the
-      // existing file just gets overwritten), and - observed for real - two such re-runs landing
-      // concurrently compete for the same CPU and can keep each other from ever finishing.
-      if (existingClip.outputUrl) {
-        console.log(`[render-clip] clip ${clipId} is already rendered - skipping duplicate job`);
-        return { clipId, outputUrl: existingClip.outputUrl };
-      }
-
-      console.log(
-        `[render-clip] rendering clip ${clipId} for video ${videoId} (${startTime}s - ${endTime}s)`,
-      );
-
-      let sourcePath: string | null = null;
-      let subtitlesPath: string | null = null;
-      let outputPath: string | null = null;
-      let trimmedPath: string | null = null;
-      let sendCmdPath: string | null = null;
-      let brollPaths: string[] = [];
-
-      try {
-        // ffmpeg needs a real local file to seek within - download the
-        // source from object storage into scratch space first.
-        sourcePath = await reserveScratchPath('source', path.extname(sourceUrl) || '.mp4');
-        const sourceStream = await getObjectStream(sourceUrl);
-        await pipeline(sourceStream, createWriteStream(sourcePath));
-
-        // Computed before captions - buildAss needs the final (post-crop,
-        // post-scale) output dimensions to size/position the subtitle text
-        // correctly.
-        const reframe = await buildReframePlan(sourcePath, startTime, endTime, transcript);
-        sendCmdPath = reframe.sendCmdPath;
-
-        // Composing multiple modules: the render-clip Feature Orchestrator (see
-        // ARCHITECTURE.md) - Scene Intelligence's sceneCuts/sceneCutEvents are the first
-        // signals migrated into the dependency graph (proof of concept), replacing their
-        // own hand-written try/catch blocks with a declarative node pair
-        // (render-graph/nodes/scene.ts). Every remaining detector/derive function below is
-        // still the pre-graph inline code, migrated incrementally group by group.
-        const renderGraphContext: RenderGraphContext = {
-          clipId,
-          sourcePath,
-          startTime,
-          endTime,
-          transcript,
-          scores,
-          audioActivityWindows: toAudioActivityWindows(transcript, startTime),
-          speakerTurns: toSpeakerTurns(transcript, startTime),
-          reframe: { outputWidth: reframe.outputWidth, outputHeight: reframe.outputHeight },
-        };
-        const graphResult = (await runInstrumentedRenderGraph(
-          renderClipGraph,
-          renderGraphContext,
-        )) as unknown as RenderGraphResult;
-        // Every raw signal and derived feature that used to be a local `let`/`const` here
-        // (sceneCuts, facialEmotions, faceLandmarks, sceneFeatures, speakerScores,
-        // compositionFeatures, editingRhythmFeatures, ...) now lives on `graphResult` alone - see
-        // render-graph/nodes/*.ts for each one's derivation and render-graph/sinks.ts for how
-        // `graphResult` reaches computeHighlightScore()/prisma.clip.update() below.
-
-        // Composing multiple modules: the render-clip Feature Orchestrator (see
-        // ARCHITECTURE.md) - toFusionInput() replaces this call's former hand-written object
-        // literal, translating each graph node's own id into computeHighlightScore's FUSION_SIGNALS
-        // vocabulary via FUSION_INPUT_MAP (render-graph/sinks.ts) so the mapping lives in exactly
-        // one place instead of being duplicated across this call and the prisma.clip.update() call
-        // below.
-        const highlight = computeHighlightScore(toFusionInput(graphResult, clipId, scores));
-
-        const { overlays: broll, finalPaths } = await buildBRollOverlays(
-          keywords,
-          toClipRelativeWords(transcript, startTime),
-          endTime - startTime,
-          reframe.outputWidth,
-          reframe.outputHeight,
-        );
-        brollPaths = finalPaths;
-
-        const assContent = buildAss({
-          segments: toSubtitleSegments(transcript),
-          clipStart: startTime,
-          clipEnd: endTime,
-          // CaptionStyle (packages/database's Prisma enum, re-exported by
-          // packages/shared) and CaptionStyleValue (packages/contracts'
-          // plain string-literal union) share the exact same runtime string
-          // values by convention - this cast is safe, not a type escape
-          // hatch, and is the one place that convention is load-bearing.
-          style: captionStyle as CaptionStyleValue,
-          // outputWidth/outputHeight, NOT width/height - captions must be
-          // sized against the clip's constant FINAL frame, not the crop
-          // filter's t=0 declared size, which may already be a zoomed-in
-          // (smaller) window if an emphasis word happens to start at t=0.
-          videoWidth: reframe.outputWidth,
-          videoHeight: reframe.outputHeight,
-        });
-        if (assContent.length > 0) {
-          subtitlesPath = await reserveScratchPath('captions', '.ass');
-          await writeFile(subtitlesPath, assContent);
-        }
-
-        outputPath = await reserveScratchPath('output', '.mp4');
-        await renderClip({
-          inputPath: sourcePath,
-          startTime,
-          endTime,
-          subtitlesPath,
-          outputPath,
-          reframe,
-          broll,
-        });
-
-        // Second pass (see computeClipCuts's comment) - skipped entirely
-        // when there's nothing to cut, so a clip with no long pauses/filler
-        // words renders exactly as it did before this feature existed.
-        const cuts = computeClipCuts(transcript, startTime, endTime);
-        let renderedPath = outputPath;
-        if (cuts.length > 0) {
-          trimmedPath = await reserveScratchPath('trimmed', '.mp4');
-          const totalOutputDuration = endTime - startTime - totalCutSeconds(cuts);
-          // Optional polish, not required for a correct clip - the untrimmed render above is
-          // already a complete, valid output. Caught (not left to fail the whole job) for the same
-          // "external ffmpeg call, bounded by TRIM_TIMEOUT_MS but still allowed to fail" reasoning
-          // as every other optional signal in this file, prompted by a real timeout observed here.
-          try {
-            await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration);
-            renderedPath = trimmedPath;
-            console.log(
-              `[render-clip] clip ${clipId}: removed ${totalCutSeconds(cuts).toFixed(1)}s of ` +
-                `silence/filler across ${cuts.length} cut(s)`,
-            );
-          } catch (error) {
-            console.warn(
-              `[render-clip] silence/filler trim failed for clip ${clipId}, keeping the ` +
-                'untrimmed render:',
-              error,
-            );
-          }
-        }
-
-        const outputKey = `renders/${clipId}.mp4`;
-        // Streamed straight from disk (not read into a Buffer first) - same
-        // "no timeout at all on a plain readFile()" reasoning as
-        // import-youtube.worker.ts's own upload, now applied here too. A
-        // rendered clip can be tens to hundreds of MB, and this makes the
-        // step subject to uploadObject's own requestTimeout instead of
-        // being able to hang indefinitely.
-        await uploadObject(outputKey, createReadStream(renderedPath), 'video/mp4');
-
-        // toClipUpdateData() replaces this call's former hand-written object literal the same way
-        // toFusionInput() replaced computeHighlightScore's - see render-graph/sinks.ts's
-        // CLIP_UPDATE_MAP for the per-node Prisma.JsonNull/plain-array/always-present rules, and
-        // its own module comment for why this one needs a function-per-node table rather than
-        // FUSION_INPUT_MAP's simpler plain rename table (speakerScores alone fans out to 4
-        // columns). `extra` carries every field that isn't a graph node: outputUrl (render/upload
-        // output, not an AI signal), llmFeatures (ClipScores is a closed interface with no index
-        // signature, which Prisma's Json input type requires - same reasoning as
-        // detect-clips.worker.ts's own scores write), and every highlight* field from
-        // computeHighlightScore()'s own separate output above.
-        //
-        // The `where` clause's outputUrl: null is an optimistic-concurrency claim, not just a
-        // filter - a clip's outputUrl starts null and this is the only write that ever sets it, so
-        // "still null" means no other execution of this same job has finished first. Two renders
-        // racing (observed for real: BullMQ stalled-job recovery re-running an already-finished
-        // render concurrently with the original) now have only one winner; the loser's update
-        // matches zero rows, which Prisma reports as P2025 (caught below as benign) instead of
-        // silently overwriting the winner's result. The clip update and the conditional
-        // "every sibling clip now rendered -> mark the video RENDERED" status transition are done
-        // in one $transaction so a crash between them can never leave this clip rendered but its
-        // video stuck one status behind (or vice-versa) - the video-status write is inlined here
-        // (not updateVideoStatus(), which needs a full PrismaClient and opens its own nested
-        // transaction) so it joins this SAME transaction, same "inlined to share one transaction"
-        // convention as transcribe.worker.ts's own status write.
-        let allRendered = false;
-        try {
-          allRendered = await prisma.$transaction(async (tx) => {
-            await tx.clip.update({
-              where: { id: clipId, outputUrl: null },
-              data: toClipUpdateData(graphResult, {
-                outputUrl: outputKey,
-                llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-                highlightScore: highlight.highlightScore,
-                highlightBreakdown: highlight.contributions,
-                highlightExplainability: highlight.explainability,
-                highlightConfidence: highlight.confidence,
-                highlightReason: highlight.reason,
-                highlightPrediction: highlight.prediction,
-                highlightRecommendation: highlight.recommendation,
-              }),
-            });
-
-            const siblingClips = await tx.clip.findMany({ where: { videoId } });
-            const allDone = siblingClips.every((clip) => clip.outputUrl !== null);
-            if (allDone) {
-              await tx.video.update({ where: { id: videoId }, data: { status: VideoStatus.RENDERED } });
-              await tx.videoStatusEvent.create({
-                data: { videoId, toStatus: VideoStatus.RENDERED, errorMessage: null },
-              });
-            }
-            return allDone;
+    (job: Job<RenderClipJobData>) =>
+      withJobTimeout(
+        async () => {
+          const {
+            clipId,
+            videoId,
+            sourceUrl,
+            startTime,
+            endTime,
+            transcript,
+            captionStyle,
+            keywords,
+            scores,
+          } = job.data;
+          // Same orphaned-job guard as transcribe/detect-clips workers - checked
+          // against Clip rather than Video since this job's real unit of work is
+          // one clip, and either the whole video (cascade) or just this one clip
+          // (ClipsService.remove) being deleted while the job was still queued
+          // makes it equally moot. Without this, a stale job would burn a full
+          // render (source download, face/scene/facial/gesture detection,
+          // FFmpeg) before failing on the final prisma.clip.update().
+          const existingClip = await prisma.clip.findUnique({
+            where: { id: clipId },
+            select: { outputUrl: true },
           });
-        } catch (error) {
-          if (
-            error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === 'P2025'
-          ) {
+          if (!existingClip) {
+            console.log(`[render-clip] clip ${clipId} was deleted - skipping orphaned job`);
+            return { clipId, outputUrl: '' };
+          }
+
+          // Same idempotency reasoning as transcribe.worker.ts/detect-clips.worker.ts (see their own
+          // comments) - a clip already having outputUrl set means some earlier execution of this same
+          // job already finished the real work (source download, every detector, the full FFmpeg
+          // render). Re-running it wastes CPU/time re-encoding an output nothing will read (the
+          // existing file just gets overwritten), and - observed for real - two such re-runs landing
+          // concurrently compete for the same CPU and can keep each other from ever finishing.
+          if (existingClip.outputUrl) {
             console.log(
-              `[render-clip] clip ${clipId} was already claimed by another concurrent execution - ` +
-                'skipping (benign, same outcome as the early idempotency check above)',
+              `[render-clip] clip ${clipId} is already rendered - skipping duplicate job`,
             );
-            return { clipId, outputUrl: outputKey };
+            return { clipId, outputUrl: existingClip.outputUrl };
           }
-          throw error;
-        }
 
-        if (allRendered) {
-          // Ranking (Fase 31) - only meaningful once every clip in the
-          // video has a highlightScore to compare against its siblings.
-          // Never fails the render job itself: ranking is a pure/
-          // synchronous helper over data that's already just been written,
-          // and a failure here would be surprising, but is still wrapped
-          // defensively since it runs after the clip's own render is
-          // already a done deal. Deliberately outside the transaction above
-          // (unchanged) - ranking is independently fault-tolerant by design
-          // and doesn't need to be atomic with the render/status write.
+          console.log(
+            `[render-clip] rendering clip ${clipId} for video ${videoId} (${startTime}s - ${endTime}s)`,
+          );
+
+          let sourcePath: string | null = null;
+          let subtitlesPath: string | null = null;
+          let outputPath: string | null = null;
+          let trimmedPath: string | null = null;
+          let sendCmdPath: string | null = null;
+          let brollPaths: string[] = [];
+
           try {
-            const scoredSiblings = await prisma.clip.findMany({
-              where: { videoId },
-              select: { id: true, highlightScore: true },
+            // ffmpeg needs a real local file to seek within - download the
+            // source from object storage into scratch space first.
+            sourcePath = await reserveScratchPath('source', path.extname(sourceUrl) || '.mp4');
+            const sourceStream = await getObjectStream(sourceUrl);
+            await pipeline(sourceStream, createWriteStream(sourcePath));
+
+            // Computed before captions - buildAss needs the final (post-crop,
+            // post-scale) output dimensions to size/position the subtitle text
+            // correctly.
+            const reframe = await buildReframePlan(sourcePath, startTime, endTime, transcript);
+            sendCmdPath = reframe.sendCmdPath;
+
+            // Composing multiple modules: the render-clip Feature Orchestrator (see
+            // ARCHITECTURE.md) - Scene Intelligence's sceneCuts/sceneCutEvents are the first
+            // signals migrated into the dependency graph (proof of concept), replacing their
+            // own hand-written try/catch blocks with a declarative node pair
+            // (render-graph/nodes/scene.ts). Every remaining detector/derive function below is
+            // still the pre-graph inline code, migrated incrementally group by group.
+            const renderGraphContext: RenderGraphContext = {
+              clipId,
+              sourcePath,
+              startTime,
+              endTime,
+              transcript,
+              scores,
+              audioActivityWindows: toAudioActivityWindows(transcript, startTime),
+              speakerTurns: toSpeakerTurns(transcript, startTime),
+              reframe: { outputWidth: reframe.outputWidth, outputHeight: reframe.outputHeight },
+            };
+            const graphResult = (await runInstrumentedRenderGraph(
+              renderClipGraph,
+              renderGraphContext,
+            )) as unknown as RenderGraphResult;
+            // Every raw signal and derived feature that used to be a local `let`/`const` here
+            // (sceneCuts, facialEmotions, faceLandmarks, sceneFeatures, speakerScores,
+            // compositionFeatures, editingRhythmFeatures, ...) now lives on `graphResult` alone - see
+            // render-graph/nodes/*.ts for each one's derivation and render-graph/sinks.ts for how
+            // `graphResult` reaches computeHighlightScore()/prisma.clip.update() below.
+
+            // Composing multiple modules: the render-clip Feature Orchestrator (see
+            // ARCHITECTURE.md) - toFusionInput() replaces this call's former hand-written object
+            // literal, translating each graph node's own id into computeHighlightScore's FUSION_SIGNALS
+            // vocabulary via FUSION_INPUT_MAP (render-graph/sinks.ts) so the mapping lives in exactly
+            // one place instead of being duplicated across this call and the prisma.clip.update() call
+            // below.
+            const highlight = computeHighlightScore(toFusionInput(graphResult, clipId, scores));
+
+            const { overlays: broll, finalPaths } = await buildBRollOverlays(
+              keywords,
+              toClipRelativeWords(transcript, startTime),
+              endTime - startTime,
+              reframe.outputWidth,
+              reframe.outputHeight,
+            );
+            brollPaths = finalPaths;
+
+            const assContent = buildAss({
+              segments: toSubtitleSegments(transcript),
+              clipStart: startTime,
+              clipEnd: endTime,
+              // CaptionStyle (packages/database's Prisma enum, re-exported by
+              // packages/shared) and CaptionStyleValue (packages/contracts'
+              // plain string-literal union) share the exact same runtime string
+              // values by convention - this cast is safe, not a type escape
+              // hatch, and is the one place that convention is load-bearing.
+              style: captionStyle as CaptionStyleValue,
+              // outputWidth/outputHeight, NOT width/height - captions must be
+              // sized against the clip's constant FINAL frame, not the crop
+              // filter's t=0 declared size, which may already be a zoomed-in
+              // (smaller) window if an emphasis word happens to start at t=0.
+              videoWidth: reframe.outputWidth,
+              videoHeight: reframe.outputHeight,
             });
-            const ranked = rankClips(
-              scoredSiblings.map((clip) => ({
-                clipId: clip.id,
-                highlightScore: clip.highlightScore,
-              })),
-            );
-            await Promise.all(
-              ranked.map((clip) =>
-                prisma.clip.update({
-                  where: { id: clip.clipId },
-                  data: { highlightRank: clip.rank },
-                }),
-              ),
-            );
+            if (assContent.length > 0) {
+              subtitlesPath = await reserveScratchPath('captions', '.ass');
+              await writeFile(subtitlesPath, assContent);
+            }
+
+            outputPath = await reserveScratchPath('output', '.mp4');
+            await renderClip({
+              inputPath: sourcePath,
+              startTime,
+              endTime,
+              subtitlesPath,
+              outputPath,
+              reframe,
+              broll,
+            });
+
+            // Second pass (see computeClipCuts's comment) - skipped entirely
+            // when there's nothing to cut, so a clip with no long pauses/filler
+            // words renders exactly as it did before this feature existed.
+            const cuts = computeClipCuts(transcript, startTime, endTime);
+            let renderedPath = outputPath;
+            if (cuts.length > 0) {
+              trimmedPath = await reserveScratchPath('trimmed', '.mp4');
+              const totalOutputDuration = endTime - startTime - totalCutSeconds(cuts);
+              // Optional polish, not required for a correct clip - the untrimmed render above is
+              // already a complete, valid output. Caught (not left to fail the whole job) for the same
+              // "external ffmpeg call, bounded by TRIM_TIMEOUT_MS but still allowed to fail" reasoning
+              // as every other optional signal in this file, prompted by a real timeout observed here.
+              try {
+                await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration);
+                renderedPath = trimmedPath;
+                console.log(
+                  `[render-clip] clip ${clipId}: removed ${totalCutSeconds(cuts).toFixed(1)}s of ` +
+                    `silence/filler across ${cuts.length} cut(s)`,
+                );
+              } catch (error) {
+                console.warn(
+                  `[render-clip] silence/filler trim failed for clip ${clipId}, keeping the ` +
+                    'untrimmed render:',
+                  error,
+                );
+              }
+            }
+
+            const outputKey = `renders/${clipId}.mp4`;
+            // Computed before the upload, from the exact same local file the
+            // upload is about to stream - see verifyUploadChecksum's comment.
+            const expectedMd5 = await computeFileMd5Hex(renderedPath);
+            // Streamed straight from disk (not read into a Buffer first) - same
+            // "no timeout at all on a plain readFile()" reasoning as
+            // import-youtube.worker.ts's own upload, now applied here too. A
+            // rendered clip can be tens to hundreds of MB, and this makes the
+            // step subject to uploadObject's own requestTimeout instead of
+            // being able to hang indefinitely.
+            const etag = await uploadObject(outputKey, createReadStream(renderedPath), 'video/mp4');
+            verifyUploadChecksum(etag, expectedMd5, clipId);
+
+            // toClipUpdateData() replaces this call's former hand-written object literal the same way
+            // toFusionInput() replaced computeHighlightScore's - see render-graph/sinks.ts's
+            // CLIP_UPDATE_MAP for the per-node Prisma.JsonNull/plain-array/always-present rules, and
+            // its own module comment for why this one needs a function-per-node table rather than
+            // FUSION_INPUT_MAP's simpler plain rename table (speakerScores alone fans out to 4
+            // columns). `extra` carries every field that isn't a graph node: outputUrl (render/upload
+            // output, not an AI signal), llmFeatures (ClipScores is a closed interface with no index
+            // signature, which Prisma's Json input type requires - same reasoning as
+            // detect-clips.worker.ts's own scores write), and every highlight* field from
+            // computeHighlightScore()'s own separate output above.
+            //
+            // The `where` clause's outputUrl: null is an optimistic-concurrency claim, not just a
+            // filter - a clip's outputUrl starts null and this is the only write that ever sets it, so
+            // "still null" means no other execution of this same job has finished first. Two renders
+            // racing (observed for real: BullMQ stalled-job recovery re-running an already-finished
+            // render concurrently with the original) now have only one winner; the loser's update
+            // matches zero rows, which Prisma reports as P2025 (caught below as benign) instead of
+            // silently overwriting the winner's result. The clip update and the conditional
+            // "every sibling clip now rendered -> mark the video RENDERED" status transition are done
+            // in one $transaction so a crash between them can never leave this clip rendered but its
+            // video stuck one status behind (or vice-versa) - the video-status write is inlined here
+            // (not updateVideoStatus(), which needs a full PrismaClient and opens its own nested
+            // transaction) so it joins this SAME transaction, same "inlined to share one transaction"
+            // convention as transcribe.worker.ts's own status write.
+            let allRendered = false;
+            try {
+              allRendered = await prisma.$transaction(async (tx) => {
+                await tx.clip.update({
+                  where: { id: clipId, outputUrl: null },
+                  data: toClipUpdateData(graphResult, {
+                    outputUrl: outputKey,
+                    llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+                    highlightScore: highlight.highlightScore,
+                    highlightBreakdown: highlight.contributions,
+                    highlightExplainability: highlight.explainability,
+                    highlightConfidence: highlight.confidence,
+                    highlightReason: highlight.reason,
+                    highlightPrediction: highlight.prediction,
+                    highlightRecommendation: highlight.recommendation,
+                  }),
+                });
+
+                const siblingClips = await tx.clip.findMany({ where: { videoId } });
+                const allDone = siblingClips.every((clip) => clip.outputUrl !== null);
+                if (allDone) {
+                  await tx.video.update({
+                    where: { id: videoId },
+                    data: { status: VideoStatus.RENDERED },
+                  });
+                  await tx.videoStatusEvent.create({
+                    data: { videoId, toStatus: VideoStatus.RENDERED, errorMessage: null },
+                  });
+                }
+                return allDone;
+              });
+            } catch (error) {
+              if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+                console.log(
+                  `[render-clip] clip ${clipId} was already claimed by another concurrent execution - ` +
+                    'skipping (benign, same outcome as the early idempotency check above)',
+                );
+                return { clipId, outputUrl: outputKey };
+              }
+              throw error;
+            }
+
+            if (allRendered) {
+              // Ranking (Fase 31) - only meaningful once every clip in the
+              // video has a highlightScore to compare against its siblings.
+              // Never fails the render job itself: ranking is a pure/
+              // synchronous helper over data that's already just been written,
+              // and a failure here would be surprising, but is still wrapped
+              // defensively since it runs after the clip's own render is
+              // already a done deal. Deliberately outside the transaction above
+              // (unchanged) - ranking is independently fault-tolerant by design
+              // and doesn't need to be atomic with the render/status write.
+              try {
+                const scoredSiblings = await prisma.clip.findMany({
+                  where: { videoId },
+                  select: { id: true, highlightScore: true },
+                });
+                const ranked = rankClips(
+                  scoredSiblings.map((clip) => ({
+                    clipId: clip.id,
+                    highlightScore: clip.highlightScore,
+                  })),
+                );
+                await Promise.all(
+                  ranked.map((clip) =>
+                    prisma.clip.update({
+                      where: { id: clip.clipId },
+                      data: { highlightRank: clip.rank },
+                    }),
+                  ),
+                );
+              } catch (error) {
+                console.warn(
+                  `[render-clip] ranking sibling clips of video ${videoId} failed, continuing ` +
+                    'without highlightRank:',
+                  error,
+                );
+              }
+            }
+
+            console.log(`[render-clip] clip ${clipId} -> ${outputKey}`);
+
+            return { clipId, outputUrl: outputKey };
           } catch (error) {
-            console.warn(
-              `[render-clip] ranking sibling clips of video ${videoId} failed, continuing ` +
-                'without highlightRank:',
-              error,
-            );
+            console.error(`[render-clip] clip ${clipId} failed:`, error);
+            // Tags only - never the transcript text or the source video itself.
+            Sentry.captureException(error, { tags: { videoId, clipId } });
+            await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
+              errorMessage: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
+          } finally {
+            if (sourcePath) await cleanupTempFile(sourcePath);
+            if (subtitlesPath) await cleanupTempFile(subtitlesPath);
+            if (outputPath) await cleanupTempFile(outputPath);
+            if (trimmedPath) await cleanupTempFile(trimmedPath);
+            if (sendCmdPath) await cleanupTempFile(sendCmdPath);
+            for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
           }
-        }
-
-        console.log(`[render-clip] clip ${clipId} -> ${outputKey}`);
-
-        return { clipId, outputUrl: outputKey };
-      } catch (error) {
-        console.error(`[render-clip] clip ${clipId} failed:`, error);
-        // Tags only - never the transcript text or the source video itself.
-        Sentry.captureException(error, { tags: { videoId, clipId } });
-        await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-        throw error;
-      } finally {
-        if (sourcePath) await cleanupTempFile(sourcePath);
-        if (subtitlesPath) await cleanupTempFile(subtitlesPath);
-        if (outputPath) await cleanupTempFile(outputPath);
-        if (trimmedPath) await cleanupTempFile(trimmedPath);
-        if (sendCmdPath) await cleanupTempFile(sendCmdPath);
-        for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
-      }
-    },
+        },
+        RENDER_CLIP_JOB_TIMEOUT_MS,
+        `render-clip:${job.data.clipId}`,
+      ),
     {
       connection: createRedisConnection(),
       // Explicit, not the implicit default - same "one at a time per worker

@@ -644,6 +644,56 @@ describe('render-clip worker', () => {
     expect(captureExceptionMock).not.toHaveBeenCalled();
   });
 
+  // computeFileMd5Hex streams renderedPath through node:crypto's real
+  // createHash('md5') via the mocked pipeline() above - since pipelineMock
+  // never actually feeds any bytes through it (it's a jest.fn() that just
+  // resolves), the resulting digest is deterministically the MD5 of empty
+  // input in every test: d41d8cd98f00b204e9800998ecf8427e.
+  const EMPTY_MD5 = 'd41d8cd98f00b204e9800998ecf8427e';
+
+  it('does not fail the job when the upload ETag matches the local checksum', async () => {
+    clipFindManyMock.mockResolvedValue([
+      { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+    ]);
+    uploadObjectMock.mockResolvedValue(`"${EMPTY_MD5}"`);
+
+    const processor = getProcessor();
+    const result = await processor({ data: baseJobData });
+
+    expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    expect(captureExceptionMock).not.toHaveBeenCalled();
+  });
+
+  it('fails the job without marking the clip rendered when the upload ETag does not match the local checksum', async () => {
+    uploadObjectMock.mockResolvedValue('"deadbeefdeadbeefdeadbeefdeadbeef"');
+
+    const processor = getProcessor();
+
+    await expect(processor({ data: baseJobData })).rejects.toThrow(
+      /failed checksum verification/,
+    );
+
+    // The corrupted upload must never be reflected in the clip/video state -
+    // this is a hard failure, not a benign race like the P2025 case above.
+    expect(clipUpdateMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: VideoStatus.RENDERED }) }),
+    );
+    expect(captureExceptionMock).toHaveBeenCalled();
+  });
+
+  it('skips checksum verification without failing the job when the upload returns no ETag', async () => {
+    clipFindManyMock.mockResolvedValue([
+      { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+    ]);
+    uploadObjectMock.mockResolvedValue(undefined);
+
+    const processor = getProcessor();
+    const result = await processor({ data: baseJobData });
+
+    expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+  });
+
   it("passes the job's captionStyle through to buildAss", async () => {
     clipFindManyMock.mockResolvedValue([
       { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },

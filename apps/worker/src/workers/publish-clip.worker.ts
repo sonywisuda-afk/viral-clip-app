@@ -105,10 +105,28 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
         const platform = record.socialAccount.platform;
         const resolved = await resolveAccessToken(record.socialAccount, oauthClientFor(platform));
         if (resolved.refreshed && resolved.updated) {
-          await prisma.socialAccount.update({
-            where: { id: record.socialAccountId },
-            data: resolved.updated,
-          });
+          // Best-effort cache write, not required for THIS attempt to
+          // succeed - resolved.accessToken below is already the real,
+          // usable token regardless of whether persisting it succeeds. Not
+          // wrapped in one $transaction with the PUBLISHED write further
+          // down: a real platform upload (which can take minutes) runs
+          // between the two, and holding a DB transaction open across that
+          // network call would tie up a connection-pool slot for the
+          // upload's whole duration - a worse risk than the narrow,
+          // self-healing inconsistency this write failing on its own can
+          // cause (the next publish attempt just refreshes again).
+          try {
+            await prisma.socialAccount.update({
+              where: { id: record.socialAccountId },
+              data: resolved.updated,
+            });
+          } catch (error) {
+            console.warn(
+              `[publish-clip] record ${publishRecordId}: failed to persist the refreshed ` +
+                'access token, continuing with it in-memory for this attempt:',
+              error,
+            );
+          }
         }
 
         let platformPostId: string;

@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { rename, unlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { computeCutJunctionTimestamps, type CutRange } from '@speedora/cutlist';
 import { limitExecFile } from './subprocessLimiter';
@@ -6,6 +7,31 @@ import { limitExecFile } from './subprocessLimiter';
 const execFileAsync = limitExecFile(promisify(execFile));
 const FFMPEG_PATH = process.env.FFMPEG_PATH ?? 'ffmpeg';
 const FFPROBE_PATH = process.env.FFPROBE_PATH ?? 'ffprobe';
+
+// Runs an ffmpeg command that writes to `outputPath`, but has it actually
+// write to a `.tmp` sibling and rename() onto the real path only once ffmpeg
+// exits successfully - a plain direct write would leave a partial/corrupt
+// file sitting at outputPath if ffmpeg is killed mid-write (a timeout, an
+// OOM kill, a container restart), which is otherwise indistinguishable from
+// a real, complete output to anything that reads outputPath afterward.
+// rename() on the same filesystem (both paths live under the same scratch
+// dir - see storage.ts's reserveScratchPath) is atomic, so nothing ever
+// observes a half-written file at the final path. The tmp file is cleaned up
+// on failure so a killed/timed-out run doesn't leak scratch space.
+async function execFfmpegAtomically(
+  buildArgs: (tmpOutputPath: string) => string[],
+  outputPath: string,
+  timeoutMs: number,
+): Promise<void> {
+  const tmpOutputPath = `${outputPath}.tmp`;
+  try {
+    await execFileAsync(FFMPEG_PATH, buildArgs(tmpOutputPath), { timeout: timeoutMs });
+    await rename(tmpOutputPath, outputPath);
+  } catch (error) {
+    await unlink(tmpOutputPath).catch(() => undefined);
+    throw error;
+  }
+}
 
 // trimCutRanges' own bound (see its call site below) - observed for real hanging well past 25
 // minutes for an ordinary clip-length re-encode under load, with no ffmpeg output changing at all
@@ -319,9 +345,13 @@ export async function renderClip(options: {
     args.push('-map', `[${currentLabel}]`, '-map', '0:a');
   }
 
-  args.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', outputPath);
+  args.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
 
-  await execFileAsync(FFMPEG_PATH, args, { timeout: RENDER_TIMEOUT_MS });
+  await execFfmpegAtomically(
+    (tmpOutputPath) => [...args, tmpOutputPath],
+    outputPath,
+    RENDER_TIMEOUT_MS,
+  );
 }
 
 // Fase 15 (Auto B-roll), pass 1 of 2 - trims a downloaded stock clip to
@@ -540,9 +570,8 @@ export async function trimCutRanges(
     videoFilters.push(`eq=eval=frame:brightness='${dipExpr}'`);
   }
 
-  await execFileAsync(
-    FFMPEG_PATH,
-    [
+  await execFfmpegAtomically(
+    (tmpOutputPath) => [
       '-y',
       '-i',
       inputPath,
@@ -556,8 +585,9 @@ export async function trimCutRanges(
       'aac',
       '-movflags',
       '+faststart',
-      outputPath,
+      tmpOutputPath,
     ],
-    { timeout: TRIM_TIMEOUT_MS },
+    outputPath,
+    TRIM_TIMEOUT_MS,
   );
 }

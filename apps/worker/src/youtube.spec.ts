@@ -8,9 +8,11 @@ function createFakeChild() {
   const child = new EventEmitter() as EventEmitter & {
     stdout: PassThrough;
     stderr: PassThrough;
+    kill: jest.Mock;
   };
   child.stdout = new PassThrough();
   child.stderr = new PassThrough();
+  child.kill = jest.fn();
   return child;
 }
 
@@ -34,7 +36,10 @@ describe('downloadYoutubeVideo', () => {
   });
 
   it('invokes yt-dlp with the url, an exact output path, and mp4 merge format', async () => {
-    const promise = downloadYoutubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '/tmp/out.mp4');
+    const promise = downloadYoutubeVideo(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      '/tmp/out.mp4',
+    );
     lastChild.emit('close', 0);
     await promise;
 
@@ -54,7 +59,10 @@ describe('downloadYoutubeVideo', () => {
   });
 
   it('prefers H.264 (avc1) video so the source preview plays in every browser', async () => {
-    const promise = downloadYoutubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '/tmp/out.mp4');
+    const promise = downloadYoutubeVideo(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      '/tmp/out.mp4',
+    );
     lastChild.emit('close', 0);
     await promise;
 
@@ -68,7 +76,8 @@ describe('downloadYoutubeVideo', () => {
     process.env.YTDLP_PATH = '/opt/bin/yt-dlp';
     jest.resetModules();
     jest.doMock('node:child_process', () => ({
-      spawn: (...args: unknown[]) => (spawnMock as unknown as (...a: unknown[]) => unknown)(...args),
+      spawn: (...args: unknown[]) =>
+        (spawnMock as unknown as (...a: unknown[]) => unknown)(...args),
     }));
     const { downloadYoutubeVideo: downloadWithOverride } = await import('./youtube');
 
@@ -81,7 +90,10 @@ describe('downloadYoutubeVideo', () => {
   });
 
   it('does not pass --ffmpeg-location when FFMPEG_PATH is unset', async () => {
-    const promise = downloadYoutubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '/tmp/out.mp4');
+    const promise = downloadYoutubeVideo(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      '/tmp/out.mp4',
+    );
     lastChild.emit('close', 0);
     await promise;
 
@@ -92,7 +104,10 @@ describe('downloadYoutubeVideo', () => {
   it('passes --ffmpeg-location to yt-dlp when FFMPEG_PATH is set, so its own merge subprocess can find ffmpeg even when ffmpeg is not on the system PATH', async () => {
     process.env.FFMPEG_PATH = 'C:\\ffmpeg\\bin\\ffmpeg.exe';
 
-    const promise = downloadYoutubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '/tmp/out.mp4');
+    const promise = downloadYoutubeVideo(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      '/tmp/out.mp4',
+    );
     lastChild.emit('close', 0);
     await promise;
 
@@ -102,8 +117,11 @@ describe('downloadYoutubeVideo', () => {
     );
   });
 
-  it('rejects with yt-dlp\'s stderr when it exits non-zero', async () => {
-    const promise = downloadYoutubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '/tmp/out.mp4');
+  it("rejects with yt-dlp's stderr when it exits non-zero", async () => {
+    const promise = downloadYoutubeVideo(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      '/tmp/out.mp4',
+    );
     lastChild.stderr.write('ERROR: unable to download video data: HTTP Error 403: Forbidden\n');
     lastChild.emit('close', 1);
 
@@ -112,7 +130,10 @@ describe('downloadYoutubeVideo', () => {
   });
 
   it('propagates a spawn-level error (e.g. yt-dlp binary not found)', async () => {
-    const promise = downloadYoutubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '/tmp/out.mp4');
+    const promise = downloadYoutubeVideo(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      '/tmp/out.mp4',
+    );
     lastChild.emit('error', new Error('spawn yt-dlp ENOENT'));
 
     await expect(promise).rejects.toThrow('spawn yt-dlp ENOENT');
@@ -169,8 +190,47 @@ describe('downloadYoutubeVideo', () => {
     expect(onProgress).not.toHaveBeenCalled();
   });
 
+  it('kills yt-dlp and rejects when the download exceeds its timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const promise = downloadYoutubeVideo(
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        '/tmp/out.mp4',
+      );
+
+      jest.advanceTimersByTime(60 * 60 * 1000);
+      expect(lastChild.kill).toHaveBeenCalledWith('SIGTERM');
+
+      lastChild.emit('close', null);
+      await expect(promise).rejects.toThrow('exceeded');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not report a timeout when the download closes normally well within the timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const promise = downloadYoutubeVideo(
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        '/tmp/out.mp4',
+      );
+
+      jest.advanceTimersByTime(1000);
+      lastChild.emit('close', 0);
+
+      await expect(promise).resolves.toBeUndefined();
+      expect(lastChild.kill).not.toHaveBeenCalled();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it('works with no onProgress callback at all', async () => {
-    const promise = downloadYoutubeVideo('https://www.youtube.com/watch?v=dQw4w9WgXcQ', '/tmp/out.mp4');
+    const promise = downloadYoutubeVideo(
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      '/tmp/out.mp4',
+    );
 
     lastChild.stdout.write('SPEEDORA_PROGRESS  50.0%\n');
     lastChild.emit('close', 0);
