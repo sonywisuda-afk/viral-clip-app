@@ -21,8 +21,15 @@ jest.mock('@speedora/storage', () => ({
 }));
 
 const downloadYoutubeVideoMock = jest.fn();
+const getYoutubeVideoTitleMock = jest.fn();
 jest.mock('../youtube', () => ({
   downloadYoutubeVideo: (...args: unknown[]) => downloadYoutubeVideoMock(...args),
+  getYoutubeVideoTitle: (...args: unknown[]) => getYoutubeVideoTitleMock(...args),
+}));
+
+const statMock = jest.fn();
+jest.mock('node:fs/promises', () => ({
+  stat: (...args: unknown[]) => statMock(...args),
 }));
 
 const reserveScratchPathMock = jest.fn();
@@ -67,6 +74,8 @@ describe('import-youtube worker', () => {
     jest.clearAllMocks();
     reserveScratchPathMock.mockResolvedValue('/tmp/youtube-import-abc.mp4');
     downloadYoutubeVideoMock.mockResolvedValue(undefined);
+    getYoutubeVideoTitleMock.mockResolvedValue('My YouTube Video');
+    statMock.mockResolvedValue({ size: 123456 });
     createReadStreamMock.mockReturnValue('fake-read-stream');
     uploadObjectMock.mockResolvedValue(undefined);
     videoUpdateMock.mockResolvedValue({});
@@ -106,10 +115,18 @@ describe('import-youtube worker', () => {
       data: { importProgress: 0 },
     });
     // ...and cleared back to null once UPLOADED, same "irrelevant past this
-    // stage" convention as transcribeProgress.
+    // stage" convention as transcribeProgress. title/sourceSizeBytes (Sprint
+    // 1-2, Dashboard Redesign) are written in the same update.
+    expect(statMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
-      data: { sourceUrl: 'videos/video-1.mp4', importProgress: null, status: VideoStatus.UPLOADED },
+      data: {
+        sourceUrl: 'videos/video-1.mp4',
+        importProgress: null,
+        title: 'My YouTube Video',
+        sourceSizeBytes: 123456,
+        status: VideoStatus.UPLOADED,
+      },
     });
     expect(transcribeQueueAdd).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
       videoId: 'video-1',

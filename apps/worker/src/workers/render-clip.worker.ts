@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { stat, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
@@ -12,7 +12,7 @@ import {
   totalCutSeconds,
   type CutRange,
 } from '@speedora/cutlist';
-import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
+import { Prisma, recordActivityEvent, updateVideoStatus, VideoStatus } from '@speedora/database';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import {
   QueueName,
@@ -364,7 +364,10 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           // FFmpeg) before failing on the final prisma.clip.update().
           const existingClip = await prisma.clip.findUnique({
             where: { id: clipId },
-            select: { outputUrl: true },
+            // video.ownerId (Sprint 1-2, Dashboard Redesign) - needed for the
+            // CLIP_GENERATED activity event below; fetched here rather than a
+            // second round-trip later since this query already runs first.
+            select: { outputUrl: true, video: { select: { ownerId: true } } },
           });
           if (!existingClip) {
             logger.info('clip was deleted - skipping orphaned job', { clipId, videoId });
@@ -514,6 +517,11 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // Computed before the upload, from the exact same local file the
             // upload is about to stream - see verifyUploadChecksum's comment.
             const expectedMd5 = await computeFileMd5Hex(renderedPath);
+            // Sprint 1-2 (Dashboard Redesign) - the file's already on disk
+            // (same file computeFileMd5Hex just streamed), so this costs
+            // nothing extra. Feeds the Dashboard's per-owner Storage Used
+            // stat - see Clip.outputSizeBytes.
+            const { size: outputSizeBytes } = await stat(renderedPath);
             // Streamed straight from disk (not read into a Buffer first) - same
             // "no timeout at all on a plain readFile()" reasoning as
             // import-youtube.worker.ts's own upload, now applied here too. A
@@ -554,6 +562,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   where: { id: clipId, outputUrl: null },
                   data: toClipUpdateData(graphResult, {
                     outputUrl: outputKey,
+                    outputSizeBytes,
                     llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
                     highlightScore: highlight.highlightScore,
                     highlightBreakdown: highlight.contributions,
@@ -589,6 +598,19 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
               throw error;
             }
+
+            // Sprint 1-2 (Dashboard Redesign) - Dashboard's Activity Timeline.
+            // Best-effort: never rethrown, same "a secondary feed's write must
+            // never fail the primary action" posture as videos.service.ts's
+            // own VIDEO_UPLOADED event.
+            await recordActivityEvent(prisma, {
+              userId: existingClip.video.ownerId,
+              type: 'CLIP_GENERATED',
+              videoId,
+              clipId,
+            }).catch((error) => {
+              logger.warn('failed to record CLIP_GENERATED activity event', { clipId }, error);
+            });
 
             if (allRendered) {
               // Ranking (Fase 31) - only meaningful once every clip in the

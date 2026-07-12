@@ -1,10 +1,40 @@
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { promisify } from 'node:util';
+import { limitExecFile } from './subprocessLimiter';
 
 // Same "assume on PATH, allow an override" pattern as FFMPEG_PATH/FFPROBE_PATH
 // in ffmpeg.ts - yt-dlp is a separate binary (Python-packaged, installed via
 // pip alongside mediapipe in the worker image - see Dockerfile), not an npm
 // dependency.
 const YTDLP_PATH = process.env.YTDLP_PATH ?? 'yt-dlp';
+
+const execFileAsync = limitExecFile(promisify(execFile));
+
+// Bounded metadata-only lookup, same "generous but not unbounded" reasoning
+// as ffmpeg.ts's timeouts - much shorter than YTDLP_TIMEOUT_MS below since
+// this never downloads any video/audio, just resolves the title.
+const YTDLP_TITLE_TIMEOUT_MS = 30 * 1000;
+
+// Sprint 1-2 (Dashboard Redesign) - the Dashboard's Recent Projects grid
+// needs a display title for imported videos, which Video.title otherwise
+// has no source for (unlike a direct upload's file.originalname). Best-
+// effort: a missing/renamed yt-dlp binary or a since-deleted/private video
+// shouldn't fail the whole import - import-youtube.worker.ts treats a null
+// return as "leave Video.title null", same "optional signal" fallback used
+// throughout this codebase for anything that isn't the core pipeline.
+export async function getYoutubeVideoTitle(url: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      YTDLP_PATH,
+      ['--no-playlist', '--skip-download', '--print', 'title', url],
+      { timeout: YTDLP_TITLE_TIMEOUT_MS },
+    );
+    const title = stdout.trim();
+    return title.length > 0 ? title : null;
+  } catch {
+    return null;
+  }
+}
 
 // yt-dlp's own progress line ("[download]  12.3% of ...") is meant for a
 // human terminal, not a parser - it's carriage-return-overwritten and its

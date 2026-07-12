@@ -1,5 +1,6 @@
 import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
+import type { PrismaService } from '../prisma/prisma.service';
 import type { ClipsService } from './clips.service';
 import { ClipsController } from './clips.controller';
 
@@ -11,6 +12,7 @@ describe('ClipsController', () => {
   let controller: ClipsController;
   let clipsService: {
     findRenderedOrThrow: jest.Mock;
+    getExplainability: jest.Mock;
     update: jest.Mock;
     render: jest.Mock;
     remove: jest.Mock;
@@ -18,11 +20,13 @@ describe('ClipsController', () => {
     cancelScheduledPublish: jest.Mock;
     reschedulePublish: jest.Mock;
   };
-  const user = { id: 'user-1', email: 'a@example.com' };
+  let prisma: { activityEvent: { create: jest.Mock } };
+  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
   beforeEach(() => {
     clipsService = {
       findRenderedOrThrow: jest.fn(),
+      getExplainability: jest.fn(),
       update: jest.fn(),
       render: jest.fn(),
       remove: jest.fn().mockResolvedValue(undefined),
@@ -30,12 +34,17 @@ describe('ClipsController', () => {
       cancelScheduledPublish: jest.fn(),
       reschedulePublish: jest.fn(),
     };
-    controller = new ClipsController(clipsService as unknown as ClipsService);
+    prisma = { activityEvent: { create: jest.fn().mockResolvedValue({}) } };
+    controller = new ClipsController(
+      clipsService as unknown as ClipsService,
+      prisma as unknown as PrismaService,
+    );
     jest.clearAllMocks();
+    prisma.activityEvent.create.mockResolvedValue({});
   });
 
-  it('streams the rendered clip with the right headers', async () => {
-    const clip = { id: 'clip-1', outputUrl: 'renders/clip-1.mp4' };
+  it('streams the rendered clip with the right headers and records a CLIP_EXPORTED activity event', async () => {
+    const clip = { id: 'clip-1', videoId: 'video-1', outputUrl: 'renders/clip-1.mp4' };
     clipsService.findRenderedOrThrow.mockResolvedValue(clip);
     const fakeStream = { pipe: jest.fn() };
     (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
@@ -51,6 +60,25 @@ describe('ClipsController', () => {
       'attachment; filename="clip-clip-1.mp4"',
     );
     expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+    expect(prisma.activityEvent.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        type: 'CLIP_EXPORTED',
+        videoId: 'video-1',
+        clipId: 'clip-1',
+        metadata: undefined,
+      },
+    });
+  });
+
+  it('delegates GET :id/explainability to ClipsService.getExplainability', async () => {
+    const explainability = { clipId: 'clip-1', results: [{ engine: 'v2', highlightScore: 74 }] };
+    clipsService.getExplainability.mockResolvedValue(explainability);
+
+    const result = await controller.getExplainability(user, 'clip-1');
+
+    expect(clipsService.getExplainability).toHaveBeenCalledWith('clip-1', 'user-1');
+    expect(result).toBe(explainability);
   });
 
   it('delegates PATCH to ClipsService.update', async () => {

@@ -56,6 +56,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'a@example.com',
         password: 'hashed-password',
+        role: 'CREATOR',
       });
 
       const result = await service.register('a@example.com', 'plaintext');
@@ -64,7 +65,7 @@ describe('AuthService', () => {
       expect(prisma.user.create).toHaveBeenCalledWith({
         data: { email: 'a@example.com', password: 'hashed-password' },
       });
-      expect(result).toEqual({ id: 'user-1', email: 'a@example.com' });
+      expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
     });
 
     it('throws ConflictException when the email is already registered', async () => {
@@ -83,12 +84,13 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'a@example.com',
         password: 'hashed-password',
+        role: 'CREATOR',
       });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       const result = await service.validateUser('a@example.com', 'plaintext');
 
-      expect(result).toEqual({ id: 'user-1', email: 'a@example.com' });
+      expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
     });
 
     it('throws UnauthorizedException when the user does not exist', async () => {
@@ -117,7 +119,7 @@ describe('AuthService', () => {
     it('signs a JWT with the user id and email', () => {
       jwtService.sign.mockReturnValue('signed-token');
 
-      const token = service.issueToken({ id: 'user-1', email: 'a@example.com' });
+      const token = service.issueToken({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
 
       expect(jwtService.sign).toHaveBeenCalledWith({ sub: 'user-1', email: 'a@example.com' });
       expect(token).toBe('signed-token');
@@ -169,7 +171,7 @@ describe('AuthService', () => {
         resetPasswordTokenExpiresAt: new Date(Date.now() + 60_000),
       });
       (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
-      prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'a@example.com' });
+      prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
 
       const result = await service.resetPassword(rawToken, 'newplaintext');
 
@@ -184,7 +186,7 @@ describe('AuthService', () => {
           resetPasswordTokenExpiresAt: null,
         },
       });
-      expect(result).toEqual({ id: 'user-1', email: 'a@example.com' });
+      expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
     });
 
     it('throws BadRequestException when the token does not match any user', async () => {

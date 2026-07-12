@@ -34,7 +34,7 @@ describe('SocialController', () => {
     fetchAccountInfo: jest.Mock;
   };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
-  const user = { id: 'user-1', email: 'a@example.com' };
+  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
   function fakeResponse(): Response {
     return { redirect: jest.fn() } as unknown as Response;

@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import * as Sentry from '@sentry/node';
 import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
@@ -14,7 +15,7 @@ import { prisma } from '../prisma';
 import { transcribeQueue } from '../queues';
 import { createRedisConnection } from '../redis';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
-import { downloadYoutubeVideo } from '../youtube';
+import { downloadYoutubeVideo, getYoutubeVideoTitle } from '../youtube';
 
 // Real percentage from yt-dlp's own --progress-template output (see
 // youtube.ts) - never a fabricated/interpolated animation, same "Postgres,
@@ -83,6 +84,12 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
             // attempt's last-reached percentage would otherwise linger.
             await reportProgress(videoId, 0);
 
+            // Sprint 1-2 (Dashboard Redesign) - best-effort, never fails the
+            // job (see getYoutubeVideoTitle's own comment). Fetched before
+            // the download starts since it's a separate, much shorter yt-dlp
+            // invocation, not extracted from the downloaded file itself.
+            const title = await getYoutubeVideoTitle(url);
+
             downloadPath = await reserveScratchPath('youtube-import', '.mp4');
             await downloadYoutubeVideo(url, downloadPath, (percent) => {
               // Fire-and-forget - a dropped/delayed progress write is harmless
@@ -107,10 +114,16 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
             // sitting at importProgress 100 with no forward progress and no error) instead of failing
             // cleanly. Streaming makes this step subject to uploadObject's own requestTimeout instead.
             const sourceUrl = `videos/${videoId}.mp4`;
+            // Sprint 1-2 (Dashboard Redesign) - the file's already on disk
+            // (stat is a cheap local syscall, unlike readFile above), so
+            // this costs nothing extra beyond the upload that's about to
+            // read the same file anyway. Feeds the Dashboard's per-owner
+            // Storage Used stat - see Video.sourceSizeBytes.
+            const { size: sourceSizeBytes } = await stat(downloadPath);
             await uploadObject(sourceUrl, createReadStream(downloadPath), 'video/mp4');
 
             await updateVideoStatus(prisma, videoId, VideoStatus.UPLOADED, {
-              data: { sourceUrl, importProgress: null },
+              data: { sourceUrl, importProgress: null, title, sourceSizeBytes },
             });
 
             logger.info('video imported', { videoId, sourceUrl });

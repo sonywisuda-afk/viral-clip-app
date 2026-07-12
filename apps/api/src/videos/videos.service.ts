@@ -1,6 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
+  recordActivityEvent,
   recordVideoStatusEvent,
   updateVideoStatus,
   VideoStatus,
@@ -122,7 +123,16 @@ export class VideosService {
 
     const video = await this.prisma.$transaction(async (tx) => {
       const created = await tx.video.create({
-        data: { ownerId, sourceUrl, transcriptionProvider: provider },
+        data: {
+          ownerId,
+          sourceUrl,
+          transcriptionProvider: provider,
+          // originalname/buffer.length are both already in memory - multer's
+          // default (memory) storage, no extra I/O (see
+          // storage.service.ts's own read of file.originalname).
+          title: file.originalname,
+          sourceSizeBytes: file.buffer.length,
+        },
       });
       // First entry in this video's status history - see
       // ARCHITECTURE.md's Fase 3 section for why creation needs its own
@@ -142,6 +152,17 @@ export class VideosService {
       videoId: video.id,
       sourceUrl: video.sourceUrl,
       provider,
+    });
+
+    // Sprint 1-2 (Dashboard Redesign) - Dashboard's Activity Timeline. Fire
+    // after the transaction commits, same "don't let a secondary feed's
+    // write fail the primary action" posture as other best-effort side
+    // effects in this service (e.g. storage cleanup above).
+    await recordActivityEvent(this.prisma, {
+      userId: ownerId,
+      type: 'VIDEO_UPLOADED',
+      videoId: video.id,
+      metadata: { title: video.title },
     });
 
     return video;
@@ -188,6 +209,15 @@ export class VideosService {
       videoId: video.id,
       url,
       provider,
+    });
+
+    // title isn't known yet at this point - import-youtube.worker.ts fetches
+    // it once the yt-dlp job actually runs. See upload()'s own call for the
+    // direct-upload path, which does have a title synchronously.
+    await recordActivityEvent(this.prisma, {
+      userId: ownerId,
+      type: 'VIDEO_UPLOADED',
+      videoId: video.id,
     });
 
     return video;

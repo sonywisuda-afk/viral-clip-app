@@ -36,7 +36,7 @@ describe('AuthController', () => {
 
   describe('register', () => {
     it('registers the user and sets an httpOnly session cookie', async () => {
-      const user = { id: 'user-1', email: 'a@example.com' };
+      const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
       authService.register.mockResolvedValue(user);
       const res = fakeResponse();
 
@@ -55,7 +55,7 @@ describe('AuthController', () => {
 
   describe('login', () => {
     it('validates credentials and sets the session cookie', async () => {
-      const user = { id: 'user-1', email: 'a@example.com' };
+      const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
       authService.validateUser.mockResolvedValue(user);
       const res = fakeResponse();
 
@@ -80,7 +80,7 @@ describe('AuthController', () => {
 
   describe('me', () => {
     it('returns the current user from the request', () => {
-      const user = { id: 'user-1', email: 'a@example.com' };
+      const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
       expect(controller.me(user)).toEqual(user);
     });
@@ -88,7 +88,7 @@ describe('AuthController', () => {
 
   describe('deleteAccount', () => {
     it('deletes the account and clears the session cookie', async () => {
-      const user = { id: 'user-1', email: 'a@example.com' };
+      const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
       const res = fakeResponse();
 
       await controller.deleteAccount(user, res);
@@ -114,7 +114,7 @@ describe('AuthController', () => {
 
   describe('resetPassword', () => {
     it('resets the password and sets the session cookie', async () => {
-      const user = { id: 'user-1', email: 'a@example.com' };
+      const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
       authService.resetPassword.mockResolvedValue(user);
       const res = fakeResponse();
 
@@ -131,7 +131,7 @@ describe('AuthController', () => {
 
   describe('changePassword', () => {
     it('calls changePassword with the current user id', async () => {
-      const user = { id: 'user-1', email: 'a@example.com' };
+      const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
       const result = await controller.changePassword(
         { currentPassword: 'currentplaintext', newPassword: 'newplaintext' },

@@ -5,17 +5,20 @@ import {
   Get,
   Headers,
   HttpCode,
+  Logger,
   Param,
   Patch,
   Post,
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { recordActivityEvent } from '@speedora/database';
 import { getObjectStream, getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { PrismaService } from '../prisma/prisma.service';
 import { ClipsService } from './clips.service';
 import { PublishClipDto } from './dto/publish-clip.dto';
 import { ReschedulePublishDto } from './dto/reschedule-publish.dto';
@@ -24,12 +27,30 @@ import { UpdateClipDto } from './dto/update-clip.dto';
 @Controller('clips')
 @UseGuards(JwtAuthGuard)
 export class ClipsController {
-  constructor(private readonly clipsService: ClipsService) {}
+  private readonly logger = new Logger(ClipsController.name);
+
+  constructor(
+    private readonly clipsService: ClipsService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get(':id/download')
   async download(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {
     const clip = await this.clipsService.findRenderedOrThrow(id, user.id);
     const stream = await getObjectStream(clip.outputUrl as string);
+
+    // Sprint 1-2 (Dashboard Redesign) - Activity Timeline. Fire-and-forget:
+    // a failed write here must never break an otherwise-successful
+    // download, same "secondary feed, best-effort" posture as every other
+    // recordActivityEvent call site.
+    recordActivityEvent(this.prisma, {
+      userId: user.id,
+      type: 'CLIP_EXPORTED',
+      videoId: clip.videoId,
+      clipId: clip.id,
+    }).catch((error) => {
+      this.logger.warn(`failed to record CLIP_EXPORTED activity event for clip ${id}: ${error}`);
+    });
 
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="clip-${clip.id}.mp4"`);
@@ -61,6 +82,15 @@ export class ClipsController {
       res.setHeader('Content-Range', result.contentRange);
     }
     result.stream.pipe(res);
+  }
+
+  // Milestone 4 (AI Explainability) - a read-only, focused view of a clip's
+  // Fusion Engine output (score/confidence/breakdown/reason/prediction/
+  // recommendation), separate from the full clip DTO returned by
+  // GET /videos/:id. See ClipsService.getExplainability.
+  @Get(':id/explainability')
+  getExplainability(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.getExplainability(id, user.id);
   }
 
   // Manual trim from the timeline editor - does not trigger a re-render.

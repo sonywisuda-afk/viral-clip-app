@@ -1,16 +1,21 @@
 import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { ClipsModule } from './clips/clips.module';
 import { validateEnv } from './config/env.validation';
+import { DashboardModule } from './dashboard/dashboard.module';
 import { HealthModule } from './health/health.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { RequestMetricsMiddleware } from './monitoring/request-metrics.middleware';
+import { OpsAiModule } from './ops-ai/ops-ai.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SearchModule } from './search/search.module';
 import { SocialModule } from './social/social.module';
+import { TeamModule } from './team/team.module';
 import { VideosModule } from './videos/videos.module';
 
 @Module({
@@ -32,6 +37,11 @@ import { VideosModule } from './videos/videos.module';
     SocialModule,
     HealthModule,
     MonitoringModule,
+    AnalyticsModule,
+    OpsAiModule,
+    DashboardModule,
+    SearchModule,
+    TeamModule,
   ],
   controllers: [AppController],
   providers: [AppService],

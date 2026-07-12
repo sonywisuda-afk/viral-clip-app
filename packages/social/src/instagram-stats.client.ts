@@ -4,6 +4,12 @@ export interface InstagramMediaStats {
   viewCount: number | null;
   likeCount: number | null;
   commentCount: number | null;
+  shareCount: number | null;
+  // Average watch time per view, in seconds. Reachable today under the
+  // already-granted instagram_manage_insights scope - no reconnect needed
+  // (unlike YouTube's watch-time/CTR, which needs a separate Analytics API
+  // scope - see docs/ai/dataset-feedback-loop.md).
+  watchTimeSeconds: number | null;
 }
 
 // Meta's Insights metric names for Reels have shifted across Graph API
@@ -11,7 +17,7 @@ export interface InstagramMediaStats {
 // current (v21.0, see instagram-graph.ts) names as of writing. If Meta
 // renames these again, this is the one place to update - see CLAUDE.md's
 // Fase 6e section for this caveat.
-const METRICS = ['plays', 'likes', 'comments'];
+const METRICS = ['plays', 'likes', 'comments', 'shares', 'ig_reels_avg_watch_time'];
 
 // Used by sync-publish-stats.worker.ts (Fase 6e) to refresh view/like/
 // comment counts for a published Reel. Requires the instagram_manage_insights
@@ -44,5 +50,7 @@ export async function fetchInstagramMediaStats(
     viewCount: valueFor('plays'),
     likeCount: valueFor('likes'),
     commentCount: valueFor('comments'),
+    shareCount: valueFor('shares'),
+    watchTimeSeconds: valueFor('ig_reels_avg_watch_time'),
   };
 }

@@ -858,10 +858,17 @@ export interface Video {
   id: string;
   ownerId: string;
   sourceUrl: string;
+  // Sprint 1-2 (Dashboard Redesign) - display name only, null for rows
+  // created before this field existed (see schema.prisma's comment on
+  // Video.title) - the Dashboard falls back to "Untitled video".
+  title: string | null;
   status: VideoStatus;
   // Prisma's `durationSeconds Float?` serializes as `null`, not `undefined`,
   // once it round-trips through JSON.
   durationSeconds: number | null;
+  // Sprint 1-2 (Dashboard Redesign) - feeds the Dashboard's per-owner
+  // Storage Used stat (see schema.prisma's comment on Video.sourceSizeBytes).
+  sourceSizeBytes: number | null;
   // 0-100, real progress reported by import-youtube.worker.ts (see
   // schema.prisma's comment on this column) - null before an import
   // attempt has started or once status has moved past IMPORTING. Only
@@ -891,6 +898,10 @@ export interface Clip {
   endTime: number;
   viralityScore: number;
   downloadUrl: string | null;
+  // Sprint 1-2 (Dashboard Redesign) - feeds the Dashboard's per-owner
+  // Storage Used stat (see schema.prisma's comment on Clip.outputSizeBytes).
+  // Null until the clip finishes rendering.
+  outputSizeBytes: number | null;
   captionStyle: CaptionStyle;
   hookText: string | null;
   hashtags: string[];

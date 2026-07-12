@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import type { UserRole } from '@speedora/database';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'node:crypto';
 import { MailService } from '../mail/mail.service';
@@ -20,6 +21,7 @@ const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 export interface SafeUser {
   id: string;
   email: string;
+  role: UserRole;
 }
 
 @Injectable()
@@ -42,7 +44,7 @@ export class AuthService {
       data: { email, password: passwordHash },
     });
 
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, role: user.role };
   }
 
   async validateUser(email: string, password: string): Promise<SafeUser> {
@@ -56,7 +58,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    return { id: user.id, email: user.email };
+    return { id: user.id, email: user.email, role: user.role };
   }
 
   issueToken(user: SafeUser): string {
@@ -118,7 +120,7 @@ export class AuthService {
       },
     });
 
-    return { id: updated.id, email: updated.email };
+    return { id: updated.id, email: updated.email, role: updated.role };
   }
 
   async changePassword(

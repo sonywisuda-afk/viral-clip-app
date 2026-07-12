@@ -15,6 +15,7 @@ const fetchYouTubeVideoStatsMock = jest.fn();
 const fetchInstagramMediaStatsMock = jest.fn();
 const fetchTikTokPublishStatusMock = jest.fn();
 const fetchTikTokVideoStatsMock = jest.fn();
+const computeEngagementScoreMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeInstagramOAuthClient {}
 class FakeTikTokOAuthClient {}
@@ -24,6 +25,7 @@ jest.mock('@speedora/social', () => ({
   fetchInstagramMediaStats: (...args: unknown[]) => fetchInstagramMediaStatsMock(...args),
   fetchTikTokPublishStatus: (...args: unknown[]) => fetchTikTokPublishStatusMock(...args),
   fetchTikTokVideoStats: (...args: unknown[]) => fetchTikTokVideoStatsMock(...args),
+  computeEngagementScore: (...args: unknown[]) => computeEngagementScoreMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
@@ -31,12 +33,16 @@ jest.mock('@speedora/social', () => ({
 
 const publishRecordFindManyMock = jest.fn();
 const publishRecordUpdateMock = jest.fn();
+const publishRecordStatsSnapshotCreateMock = jest.fn();
 const socialAccountUpdateMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     publishRecord: {
       findMany: (...args: unknown[]) => publishRecordFindManyMock(...args),
       update: (...args: unknown[]) => publishRecordUpdateMock(...args),
+    },
+    publishRecordStatsSnapshot: {
+      create: (...args: unknown[]) => publishRecordStatsSnapshotCreateMock(...args),
     },
     socialAccount: {
       update: (...args: unknown[]) => socialAccountUpdateMock(...args),
@@ -103,8 +109,10 @@ describe('sync-publish-stats worker', () => {
     jest.clearAllMocks();
     publishRecordFindManyMock.mockResolvedValue([]);
     publishRecordUpdateMock.mockResolvedValue({});
+    publishRecordStatsSnapshotCreateMock.mockResolvedValue({});
     socialAccountUpdateMock.mockResolvedValue({});
     resolveAccessTokenMock.mockResolvedValue({ accessToken: 'plaintext-access', refreshed: false });
+    computeEngagementScoreMock.mockReturnValue(0.5);
     fetchYouTubeVideoStatsMock.mockResolvedValue({
       viewCount: 100,
       likeCount: 10,
@@ -114,12 +122,19 @@ describe('sync-publish-stats worker', () => {
       viewCount: 200,
       likeCount: 20,
       commentCount: 4,
+      shareCount: 5,
+      watchTimeSeconds: 8.2,
     });
     fetchTikTokPublishStatusMock.mockResolvedValue({
       status: 'PUBLISH_COMPLETE',
       videoId: 'tiktok-video-1',
     });
-    fetchTikTokVideoStatsMock.mockResolvedValue({ viewCount: 300, likeCount: 30, commentCount: 6 });
+    fetchTikTokVideoStatsMock.mockResolvedValue({
+      viewCount: 300,
+      likeCount: 30,
+      commentCount: 6,
+      shareCount: 9,
+    });
   });
 
   describe('scheduleRepeatingTrigger', () => {
@@ -173,6 +188,18 @@ describe('sync-publish-stats worker', () => {
           statsUpdatedAt: expect.any(Date),
         },
       });
+      // YouTube's stats client reports neither shares nor watch-time today.
+      expect(publishRecordStatsSnapshotCreateMock).toHaveBeenCalledWith({
+        data: {
+          publishRecordId: 'record-1',
+          viewCount: 100,
+          likeCount: 10,
+          commentCount: 2,
+          shareCount: null,
+          watchTimeSeconds: null,
+          engagementScore: 0.5,
+        },
+      });
     });
 
     it('fetches and persists Instagram stats via the Instagram client', async () => {
@@ -194,6 +221,17 @@ describe('sync-publish-stats worker', () => {
           likeCount: 20,
           commentCount: 4,
           statsUpdatedAt: expect.any(Date),
+        },
+      });
+      expect(publishRecordStatsSnapshotCreateMock).toHaveBeenCalledWith({
+        data: {
+          publishRecordId: 'record-2',
+          viewCount: 200,
+          likeCount: 20,
+          commentCount: 4,
+          shareCount: 5,
+          watchTimeSeconds: 8.2,
+          engagementScore: 0.5,
         },
       });
     });
@@ -233,6 +271,7 @@ describe('sync-publish-stats worker', () => {
       expect(resolveAccessTokenMock).not.toHaveBeenCalled();
       expect(fetchYouTubeVideoStatsMock).not.toHaveBeenCalled();
       expect(publishRecordUpdateMock).not.toHaveBeenCalled();
+      expect(publishRecordStatsSnapshotCreateMock).not.toHaveBeenCalled();
     });
 
     it('isolates a failing record - reports to Sentry and still syncs the rest of the batch', async () => {
@@ -298,6 +337,18 @@ describe('sync-publish-stats worker', () => {
           statsUpdatedAt: expect.any(Date),
         },
       });
+      // TikTok has no watch-time endpoint on the current API surface.
+      expect(publishRecordStatsSnapshotCreateMock).toHaveBeenCalledWith({
+        data: {
+          publishRecordId: 'record-3',
+          viewCount: 300,
+          likeCount: 30,
+          commentCount: 6,
+          shareCount: 9,
+          watchTimeSeconds: null,
+          engagementScore: 0.5,
+        },
+      });
     });
 
     it('skips (without erroring) a TikTok record still pending in the inbox', async () => {
@@ -312,6 +363,7 @@ describe('sync-publish-stats worker', () => {
 
       expect(fetchTikTokVideoStatsMock).not.toHaveBeenCalled();
       expect(publishRecordUpdateMock).not.toHaveBeenCalled();
+      expect(publishRecordStatsSnapshotCreateMock).not.toHaveBeenCalled();
       expect(captureExceptionMock).not.toHaveBeenCalled();
     });
   });

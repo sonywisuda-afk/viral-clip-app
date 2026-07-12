@@ -1,12 +1,31 @@
 import type {
+  AnalyticsOverviewDto,
+  AnalyticsPerformanceClipsDto,
+  AnalyticsPerformanceDto,
+  AnalyticsPerformanceVideosDto,
   Clip,
+  ClipExplainabilityDto,
+  DashboardActivityDto,
+  DashboardStatsDto,
+  OpsAiCalibrationDto,
+  OpsAiCorrelationDto,
+  OpsAiDistributionDto,
+  OpsAiDriftDto,
+  OpsAiHealthDto,
+  OpsAiReadinessDto,
+  OpsAiSignalsDto,
+  PendingInviteDto,
+  PendingInviteRole,
   PremiumCheckoutResult,
   PremiumCreditAvailability,
   PublishRecord,
+  SearchResultsDto,
   SocialAccount,
+  SocialPlatform,
   TranscriptionProvider,
   TranscriptSegment,
   UpdateClipInput,
+  UserRole,
   Video,
   VideoWithClips,
 } from '@speedora/shared';
@@ -16,6 +35,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 export interface UserDto {
   id: string;
   email: string;
+  role: UserRole;
 }
 
 // Aliased, not redefined - these are the API/UI-facing DTOs contract-shared
@@ -242,6 +262,17 @@ export async function renderClip(clipId: string): Promise<Clip> {
   return parseJsonOrThrow<Clip>(res);
 }
 
+// Milestone 4 (AI Explainability) - a focused read of a clip's Fusion
+// Engine output. `getVideo`/`listVideos` already return every highlight*
+// field per clip (cheap, already loaded for the clip list/timeline
+// overview) - this is only called for the currently-selected clip's detail
+// panel, so a per-clip round trip is worth it for a page most users won't
+// select every clip on.
+export async function getClipExplainability(clipId: string): Promise<ClipExplainabilityDto> {
+  const res = await apiFetch(`/clips/${clipId}/explainability`);
+  return parseJsonOrThrow<ClipExplainabilityDto>(res);
+}
+
 // Permanently deletes one clip (not the parent video or its sibling clips).
 // 204 No Content on success.
 export async function deleteClip(clipId: string): Promise<void> {
@@ -341,6 +372,144 @@ export async function createPremiumCheckout(): Promise<PremiumCheckoutResult> {
 export async function getPremiumTranscriptionStatus(): Promise<PremiumCreditAvailability> {
   const res = await apiFetch('/payments/premium-transcription/status');
   return parseJsonOrThrow<PremiumCreditAvailability>(res);
+}
+
+// Milestone 5A (Analytics Dashboard - Overview) - aggregated, per-user
+// totals/breakdowns/trend, scoped server-side to the logged-in user.
+export async function getAnalyticsOverview(): Promise<AnalyticsOverviewDto> {
+  const res = await apiFetch('/analytics/overview');
+  return parseJsonOrThrow<AnalyticsOverviewDto>(res);
+}
+
+// Milestone 5B (Analytics Dashboard - Performance).
+export interface PerformanceFilterParams {
+  days?: 7 | 30 | 90;
+  platform?: SocialPlatform;
+}
+
+// Named param interfaces (PerformanceFilterParams etc.) have no index
+// signature by design (we want each caller's param object fully typed) -
+// this accepts an already-known-safe plain-value record and is only ever
+// called with one, via an explicit cast at each call site below rather than
+// weakening the public param types with an index signature.
+function toQueryString(params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) search.set(key, String(value));
+  }
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+export async function getAnalyticsPerformance(
+  params: PerformanceFilterParams = {},
+): Promise<AnalyticsPerformanceDto> {
+  const res = await apiFetch(
+    `/analytics/performance${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<AnalyticsPerformanceDto>(res);
+}
+
+export async function getAnalyticsPerformanceClips(
+  params: PerformanceFilterParams & { videoId?: string; limit?: number } = {},
+): Promise<AnalyticsPerformanceClipsDto> {
+  const res = await apiFetch(
+    `/analytics/performance/clips${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<AnalyticsPerformanceClipsDto>(res);
+}
+
+export async function getAnalyticsPerformanceVideos(
+  params: PerformanceFilterParams & { limit?: number } = {},
+): Promise<AnalyticsPerformanceVideosDto> {
+  const res = await apiFetch(
+    `/analytics/performance/videos${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<AnalyticsPerformanceVideosDto>(res);
+}
+
+// Milestone 5C-B (AI Operations Dashboard) - system-wide, role-gated
+// (GET /ops/ai/*). No query params (an all-time snapshot, matching M1.5's
+// own scripts having no time filter). A 403 here means the signed-in user
+// isn't ADMIN/AI_ENGINEER/OPERATOR - the /ops/ai page handles that
+// specifically rather than treating it as a generic error.
+export async function getOpsAiHealth(): Promise<OpsAiHealthDto> {
+  const res = await apiFetch('/ops/ai/health');
+  return parseJsonOrThrow<OpsAiHealthDto>(res);
+}
+
+export async function getOpsAiSignals(): Promise<OpsAiSignalsDto> {
+  const res = await apiFetch('/ops/ai/signals');
+  return parseJsonOrThrow<OpsAiSignalsDto>(res);
+}
+
+export async function getOpsAiDistribution(): Promise<OpsAiDistributionDto> {
+  const res = await apiFetch('/ops/ai/distribution');
+  return parseJsonOrThrow<OpsAiDistributionDto>(res);
+}
+
+export async function getOpsAiCorrelation(): Promise<OpsAiCorrelationDto> {
+  const res = await apiFetch('/ops/ai/correlation');
+  return parseJsonOrThrow<OpsAiCorrelationDto>(res);
+}
+
+export async function getOpsAiCalibration(): Promise<OpsAiCalibrationDto> {
+  const res = await apiFetch('/ops/ai/calibration');
+  return parseJsonOrThrow<OpsAiCalibrationDto>(res);
+}
+
+export async function getOpsAiDrift(): Promise<OpsAiDriftDto> {
+  const res = await apiFetch('/ops/ai/drift');
+  return parseJsonOrThrow<OpsAiDriftDto>(res);
+}
+
+export async function getOpsAiReadiness(): Promise<OpsAiReadinessDto> {
+  const res = await apiFetch('/ops/ai/readiness');
+  return parseJsonOrThrow<OpsAiReadinessDto>(res);
+}
+
+// Sprint 1-2 (Dashboard Redesign) - Statistics Row.
+export async function getDashboardStats(): Promise<DashboardStatsDto> {
+  const res = await apiFetch('/dashboard/stats');
+  return parseJsonOrThrow<DashboardStatsDto>(res);
+}
+
+// Activity Timeline.
+export async function getDashboardActivity(limit?: number): Promise<DashboardActivityDto> {
+  const res = await apiFetch(`/dashboard/activity${toQueryString({ limit })}`);
+  return parseJsonOrThrow<DashboardActivityDto>(res);
+}
+
+// Not fetched - used directly as an <a href>/window.location target so the
+// browser handles the download, same convention as clipDownloadUrl.
+export function dashboardExportCsvUrl(): string {
+  return `${API_URL}/dashboard/export.csv`;
+}
+
+// Search bar - videos/clips/transcript matches, all owner-scoped server-side.
+export async function search(query: string): Promise<SearchResultsDto> {
+  const res = await apiFetch(`/search${toQueryString({ q: query })}`);
+  return parseJsonOrThrow<SearchResultsDto>(res);
+}
+
+// Invite Member quick action - see PendingInvite's own comment in
+// schema.prisma for why this is deliberately a one-way "email sent" action,
+// not a real invitation lifecycle.
+export async function sendTeamInvite(
+  email: string,
+  role: PendingInviteRole,
+): Promise<PendingInviteDto> {
+  const res = await apiFetch('/team/invites', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role }),
+  });
+  return parseJsonOrThrow<PendingInviteDto>(res);
+}
+
+export async function listTeamInvites(): Promise<{ invites: PendingInviteDto[] }> {
+  const res = await apiFetch('/team/invites');
+  return parseJsonOrThrow<{ invites: PendingInviteDto[] }>(res);
 }
 
 export { API_URL };

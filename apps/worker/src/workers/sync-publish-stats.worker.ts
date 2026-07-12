@@ -2,6 +2,7 @@ import * as Sentry from '@sentry/node';
 import { PublishStatus, SocialPlatform } from '@speedora/database';
 import { QueueName } from '@speedora/shared';
 import {
+  computeEngagementScore,
   fetchInstagramMediaStats,
   fetchTikTokPublishStatus,
   fetchTikTokVideoStats,
@@ -96,6 +97,12 @@ export function createSyncPublishStatsWorker(): Worker {
             viewCount: number | null;
             likeCount: number | null;
             commentCount: number | null;
+            // Not every platform's stats client reports these yet - YouTube
+            // has neither (needs the deferred Analytics API scope), TikTok
+            // has no watch-time endpoint at all. See
+            // docs/ai/dataset-feedback-loop.md.
+            shareCount?: number | null;
+            watchTimeSeconds?: number | null;
           };
           if (record.socialAccount.platform === SocialPlatform.YOUTUBE) {
             stats = await fetchYouTubeVideoStats(resolved.accessToken, record.platformPostId);
@@ -127,6 +134,25 @@ export function createSyncPublishStatsWorker(): Worker {
               likeCount: stats.likeCount,
               commentCount: stats.commentCount,
               statsUpdatedAt: new Date(),
+            },
+          });
+          // Milestone 1 (Dataset & Feedback Loop): append-only history, on
+          // top of the "latest snapshot" update above - see
+          // PublishRecordStatsSnapshot's doc comment in schema.prisma.
+          await prisma.publishRecordStatsSnapshot.create({
+            data: {
+              publishRecordId: record.id,
+              viewCount: stats.viewCount,
+              likeCount: stats.likeCount,
+              commentCount: stats.commentCount,
+              shareCount: stats.shareCount ?? null,
+              watchTimeSeconds: stats.watchTimeSeconds ?? null,
+              engagementScore: computeEngagementScore({
+                viewCount: stats.viewCount,
+                likeCount: stats.likeCount,
+                commentCount: stats.commentCount,
+                shareCount: stats.shareCount ?? null,
+              }),
             },
           });
           synced += 1;

@@ -1,3 +1,4 @@
+export * from './engagement-score';
 export * from './errors';
 export * from './instagram-oauth.client';
 export * from './instagram-stats.client';

@@ -12,6 +12,7 @@ export interface TikTokVideoStats {
   viewCount: number | null;
   likeCount: number | null;
   commentCount: number | null;
+  shareCount: number | null;
 }
 
 interface TikTokErrorBody {
@@ -68,7 +69,7 @@ export async function fetchTikTokVideoStats(
   videoId: string,
 ): Promise<TikTokVideoStats> {
   const url = new URL(QUERY_VIDEO_URL);
-  url.searchParams.set('fields', 'id,view_count,like_count,comment_count');
+  url.searchParams.set('fields', 'id,view_count,like_count,comment_count,share_count');
   const res = await fetch(url, {
     method: 'POST',
     headers: {
@@ -84,6 +85,7 @@ export async function fetchTikTokVideoStats(
         view_count?: number;
         like_count?: number;
         comment_count?: number;
+        share_count?: number;
       }>;
     };
   } & TikTokErrorBody;
@@ -95,5 +97,6 @@ export async function fetchTikTokVideoStats(
     viewCount: video?.view_count ?? null,
     likeCount: video?.like_count ?? null,
     commentCount: video?.comment_count ?? null,
+    shareCount: video?.share_count ?? null,
   };
 }

@@ -26,8 +26,10 @@ jest.mock('node:stream/promises', () => ({
 }));
 
 const writeFileMock = jest.fn();
+const statMock = jest.fn();
 jest.mock('node:fs/promises', () => ({
   writeFile: (...args: unknown[]) => writeFileMock(...args),
+  stat: (...args: unknown[]) => statMock(...args),
 }));
 
 const renderClipMock = jest.fn();
@@ -154,6 +156,7 @@ const clipFindManyMock = jest.fn();
 const clipFindUniqueMock = jest.fn();
 const videoUpdateMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
+const activityEventCreateMock = jest.fn();
 // $transaction now has two call shapes to support in this file: the
 // array form (still used by updateVideoStatus() on the FAILED path, see
 // video-status.ts) and the new interactive callback form the render-clip
@@ -185,6 +188,10 @@ jest.mock('../prisma', () => ({
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, atomically alongside video.update() via $transaction.
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
+    // Sprint 1-2 (Dashboard Redesign) - recordActivityEvent()'s write for
+    // the CLIP_GENERATED event, called against the plain `prisma` import
+    // (not `tx`), same as videoStatusEvent above.
+    activityEvent: { create: (...args: unknown[]) => activityEventCreateMock(...args) },
     $transaction: (...args: [Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)]) =>
       transactionMock(...args),
   },
@@ -462,10 +469,14 @@ describe('render-clip worker', () => {
     clipUpdateMock.mockResolvedValue({});
     // Clip exists and isn't rendered yet by default - individual tests
     // override this to exercise the orphaned-job (deleted-clip) and
-    // already-rendered (idempotency) skip paths.
-    clipFindUniqueMock.mockResolvedValue({ outputUrl: null });
+    // already-rendered (idempotency) skip paths. video.ownerId (Sprint 1-2,
+    // Dashboard Redesign) feeds the CLIP_GENERATED activity event.
+    clipFindUniqueMock.mockResolvedValue({ outputUrl: null, video: { ownerId: 'user-1' } });
     videoUpdateMock.mockResolvedValue({});
     videoStatusEventCreateMock.mockResolvedValue({});
+    activityEventCreateMock.mockResolvedValue({});
+    // Sprint 1-2 (Dashboard Redesign) - Clip.outputSizeBytes.
+    statMock.mockResolvedValue({ size: 654321 });
     cleanupTempFileMock.mockResolvedValue(undefined);
     getVideoDimensionsMock.mockResolvedValue({ width: 320, height: 240 });
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
@@ -529,10 +540,12 @@ describe('render-clip worker', () => {
       { fakeStream: expect.stringContaining('output') },
       'video/mp4',
     );
+    expect(statMock).toHaveBeenCalledWith(expect.stringContaining('output'));
     expect(clipUpdateMock).toHaveBeenCalledWith({
       where: { id: 'clip-1', outputUrl: null },
       data: {
         outputUrl: 'renders/clip-1.mp4',
+        outputSizeBytes: 654321,
         sceneCuts: [],
         sceneCutEvents: [],
         facialEmotions: [],
@@ -579,6 +592,16 @@ describe('render-clip worker', () => {
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
       data: { status: VideoStatus.RENDERED },
+    });
+    // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry.
+    expect(activityEventCreateMock).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        type: 'CLIP_GENERATED',
+        videoId: 'video-1',
+        clipId: 'clip-1',
+        metadata: undefined,
+      },
     });
     // source + captions + output - no reframe-cmds file (no face detected).
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
@@ -642,6 +665,10 @@ describe('render-clip worker', () => {
     // Not reported as a failure - this is an expected, benign race outcome,
     // not an error.
     expect(captureExceptionMock).not.toHaveBeenCalled();
+    // The losing execution returns before reaching the activity-event write
+    // - only the winning execution (whose update actually matched) records
+    // CLIP_GENERATED.
+    expect(activityEventCreateMock).not.toHaveBeenCalled();
   });
 
   // computeFileMd5Hex streams renderedPath through node:crypto's real
@@ -1070,6 +1097,7 @@ describe('render-clip worker', () => {
         where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
+          outputSizeBytes: 654321,
           sceneCuts: [1.5, 4.2],
           sceneCutEvents: [],
           facialEmotions: [],
@@ -1205,6 +1233,7 @@ describe('render-clip worker', () => {
         where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
+          outputSizeBytes: 654321,
           sceneCuts: [],
           sceneCutEvents: [],
           facialEmotions: [],
@@ -1490,6 +1519,7 @@ describe('render-clip worker', () => {
         where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
+          outputSizeBytes: 654321,
           sceneCuts: [],
           sceneCutEvents: [],
           facialEmotions: [
@@ -1625,6 +1655,7 @@ describe('render-clip worker', () => {
         where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
+          outputSizeBytes: 654321,
           sceneCuts: [],
           sceneCutEvents: [],
           facialEmotions: Prisma.JsonNull,

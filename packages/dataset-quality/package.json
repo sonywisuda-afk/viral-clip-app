@@ -1,0 +1,37 @@
+{
+  "name": "@speedora/dataset-quality",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Milestone 1.5 (Dataset Validation & Calibration) pure logic - moved out of apps/worker/src/scripts/{dataset-lib,dataset-quality}.ts in Milestone 5C-B so apps/api's new AI Operations Dashboard (GET /ops/ai/*) can reuse the exact same, already-tested feature-flattening/correlation/missing-data/distribution/drift/weight-calibration math apps/worker's generate-dataset-report.ts CLI script has used since Milestone 1.5, without apps/api importing from apps/worker (apps only talk over HTTP/queue). No DB/Prisma access here - only the pure functions; the Prisma-dependent loaders stay in each app as their own adapter.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.5"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

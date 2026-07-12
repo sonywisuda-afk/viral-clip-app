@@ -17,12 +17,13 @@ describe('JwtStrategy', () => {
       id: 'user-1',
       email: 'a@example.com',
       password: 'hashed',
+      role: 'CREATOR',
     });
 
     const result = await strategy.validate({ sub: 'user-1', email: 'a@example.com' });
 
     expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: 'user-1' } });
-    expect(result).toEqual({ id: 'user-1', email: 'a@example.com' });
+    expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
   });
 
   it('throws UnauthorizedException when the user no longer exists', async () => {

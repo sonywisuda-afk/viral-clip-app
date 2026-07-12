@@ -27,6 +27,20 @@ enum CaptionStyle {
   BOLD_HIGHLIGHT
 }
 
+// Milestone 5C-B (AI Operations Dashboard) - the first role concept in this
+// codebase. CREATOR (default) is every normal signup; the other three gate
+// GET /ops/ai/* (RolesGuard) since that surface pools aggregate data across
+// EVERY user's clips, not just the requester's own - a real access-control
+// boundary, not a UX nicety. No self-service elevation endpoint exists -
+// granted only via apps/api/src/scripts/grant-role.ts, see
+// docs/operations-runbook.md.
+enum UserRole {
+  CREATOR
+  ADMIN
+  AI_ENGINEER
+  OPERATOR
+}
+
 // Mirrors TranscriptionProvider in packages/shared/src/types/video.ts. Chosen
 // per-video at upload/import time (see VideosService.upload/.importFromYoutube),
 // not a persistent account setting - GROQ (Whisper large-v3-turbo) is the
@@ -102,6 +116,8 @@ model User {
   email                       String    @unique
   // bcrypt hash - never the plaintext password.
   password                    String
+  // Milestone 5C-B - see UserRole above. Every normal signup gets CREATOR.
+  role                        UserRole  @default(CREATOR)
   // Forgot-password (Fase 8) - SHA-256 hash of a random token, never the raw
   // token itself (that only ever exists in the emailed reset link) - a DB
   // leak alone shouldn't be enough to reset anyone's password, same
@@ -116,6 +132,8 @@ model User {
   videos         Video[]
   socialAccounts SocialAccount[]
   premiumCredits PremiumCredit[]
+  activityEvents ActivityEvent[]
+  sentInvites    PendingInvite[]
 }
 
 model Video {
@@ -129,6 +147,16 @@ model Video {
   // render-clip's sourceUrl reads, etc.) doesn't need a null-check for a
   // state those code paths never actually run in.
   sourceUrl             String
+  // Display name only - never used for storage keys/lookups (those are
+  // always the cuid `id` or the object-storage key in sourceUrl). Direct
+  // upload: the original filename (Express.Multer.File.originalname).
+  // YouTube import: fetched separately by apps/worker's import-youtube job
+  // (yt-dlp has no title available at the API-request instant, before the
+  // download starts) - null until that job's first progress write, same
+  // "arrives asynchronously" pattern as durationSeconds. Null for rows
+  // created before this field existed - not backfilled (Dashboard falls
+  // back to "Untitled video").
+  title                 String?
   // Original youtube.com/youtu.be URL, set only by
   // VideosService.importFromYoutube() - null for a direct file upload.
   // Needed so VideosService.retry() can re-enqueue import-youtube (rather
@@ -137,6 +165,15 @@ model Video {
   importSourceUrl       String?
   status                VideoStatus           @default(UPLOADED)
   durationSeconds       Float?
+  // Bytes of the source file in object storage - direct upload sets this
+  // synchronously from the already-in-memory multer buffer's length;
+  // YouTube import sets it via an fs.stat() of the downloaded file right
+  // before upload (same instant computeFileMd5Hex-style pattern render-clip
+  // already uses for outputSizeBytes below). Feeds the Dashboard's per-owner
+  // "Storage Used" stat cheaply from Postgres instead of scanning the whole
+  // S3/R2/MinIO bucket (see packages/storage's getBucketUsage(), which is
+  // bucket-wide and not owner-scoped). Null for pre-existing rows.
+  sourceSizeBytes       Int?
   // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
   // downloads the source - same "never fabricated" convention as
   // transcribeProgress below, and deliberately a separate column rather
@@ -283,6 +320,13 @@ model Clip {
   endTime                 Float
   viralityScore           Float
   outputUrl               String?
+  // Bytes of the rendered output in object storage - set alongside
+  // outputUrl by render-clip.worker.ts via an fs.stat() of the rendered
+  // file, right next to the existing computeFileMd5Hex() stream-based hash
+  // (both read the same on-disk file before it's uploaded). Feeds the
+  // Dashboard's per-owner "Storage Used" stat - see Video.sourceSizeBytes.
+  // Null until the clip finishes rendering, or for pre-existing rows.
+  outputSizeBytes         Int?
   captionStyle            CaptionStyle @default(DEFAULT)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
@@ -644,7 +688,7 @@ model NodeExecution {
   // avoids. Reserved so a future per-node detail (e.g. frame count, detector confidence) doesn't
   // need its own migration - same "one JSON blob, not a column per metric" call already made for
   // Clip.scores.
-  metadata Json?
+  metadata     Json?
 
   @@index([nodeId, startedAt])
   @@index([jobExecutionId])
@@ -718,6 +762,8 @@ model PublishRecord {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  statsSnapshots PublishRecordStatsSnapshot[]
+
   @@index([clipId])
   @@index([socialAccountId])
   // schedule-publish-clip.worker.ts's poller runs this exact
@@ -725,4 +771,85 @@ model PublishRecord {
   // life of the deployment - a composite index keeps that query cheap
   // regardless of how many PublishRecord rows accumulate over time.
   @@index([status, scheduledAt])
+}
+
+// Milestone 1 (Dataset & Feedback Loop): one append-only row per
+// sync-publish-stats run, unlike PublishRecord's own viewCount/likeCount/
+// commentCount which stay a mutable "latest snapshot". This is what lets us
+// join AI features (Clip.highlightBreakdown etc.) against a real engagement
+// trend instead of a single point-in-time number. watchTimeSeconds is only
+// ever populated for Instagram today - YouTube/TikTok have no comparable
+// metric available without the (deferred) YouTube Analytics API scope.
+model PublishRecordStatsSnapshot {
+  id               String        @id @default(cuid())
+  publishRecordId  String
+  publishRecord    PublishRecord @relation(fields: [publishRecordId], references: [id], onDelete: Cascade)
+  capturedAt       DateTime      @default(now())
+  viewCount        Int?
+  likeCount        Int?
+  commentCount     Int?
+  shareCount       Int?
+  watchTimeSeconds Float?
+  // Heuristic, unvalidated composite - see computeEngagementScore in
+  // packages/social. Null whenever viewCount is null/0.
+  engagementScore  Float?
+
+  @@index([publishRecordId, capturedAt])
+}
+
+// Sprint 1-2 (Dashboard Redesign, Product Experience track) - a
+// user-facing activity feed, distinct from VideoStatusEvent above:
+// VideoStatusEvent is an internal pipeline audit trail (one row per status
+// transition, written by @speedora/database's updateVideoStatus() helper);
+// ActivityEvent is a coarser, human-readable feed of things the DASHBOARD
+// shows ("Video uploaded", "Clip generated", ...), written from a handful
+// of call sites (VideosService.upload()/importFromYoutube(),
+// render-clip.worker.ts, ClipsController's download route, TeamService's
+// invite endpoint) via the new recordActivityEvent() helper, same
+// "append-only, written by one shared helper" shape as VideoStatusEvent.
+enum ActivityEventType {
+  VIDEO_UPLOADED
+  CLIP_GENERATED
+  CLIP_EXPORTED
+  MEMBER_INVITED
+}
+
+model ActivityEvent {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      ActivityEventType
+  videoId   String?
+  clipId    String?
+  // Free-form display context (e.g. { title } for a video/clip that may
+  // since have been deleted) - kept as JSON rather than a live relation
+  // read at feed-render time so a deleted video/clip doesn't blank out its
+  // own history entry.
+  metadata  Json?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Sprint 1-2's Invite Member quick action. Deliberately minimal per explicit
+// product direction: no Team/Membership schema, no shared video/clip
+// access, no workspace switching, no role enforcement - `role` is captured
+// from the modal's selector and stored for display only, not read by any
+// permission check anywhere. No status/accept flow either - this is a
+// one-way "we sent an email" log, not a real invitation lifecycle.
+enum PendingInviteRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+model PendingInvite {
+  id        String            @id @default(cuid())
+  inviterId String
+  inviter   User              @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+  email     String
+  role      PendingInviteRole
+  createdAt DateTime          @default(now())
+
+  @@index([inviterId, createdAt])
 }

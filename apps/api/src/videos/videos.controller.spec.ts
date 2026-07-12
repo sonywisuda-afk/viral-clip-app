@@ -15,7 +15,7 @@ describe('VideosController', () => {
     upload: jest.Mock;
     importFromYoutube: jest.Mock;
   };
-  const user = { id: 'user-1', email: 'a@example.com' };
+  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
   beforeEach(() => {
     videosService = {

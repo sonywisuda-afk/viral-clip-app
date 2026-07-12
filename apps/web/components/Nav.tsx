@@ -8,12 +8,19 @@ import { cn } from '../lib/utils';
 const LINKS = [
   { href: '/upload', label: 'Upload' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/analytics', label: 'Analytics' },
   { href: '/social', label: 'Social Media' },
   { href: '/accounts', label: 'Accounts' },
 ] as const;
 
+// Milestone 5C-B - shown only for ADMIN/AI_ENGINEER/OPERATOR. Client-side
+// visibility only; GET /ops/ai/* enforces the real boundary server-side
+// (RolesGuard) regardless of whether this link is visible.
+const OPS_AI_LINK = { href: '/ops/ai', label: 'AI Ops' } as const;
+
 export function Nav({ user, onLogout }: { user: UserDto; onLogout: () => void }) {
   const pathname = usePathname();
+  const links = user.role === 'CREATOR' ? LINKS : [...LINKS, OPS_AI_LINK];
 
   return (
     // flex-wrap + gap so the links row and the account row stack instead of
@@ -21,7 +28,7 @@ export function Nav({ user, onLogout }: { user: UserDto; onLogout: () => void })
     // links colliding with the email as they did before.
     <div className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-border pb-3">
       <nav className="flex gap-1 font-body text-sm">
-        {LINKS.map((link) => {
+        {links.map((link) => {
           const active = pathname === link.href;
           return (
             <Link

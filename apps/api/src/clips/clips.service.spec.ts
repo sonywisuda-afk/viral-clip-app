@@ -99,6 +99,83 @@ describe('ClipsService', () => {
     });
   });
 
+  describe('getExplainability', () => {
+    const clip = {
+      id: 'clip-1',
+      video: { ownerId: 'user-1' },
+      highlightScore: 74,
+      highlightConfidence: 0.82,
+      highlightReason: 'Strong hook and high energy throughout.',
+      highlightBreakdown: [
+        { signal: 'audio', feature: 'averageRmsDb', rawValue: -18, normalizedValue: 0.7, weight: 0.35, weightedContribution: 0.245 },
+      ],
+      highlightExplainability: {
+        topFactors: [
+          { signal: 'audio', feature: 'averageRmsDb', weightedContribution: 0.245, description: 'Loud, energetic audio' },
+        ],
+      },
+      highlightPrediction: { bucket: 'likely_high_performer', rationale: 'Score of 74 with 82% confidence suggests strong potential.' },
+      highlightRecommendation: { action: 'publish_as_is', message: 'This clip scores well - ready to publish as-is.' },
+      highlightRank: 1,
+    };
+
+    it('returns a single v2 result mapped from the clip\'s Fusion Engine fields', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getExplainability('clip-1', 'user-1');
+
+      expect(result).toEqual({
+        clipId: 'clip-1',
+        results: [
+          {
+            engine: 'v2',
+            highlightScore: 74,
+            highlightConfidence: 0.82,
+            highlightReason: 'Strong hook and high energy throughout.',
+            highlightBreakdown: clip.highlightBreakdown,
+            highlightExplainability: clip.highlightExplainability,
+            highlightPrediction: clip.highlightPrediction,
+            highlightRecommendation: clip.highlightRecommendation,
+            highlightRank: 1,
+          },
+        ],
+      });
+    });
+
+    it('defaults highlightBreakdown/highlightExplainability when null, same as toDto', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        ...clip,
+        highlightBreakdown: null,
+        highlightExplainability: null,
+        highlightPrediction: null,
+        highlightRecommendation: null,
+      });
+
+      const result = await service.getExplainability('clip-1', 'user-1');
+
+      expect(result.results[0].highlightBreakdown).toEqual([]);
+      expect(result.results[0].highlightExplainability).toEqual({ topFactors: [] });
+      expect(result.results[0].highlightPrediction).toBeNull();
+      expect(result.results[0].highlightRecommendation).toBeNull();
+    });
+
+    it('throws NotFoundException when the clip does not exist', async () => {
+      prisma.clip.findUnique.mockResolvedValue(null);
+
+      await expect(service.getExplainability('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the clip belongs to a different user', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, video: { ownerId: 'someone-else' } });
+
+      await expect(service.getExplainability('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('update', () => {
     const existingClip = {
       id: 'clip-1',

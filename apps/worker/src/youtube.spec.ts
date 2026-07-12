@@ -22,11 +22,28 @@ const spawnMock = jest.fn((_file: string, _args: string[]) => {
   return lastChild;
 });
 
+// getYoutubeVideoTitle uses promisify(execFile) - same mock shape as
+// ffmpeg.spec.ts's own execFileMock: a single combined { stdout, stderr }
+// success value (not two separate args), matching what promisify actually
+// resolves to for execFile's real callback shape.
+const execFileMock = jest.fn(
+  (
+    _file: string,
+    _args: string[],
+    _options: unknown,
+    callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+  ) => {
+    callback(null, { stdout: '', stderr: '' });
+  },
+);
+const execFileMockBehavior = execFileMock as unknown as jest.Mock;
+
 jest.mock('node:child_process', () => ({
   spawn: (...args: unknown[]) => (spawnMock as unknown as (...a: unknown[]) => unknown)(...args),
+  execFile: (...args: unknown[]) => (execFileMock as unknown as (...a: unknown[]) => unknown)(...args),
 }));
 
-import { downloadYoutubeVideo } from './youtube';
+import { downloadYoutubeVideo, getYoutubeVideoTitle } from './youtube';
 
 describe('downloadYoutubeVideo', () => {
   beforeEach(() => {
@@ -78,6 +95,8 @@ describe('downloadYoutubeVideo', () => {
     jest.doMock('node:child_process', () => ({
       spawn: (...args: unknown[]) =>
         (spawnMock as unknown as (...a: unknown[]) => unknown)(...args),
+      execFile: (...args: unknown[]) =>
+        (execFileMock as unknown as (...a: unknown[]) => unknown)(...args),
     }));
     const { downloadYoutubeVideo: downloadWithOverride } = await import('./youtube');
 
@@ -236,5 +255,50 @@ describe('downloadYoutubeVideo', () => {
     lastChild.emit('close', 0);
 
     await expect(promise).resolves.toBeUndefined();
+  });
+});
+
+describe('getYoutubeVideoTitle', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+  });
+
+  it('resolves the trimmed title from yt-dlp --print title', async () => {
+    execFileMockBehavior.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(null, { stdout: 'My Cool Video\n', stderr: '' });
+    });
+
+    const title = await getYoutubeVideoTitle('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+    expect(title).toBe('My Cool Video');
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('yt-dlp');
+    expect(args).toEqual([
+      '--no-playlist',
+      '--skip-download',
+      '--print',
+      'title',
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    ]);
+  });
+
+  it('resolves null when yt-dlp fails (missing binary, private/deleted video, etc.)', async () => {
+    execFileMockBehavior.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(new Error('yt-dlp exited with code 1'), { stdout: '', stderr: 'error' });
+    });
+
+    const title = await getYoutubeVideoTitle('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+    expect(title).toBeNull();
+  });
+
+  it('resolves null when yt-dlp prints an empty title', async () => {
+    execFileMockBehavior.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(null, { stdout: '   \n', stderr: '' });
+    });
+
+    const title = await getYoutubeVideoTitle('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+
+    expect(title).toBeNull();
   });
 });

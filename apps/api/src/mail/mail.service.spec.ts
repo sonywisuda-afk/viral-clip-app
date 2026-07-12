@@ -97,4 +97,50 @@ describe('MailService', () => {
 
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid login'));
   });
+
+  describe('sendTeamInviteEmail', () => {
+    it('logs the invite instead of sending when SMTP_HOST is not configured', async () => {
+      delete process.env.SMTP_HOST;
+      const service = await freshMailService();
+      const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation();
+
+      await service.sendTeamInviteEmail('friend@example.com', 'owner@example.com', 'EDITOR');
+
+      expect(sendMailMock).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('owner@example.com invited friend@example.com as EDITOR'),
+      );
+    });
+
+    it('sends a real email via nodemailer when SMTP_HOST is configured', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      process.env.SMTP_FROM = 'no-reply@example.com';
+      const service = await freshMailService();
+
+      await service.sendTeamInviteEmail('friend@example.com', 'owner@example.com', 'VIEWER');
+
+      expect(sendMailMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          from: 'no-reply@example.com',
+          to: 'friend@example.com',
+          subject: expect.stringContaining('owner@example.com'),
+          text: expect.stringContaining('VIEWER'),
+          html: expect.stringContaining('VIEWER'),
+        }),
+      );
+    });
+
+    it('logs and does not throw when the SMTP send itself fails', async () => {
+      process.env.SMTP_HOST = 'smtp.example.com';
+      sendMailMock.mockRejectedValueOnce(new Error('Invalid login'));
+      const service = await freshMailService();
+      const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation();
+
+      await expect(
+        service.sendTeamInviteEmail('friend@example.com', 'owner@example.com', 'OWNER'),
+      ).resolves.toBeUndefined();
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid login'));
+    });
+  });
 });

@@ -141,6 +141,26 @@ directly (`scp`/`rsync`) instead of restoring from an off-box backup.
   restore script are generic over any S3-compatible endpoint (`docs/docker.md`), only the
   `STORAGE_*` env values differ.
 
+## Granting AI Ops access (Milestone 5C-B)
+
+`GET /ops/ai/*` (the AI Operations Dashboard, `docs/backend.md`) is restricted to `ADMIN`/
+`AI_ENGINEER`/`OPERATOR` roles - a plain `CREATOR` (every normal signup) gets a 403. There is
+deliberately no self-service role-elevation endpoint - that would itself be a privilege-escalation
+hole. Grant a role with:
+
+```
+cd apps/api && npx ts-node -T src/scripts/grant-role.ts user@example.com ADMIN
+```
+
+(`pnpm --filter @speedora/api grant-role -- user@example.com ADMIN` also exists as a package.json
+script, but this pnpm version forwards the literal `--` into `process.argv` instead of stripping
+it - use the direct `ts-node` form above instead.)
+
+(`apps/api/src/scripts/grant-role.ts` - valid roles: `CREATOR`, `ADMIN`, `AI_ENGINEER`,
+`OPERATOR`). Takes effect immediately on the user's next request - `JwtStrategy.validate()` reads
+the role fresh from Postgres on every request, not from a JWT claim, so there's no need for the
+user to log out/in again.
+
 ## Capacity planning quick reference
 
 Sizing rationale already lives as inline comments where the limits are actually set, rather than

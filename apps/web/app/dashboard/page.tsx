@@ -3,6 +3,8 @@
 import {
   PublishStatus,
   VideoStatus,
+  type DashboardActivityDto,
+  type DashboardStatsDto,
   type PublishRecord,
   type SocialAccount,
 } from '@speedora/shared';
@@ -10,6 +12,12 @@ import { AlertTriangle, ExternalLink, Trash2, Trophy, UploadCloud } from 'lucide
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { Nav } from '../../components/Nav';
+import { ActivityTimeline } from '../../components/dashboard/ActivityTimeline';
+import { ProcessingQueue } from '../../components/dashboard/ProcessingQueue';
+import { QuickActions } from '../../components/dashboard/QuickActions';
+import { RecentProjectsGrid } from '../../components/dashboard/RecentProjectsGrid';
+import { SearchBar } from '../../components/dashboard/SearchBar';
+import { StatisticsRow } from '../../components/dashboard/StatisticsRow';
 import { ProgressSteps } from '../../components/ProgressSteps';
 import { ScoreGauge } from '../../components/ScoreGauge';
 import { Badge } from '../../components/ui/badge';
@@ -20,6 +28,8 @@ import {
   clipStreamUrl,
   deleteClip,
   deleteVideo,
+  getDashboardActivity,
+  getDashboardStats,
   listSocialAccounts,
   listVideos,
   publishClip,
@@ -29,6 +39,8 @@ import {
 } from '../../lib/api';
 import { useAuth } from '../../lib/useAuth';
 import { cn } from '../../lib/utils';
+
+const DASHBOARD_SUMMARY_POLL_INTERVAL_MS = 10000;
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -142,6 +154,13 @@ export default function Dashboard() {
     recordId: string;
     message: string;
   } | null>(null);
+  // Sprint 1-2 (Dashboard Redesign) - Statistics Row + Activity Timeline.
+  // Polled on a much longer interval than `videos` (DASHBOARD_SUMMARY_POLL_INTERVAL_MS
+  // vs. POLL_INTERVAL_MS) since these are heavier aggregate queries, not a
+  // per-video status the user is actively waiting on.
+  const [stats, setStats] = useState<DashboardStatsDto | null>(null);
+  const [activity, setActivity] = useState<DashboardActivityDto | null>(null);
+
   // The interval callback below is created once per user (not re-created on
   // every fetch), so it needs a ref rather than the `videos` state directly
   // to see the latest value instead of whatever it was on mount.
@@ -170,6 +189,36 @@ export default function Dashboard() {
       if (videosRef.current?.every((v) => isTerminal(v.status))) return;
       fetchVideos();
     }, POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+
+    async function fetchSummary() {
+      try {
+        const [statsResult, activityResult] = await Promise.all([
+          getDashboardStats(),
+          getDashboardActivity(),
+        ]);
+        if (!cancelled) {
+          setStats(statsResult);
+          setActivity(activityResult);
+        }
+      } catch {
+        // Best-effort - a failed stats/activity fetch shouldn't block the
+        // rest of the dashboard (video list, publish/schedule controls).
+      }
+    }
+
+    fetchSummary();
+    const interval = setInterval(fetchSummary, DASHBOARD_SUMMARY_POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
@@ -371,6 +420,22 @@ export default function Dashboard() {
           <>
             <Nav user={user} onLogout={logout} />
 
+            <div className="mt-6 space-y-6">
+              <SearchBar />
+              <QuickActions />
+              {stats && <StatisticsRow stats={stats} />}
+              {videos && <ProcessingQueue videos={videos} />}
+              {activity && <ActivityTimeline events={activity.events} />}
+              {videos && videos.length > 0 && (
+                <div>
+                  <h2 className="mb-2 font-display text-sm uppercase tracking-wide text-muted-foreground">
+                    Recent Projects
+                  </h2>
+                  <RecentProjectsGrid videos={videos} />
+                </div>
+              )}
+            </div>
+
             {error && <p className="mt-4 font-body text-sm text-destructive">{error}</p>}
 
             {videos === null ? null : videos.length === 0 ? (
@@ -389,7 +454,14 @@ export default function Dashboard() {
             ) : (
               <ul className="mt-6 space-y-4">
                 {videos.map((video) => (
-                  <li key={video.id} className="rounded-lg border border-border bg-card p-5">
+                  <li
+                    key={video.id}
+                    id={`video-${video.id}`}
+                    className="scroll-mt-4 rounded-lg border border-border bg-card p-5"
+                  >
+                    <h2 className="sr-only">
+                      Riwayat lengkap untuk {video.title ?? 'video tanpa judul'}
+                    </h2>
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="font-mono text-xs text-muted-foreground">
                         {new Date(video.createdAt).toLocaleString()}
@@ -409,6 +481,14 @@ export default function Dashboard() {
                             className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
                           >
                             OCR Review
+                          </Link>
+                        )}
+                        {video.clips.some((clip) => clip.highlightScore !== null) && (
+                          <Link
+                            href={`/videos/${video.id}/explainability`}
+                            className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                          >
+                            AI Explainability
                           </Link>
                         )}
                         {confirmDeleteId === video.id ? (

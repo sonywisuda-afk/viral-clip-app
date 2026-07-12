@@ -10,6 +10,7 @@ export * from './face-landmarks';
 export * from './face-tracking-quality';
 export * from './facial-intelligence';
 export * from './fusion';
+export * from './fusion-ml';
 export * from './gesture-intelligence';
 export * from './intelligence-signal';
 export * from './object-intelligence';

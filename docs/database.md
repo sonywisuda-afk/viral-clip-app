@@ -26,6 +26,12 @@ for client-usage conventions.
   the prior status is just the previous row). Written exclusively through `@speedora/database`'s
   `updateVideoStatus()`/`recordVideoStatusEvent()`.
 - **`SocialAccount`**, **`PublishRecord`**, **`PremiumCredit`** — see `backend.md`.
+- **`PublishRecordStatsSnapshot`** — append-only, one row per `sync-publish-stats` run (same
+  audit-trail shape as `VideoStatusEvent` above, no `fromValue`, always sequential). Added for
+  Milestone 1 (Dataset & Feedback Loop, see `ai/dataset-feedback-loop.md`) to give `PublishRecord`'s
+  view/like/comment counts an actual history — `PublishRecord`'s own columns remain a mutable
+  "latest snapshot" and are untouched by this addition. Also carries `shareCount`,
+  `watchTimeSeconds` (Instagram only today), and a heuristic `engagementScore`.
 
 ## `Clip`'s AI Intelligence columns
 

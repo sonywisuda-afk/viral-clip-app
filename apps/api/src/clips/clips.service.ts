@@ -6,6 +6,7 @@ import {
   PUBLISH_RETRY_OPTIONS,
   QueueName,
   sanitizeHashtags,
+  type ClipExplainabilityDto,
   type PublishClipJobData,
   type PublishRecord,
   type RenderClipJobData,
@@ -103,6 +104,35 @@ export class ClipsService {
       throw new NotFoundException(`Clip ${id} has not finished rendering yet`);
     }
     return clip;
+  }
+
+  // Milestone 4 (AI Explainability) - a focused read of just the Fusion
+  // Engine fields, not the full toDto() shape (rendering/publish/caption
+  // fields this page has no use for). `results` is an array so a future
+  // milestone that wires a real v3 Predictor into the render pipeline can
+  // add a second entry without changing this contract - today it's always
+  // exactly one `engine: 'v2'` result. Fields are mapped explicitly (not
+  // via an un-narrowed `...clip` spread) through the same toShared* helpers
+  // toDto() already uses, so this carries no TS2742 risk.
+  async getExplainability(id: string, requesterId: string): Promise<ClipExplainabilityDto> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+
+    return {
+      clipId: clip.id,
+      results: [
+        {
+          engine: 'v2',
+          highlightScore: clip.highlightScore,
+          highlightConfidence: clip.highlightConfidence,
+          highlightReason: clip.highlightReason,
+          highlightBreakdown: toSharedHighlightBreakdown(clip.highlightBreakdown),
+          highlightExplainability: toSharedHighlightExplainability(clip.highlightExplainability),
+          highlightPrediction: toSharedHighlightPrediction(clip.highlightPrediction),
+          highlightRecommendation: toSharedHighlightRecommendation(clip.highlightRecommendation),
+          highlightRank: clip.highlightRank,
+        },
+      ],
+    };
   }
 
   // Permanently deletes one clip (its publish records cascade via the

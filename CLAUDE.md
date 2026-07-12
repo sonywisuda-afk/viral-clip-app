@@ -42,7 +42,15 @@ packages/
   audio-intelligence/, scene-intelligence/, facial-intelligence/,
   gesture-intelligence/, ocr-intelligence/, object-intelligence/, editing-rhythm/,
   primary-subject/, composition-intelligence/,
-  fusion-engine/                                       # stateless JSON-in/JSON-out AI modules
+  fusion-engine/,                                      # stateless JSON-in/JSON-out AI modules
+  fusion-ml/,                                           # Fusion Engine v3 (M2A-B) - contracts,
+                                                         # interfaces, a real (if simple) baseline
+                                                         # model, no caller in apps/worker/api yet
+                                                         # (see ai/fusion-v3.md)
+  dataset-quality/                                      # M1.5's missing-data/distribution/drift/
+                                                         # calibration + M1's correlation math -
+                                                         # shared by apps/worker's CLI report and
+                                                         # apps/api's GET /ops/ai/* (M5C-B)
 ```
 
 `apps/web` and `apps/api` only communicate over HTTP. `apps/worker` has no HTTP server — it only
@@ -76,10 +84,13 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/audio.md`](docs/ai/audio.md) | Loudness/RMS/speaking-rate, Speaker Diarization, Vocal Emotion Detection |
 | [`docs/ai/ocr.md`](docs/ai/ocr.md) | On-screen text detection, tracking, classification, evaluation tooling, Review UI |
 | [`docs/ai/fusion.md`](docs/ai/fusion.md) | The Fusion Engine — current pipeline, weights, prediction/recommendation |
+| [`docs/ai/fusion-v3.md`](docs/ai/fusion-v3.md) | Fusion Engine v3 (Milestones 2A-B) — `packages/fusion-ml`'s ML abstractions/interfaces/mock implementations (2A), plus (2B) a real Prisma-backed dataset builder, real dataset/feature versioning, a real evaluation runner, and a real gradient-descent baseline linear model, orchestrated by `runFusionV3Pipeline()`; v2 remains the only engine in production, nothing here is wired into `render-clip.worker.ts` |
 | [`docs/ai/scoring.md`](docs/ai/scoring.md) | How `viralityScore`/`ClipScores`/`highlightScore` relate (they are three different systems) |
 | [`docs/ai/speaker-intelligence.md`](docs/ai/speaker-intelligence.md) | Speaker Intelligence roadmap (VAD, Active Speaker Detection, Face-Voice Association, Speaker Timeline/Scoring) — contracts-only status vs. what's already covered by Face/Audio/Gesture Intelligence |
 | [`docs/ai/object-intelligence.md`](docs/ai/object-intelligence.md) | Object Intelligence roadmap (per-entity detection/tracking/behavioral features — a separate package from Scene Intelligence) — MediaPipe detector choice, multi-object tracker design, Batch OI-1 through OI-5 (complete) |
 | [`docs/ai/composition-intelligence.md`](docs/ai/composition-intelligence.md) | Composition Intelligence roadmap (rule of thirds, headroom, lead room, centering, composition stability, framing consistency, subject loss ratio) — reclassifies an earlier 15-batch "Camera Intelligence" proposal, most of which turned out to already be Scene/Motion/Object Intelligence; **complete** — contract, `packages/composition-intelligence` derive functions, the standalone `packages/primary-subject` selection package, worker adapter, and Fusion Engine wiring (RB-1/RB-2) are all done at weight 0, pending calibration |
+| [`docs/ai/dataset-feedback-loop.md`](docs/ai/dataset-feedback-loop.md) | Dataset & Feedback Loop (post-hardening roadmap Milestone 1) — `PublishRecordStatsSnapshot` engagement history, the `engagementScore` heuristic, and `export-training-dataset.ts`'s feature/outcome join + correlation read, the prerequisite for Fusion Engine v3's ML-based weighting |
+| [`docs/ai/dataset-validation-calibration.md`](docs/ai/dataset-validation-calibration.md) | Dataset Validation & Calibration (post-hardening roadmap Milestone 1.5, between Milestone 1 and Fusion Engine v3) — `generate-dataset-report.ts`'s Dataset Health Report (Missing Data, Feature Distribution, Feature Drift Detection, Correlation Dashboard, Weight Calibration Report), and the two-tier `dataset-lib.ts` data model that makes most of it useful ahead of real engagement data |
 
 ## Status
 
@@ -162,6 +173,68 @@ High-level state of each major initiative (see the linked docs for what's actual
   Multi-Modal Fusion Engine (whether it enriches `clip-scoring`'s LLM-selected candidates or
   replaces selection with a continuous importance timeline is an explicit open architectural
   question — see `ai/fusion.md`).
+- **Dataset & Feedback Loop** (Milestone 1 of the post-production-hardening AI-quality roadmap) —
+  the prerequisite for turning the Fusion Engine from rule-based weights into a trained model.
+  `PublishRecordStatsSnapshot` (append-only engagement history), `shareCount`/Instagram
+  `watchTimeSeconds` on the existing `sync-publish-stats` job, the `engagementScore` heuristic, and
+  `export-training-dataset.ts`'s feature/outcome join + correlation read are all done. YouTube
+  watch-time/CTR (needs a new OAuth scope + user reconnect) and TikTok watch-time (no such platform
+  endpoint) are explicit, documented scope cuts, not gaps. See `ai/dataset-feedback-loop.md`.
+- **Dataset Validation & Calibration** (Milestone 1.5, inserted between Milestone 1 and Fusion
+  Engine v3) — turns the raw dataset into insights before M2's model-training work starts.
+  `generate-dataset-report.ts` (`pnpm report:dataset-health`) produces one Dataset Health Report
+  covering Missing Data, Feature Distribution, Feature Drift Detection, a Correlation Dashboard, and
+  a Weight Calibration Report (heuristic suggestion only, not auto-applied to
+  `packages/fusion-engine/src/weights.ts`). Missing Data/Distribution/Drift run over every clip with
+  computed Fusion Engine features, not just published ones, so they're useful ahead of Milestone 1's
+  engagement data — verified against dev data. See `ai/dataset-validation-calibration.md`.
+- **Fusion Engine v3** — has its own lettered sub-sequence inside this roadmap slot: M2A Foundation
+  (done) → M2B Real ML Pipeline (done) → wait for production samples → M2C Baseline ML Training →
+  M2D Calibration → M2E Canary Rollout → M2F Production Switch. **v2 (`packages/fusion-engine`)
+  remains the only engine in production throughout** — zero call sites added in
+  `apps/worker`/`apps/api`; `render-clip.worker.ts` is untouched.
+  - **M2A (Foundation)**: ML abstractions (`FeatureVector`/`TrainingSample`/`PredictionResult`/
+    `RankingResult`/`ModelMetadata` in `packages/contracts/src/fusion-ml.ts`), the 5 requested
+    interfaces (`FeatureExtractor`/`DatasetBuilder`/`ModelTrainer`/`ModelEvaluator`/`Predictor`,
+    each with one `Mock*` implementation), a model registry (`InMemoryModelRegistry`), and a real
+    offline evaluation framework (Precision@K/Recall@K/Spearman/NDCG). A new
+    `FUSION_ENGINE_V3_ENABLED` env var (default off) establishes this codebase's first feature-flag
+    convention, read by `isFusionV3Enabled()` but not consumed anywhere yet.
+  - **M2B (Real ML Pipeline)**: the pipeline stopped being framework-only. `ProductionDatasetBuilder`
+    (`apps/worker/src/ml/`) is a real, Prisma-backed adapter reusing Milestone 1.5's
+    `loadUsableSamples()`, bridged via a new `FUSION_V2_TO_V3_SIGNAL_MAP` (v2's `facial` → v3's
+    `emotion`, everything else maps to itself). `computeDatasetVersion()`/`computeFeatureVersion()`
+    are real deterministic sha256-based versioning, feeding a new `FeatureRegistry` alongside
+    M2A's `ModelRegistry` (both still in-memory only — no real storage backing yet, same call as
+    M2A). `BaselineLinearModelTrainer`/`BaselineLinearPredictor` are real gradient-descent linear
+    regression (not a placeholder), and `runFusionV3Pipeline()` orchestrates all of it end-to-end,
+    proven by an automated test (`pipeline.spec.ts`) — this **is** the milestone's "End-to-End
+    Pipeline Verification." `pnpm --filter @speedora/worker pipeline:fusion-v3` is the real entry
+    point; against production's still-0 usable samples it reports that honestly (`--mock` shows a
+    full run against synthetic data). See `ai/fusion-v3.md`.
+
+- **AI Explainability** (Milestone 4) — a read-only, per-clip view of the Fusion Engine's output
+  (`GET /clips/:id/explainability`, `/videos/:id/explainability` page). No scoring-pipeline changes;
+  `results: [{ engine: 'v2', ... }]` is deliberately an array so a future engine can append a second
+  entry without a contract change — this pattern is reused by every Milestone 5C-B `/ops/ai/*`
+  response.
+- **Analytics Dashboard** — split into three stages, the user's own recommended breakdown so each
+  stays small and independently verifiable: **M5A Overview** (`/analytics`, totals/platform-breakdown/
+  upload-trend, owner-scoped) → **M5B Performance** (top clips/videos, engagement trend, platform
+  comparison, a first light AI Performance Summary) → **M5C**, which the user split further into
+  **M5C-A User AI Analytics** (a small owner-scoped addition to M5B's AI Performance Summary:
+  Highlight Score Distribution + per-signal Contribution %) and **M5C-B AI Operations Dashboard**
+  (`/ops/ai`, system-wide — pools every user's clips rather than one, role-gated to `ADMIN`/
+  `AI_ENGINEER`/`OPERATOR` since it's an engineering "is the model healthy?" surface, not a creator
+  "how did my content do?" one). M5C-B is also where Milestone 1.5's Missing Data/Feature
+  Distribution/Feature Drift/Correlation/Weight Calibration — previously only reachable via
+  `generate-dataset-report.ts`'s CLI output — got a web UI for the first time, plus two new sections
+  (AI Health, Training Readiness for the eventual M2C). The underlying M1.5 pure functions moved to a
+  new shared package, `packages/dataset-quality`, so both `apps/worker`'s CLI script and `apps/api`'s
+  `/ops/ai/*` can reuse the exact same tested logic (apps only talk over HTTP/queue, so it couldn't
+  stay in `apps/worker`). All done. This was also this codebase's first role concept
+  (`UserRole` on `User`) — see `docs/backend.md`'s "AI Operations Dashboard" section and
+  `docs/operations-runbook.md` for granting a role.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

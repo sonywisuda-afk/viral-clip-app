@@ -18,6 +18,7 @@ describe('VideosService', () => {
       delete: jest.Mock;
     };
     videoStatusEvent: { create: jest.Mock };
+    activityEvent: { create: jest.Mock };
     $transaction: jest.Mock;
   };
   let storage: { saveVideo: jest.Mock; deleteObjects: jest.Mock };
@@ -37,6 +38,7 @@ describe('VideosService', () => {
         delete: jest.fn().mockResolvedValue({}),
       },
       videoStatusEvent: { create: jest.fn().mockResolvedValue({}) },
+      activityEvent: { create: jest.fn().mockResolvedValue({}) },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
       // id before writing its first VideoStatusEvent) and the array form
@@ -74,10 +76,15 @@ describe('VideosService', () => {
         id: 'video-1',
         ownerId: 'user-1',
         sourceUrl: 'videos/abc.mp4',
+        title: 'my-video.mp4',
         status: VideoStatus.UPLOADED,
       };
       prisma.video.create.mockResolvedValue(createdVideo);
-      const file = { buffer: Buffer.from('x'), mimetype: 'video/mp4' } as Express.Multer.File;
+      const file = {
+        buffer: Buffer.from('xy'),
+        originalname: 'my-video.mp4',
+        mimetype: 'video/mp4',
+      } as Express.Multer.File;
 
       const result = await service.upload('user-1', file, TranscriptionProvider.GROQ);
 
@@ -87,12 +94,24 @@ describe('VideosService', () => {
           ownerId: 'user-1',
           sourceUrl: 'videos/abc.mp4',
           transcriptionProvider: TranscriptionProvider.GROQ,
+          title: 'my-video.mp4',
+          sourceSizeBytes: 2,
         },
       });
       // Fase 3 (DB+JSON-contract roadmap) - the video's first status event,
       // written in the same transaction as its creation.
       expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
         data: { videoId: 'video-1', toStatus: VideoStatus.UPLOADED, errorMessage: null },
+      });
+      // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry.
+      expect(prisma.activityEvent.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          type: 'VIDEO_UPLOADED',
+          videoId: 'video-1',
+          clipId: null,
+          metadata: { title: 'my-video.mp4' },
+        },
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
       expect(payments.consumeCredit).not.toHaveBeenCalled();
@@ -183,6 +202,18 @@ describe('VideosService', () => {
         videoId: 'video-1',
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         provider: TranscriptionProvider.GROQ,
+      });
+      // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry. No title
+      // metadata yet (unlike upload() above) - the YouTube title isn't known
+      // until import-youtube.worker.ts actually runs.
+      expect(prisma.activityEvent.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          type: 'VIDEO_UPLOADED',
+          videoId: 'video-1',
+          clipId: null,
+          metadata: undefined,
+        },
       });
       expect(result).toEqual(createdVideo);
     });

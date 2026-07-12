@@ -1,0 +1,38 @@
+{
+  "name": "@speedora/fusion-ml",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fusion Engine v3 Foundation (Milestone 2A) - ML abstractions (FeatureVector/TrainingSample/PredictionResult/RankingResult/ModelMetadata), interfaces only (FeatureExtractor/DatasetBuilder/ModelTrainer/ModelEvaluator/Predictor), a model registry, a training-pipeline skeleton, and an offline evaluation framework (Precision@K/Recall@K/Spearman/NDCG). No real ML model, no DB/queue access, no caller anywhere in apps/worker or apps/api yet - see docs/ai/fusion-v3.md. Fusion Engine v2 (@speedora/fusion-engine) remains the only engine in production.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*",
+    "@speedora/fusion-engine": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.5"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}
