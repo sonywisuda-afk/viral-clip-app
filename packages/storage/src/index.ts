@@ -2,6 +2,7 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -161,6 +162,61 @@ export async function getObjectStreamRange(
 
 export async function deleteObject(key: string): Promise<void> {
   await sendResilient(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
+}
+
+export interface BucketUsage {
+  objectCount: number;
+  totalSizeBytes: number;
+  // true if the bucket has more objects than this function was willing to
+  // walk (see MAX_PAGES below) - the count/size above are then a lower
+  // bound, not the true total, and callers (apps/api's monitoring
+  // endpoint) should surface that rather than silently reporting a partial
+  // number as exact.
+  truncated: boolean;
+}
+
+// ListObjectsV2 has no cheap "aggregate size" operation (unlike a
+// filesystem's du) - this pages through the bucket's key listing (1000
+// keys per page, S3's max) summing Size, which is fine for an operational
+// usage endpoint polled occasionally but would be wasteful run as a tight
+// metrics-scrape loop. MAX_PAGES bounds the worst case (a bucket with
+// millions of objects) to a fixed amount of work instead of an unbounded
+// scan - callers get a clearly-flagged partial result rather than this
+// function hanging.
+const MAX_PAGES = 20;
+
+export async function getBucketUsage(): Promise<BucketUsage> {
+  let objectCount = 0;
+  let totalSizeBytes = 0;
+  let continuationToken: string | undefined;
+  let truncated = false;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const result = await sendResilient<{
+      Contents?: { Size?: number }[];
+      IsTruncated?: boolean;
+      NextContinuationToken?: string;
+    }>(
+      new ListObjectsV2Command({
+        Bucket: bucket(),
+        ContinuationToken: continuationToken,
+      }),
+    );
+
+    for (const object of result.Contents ?? []) {
+      objectCount += 1;
+      totalSizeBytes += object.Size ?? 0;
+    }
+
+    if (!result.IsTruncated) {
+      truncated = false;
+      break;
+    }
+    continuationToken = result.NextContinuationToken;
+    truncated = true;
+  }
+
+  return { objectCount, totalSizeBytes, truncated };
 }
 
 // A lightweight reachability check for apps/api's /health endpoint - confirms

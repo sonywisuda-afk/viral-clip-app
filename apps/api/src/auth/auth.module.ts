@@ -6,6 +6,7 @@ import { MailModule } from '../mail/mail.module';
 import { StorageModule } from '../storage/storage.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { RedisThrottlerStorage } from './redis-throttler-storage.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
@@ -28,9 +29,23 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       }),
     }),
     // Only applied where @UseGuards(ThrottlerGuard) is used (POST
-    // /auth/login) - not registered globally, so it has no effect on any
-    // other route.
-    ThrottlerModule.forRoot([{ name: 'login', ttl: 60_000, limit: 5 }]),
+    // /auth/login, POST /auth/forgot-password) - not registered globally,
+    // so it has no effect on any other route. storage is Redis-backed
+    // (RedisThrottlerStorage) instead of @nestjs/throttler's default
+    // in-memory Map, so this 5-attempts-per-minute limit is shared across
+    // every apps/api replica rather than being silently multiplied by
+    // replica count (each replica used to keep its own independent
+    // in-memory counter - fine with one instance, a real gap the moment a
+    // second one is added behind a load balancer). forRootAsync (not
+    // forRoot) defers constructing RedisThrottlerStorage - and its
+    // REDIS_URL read - until DI instantiation time, same reasoning as
+    // JwtModule.registerAsync above.
+    ThrottlerModule.forRootAsync({
+      useFactory: () => ({
+        throttlers: [{ name: 'login', ttl: 60_000, limit: 5 }],
+        storage: new RedisThrottlerStorage(),
+      }),
+    }),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

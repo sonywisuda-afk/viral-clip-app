@@ -65,6 +65,11 @@ pattern itself and its "add a new module" checklist.
 | [`docs/redis.md`](docs/redis.md) | Redis usage (BullMQ backing store, rate limiting) — never durable state |
 | [`docs/docker.md`](docs/docker.md) | Image builds, MinIO (dev) vs. R2 (prod) storage |
 | [`docs/deployment.md`](docs/deployment.md) | Production compose, env var layering |
+| [`docs/backup-restore.md`](docs/backup-restore.md) | Automated Postgres/object-storage backup (`ops/backup`), verification, restore procedure, `GET /backups` |
+| [`docs/monitoring.md`](docs/monitoring.md) | Lightweight operational monitoring endpoints (`/metrics`, `/queues`, `/workers`, `/storage`, `/database`, `/redis`) — no Prometheus/OpenTelemetry |
+| [`docs/alerting.md`](docs/alerting.md) | Alert-condition foundation (thresholds, internal alert states) — no external integrations |
+| [`docs/operations-runbook.md`](docs/operations-runbook.md) | Backup, restore, disaster recovery, node/worker replacement, database/storage recovery procedures |
+| [`docs/production-hardening-report.md`](docs/production-hardening-report.md) | Final engineering report for the backup/rate-limiter/monitoring/alerting initiative — every change by phase, files touched, remaining tech debt, deferred items, roadmap, readiness score |
 | [`docs/testing.md`](docs/testing.md) | Module vs. adapter test split, real-Postgres verification, known verification gaps |
 | [`docs/ai/llm.md`](docs/ai/llm.md) | The `detect-clips` LLM call — clip selection, `ClipScores`, hooks/hashtags, emoji suggestions |
 | [`docs/ai/vision.md`](docs/ai/vision.md) | Face detection/reframe, Face Intelligence (23 sub-features), Gesture Intelligence, Scene Intelligence |

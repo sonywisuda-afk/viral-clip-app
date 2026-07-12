@@ -70,7 +70,38 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       STORAGE_BUCKET: ${STORAGE_BUCKET:-speedora}
 
+  # Same backup scheduler as docker-compose.prod.yml (see ops/backup,
+  # docs/backup-restore.md), gated behind a compose profile so a plain
+  # `docker compose up` in dev doesn't start it unconditionally - dev data
+  # doesn't need real backups, but the scripts are worth being able to
+  # exercise locally: `docker compose --profile backup up backup`.
+  backup:
+    profiles: ['backup']
+    build:
+      context: ./ops/backup
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_REGION: auto
+      STORAGE_BUCKET: ${STORAGE_BUCKET:-speedora}
+      STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      STORAGE_FORCE_PATH_STYLE: 'true'
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - backup-data:/backups
+      - backup-status:/status
+
 volumes:
   postgres-data:
   redis-data:
   minio-data:
+  backup-data:
+  backup-status:

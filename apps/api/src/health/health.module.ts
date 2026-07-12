@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { QueueModule } from '../queue/queue.module';
+import { BackupsController } from './backups.controller';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -10,6 +11,6 @@ import { HealthController } from './health.controller';
   // ClipsModule), so Nest's DI container gives this the same singleton
   // instance rather than standing up a second one.
   imports: [QueueModule],
-  controllers: [HealthController],
+  controllers: [HealthController, BackupsController],
 })
 export class HealthModule {}

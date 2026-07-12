@@ -25,6 +25,15 @@ const transcribeQueue = BullModule.registerQueue({ name: QueueName.TRANSCRIBE })
 const detectClipsQueue = BullModule.registerQueue({ name: QueueName.DETECT_CLIPS });
 const renderClipQueue = BullModule.registerQueue({ name: QueueName.RENDER_CLIP });
 const publishClipQueue = BullModule.registerQueue({ name: QueueName.PUBLISH_CLIP });
+// apps/api never produces into either of these (both are apps/worker-only
+// repeatable triggers - see schedule-publish-clip.worker.ts/
+// sync-publish-stats.worker.ts) - registered here read-only, purely so
+// MonitoringModule's /queues and /workers can report on every queue in the
+// system, not just the ones apps/api happens to enqueue into.
+const schedulePublishClipQueue = BullModule.registerQueue({
+  name: QueueName.SCHEDULE_PUBLISH_CLIP,
+});
+const syncPublishStatsQueue = BullModule.registerQueue({ name: QueueName.SYNC_PUBLISH_STATS });
 
 @Module({
   imports: [
@@ -40,6 +49,8 @@ const publishClipQueue = BullModule.registerQueue({ name: QueueName.PUBLISH_CLIP
     detectClipsQueue,
     renderClipQueue,
     publishClipQueue,
+    schedulePublishClipQueue,
+    syncPublishStatsQueue,
   ],
   exports: [
     importYoutubeQueue,
@@ -47,6 +58,8 @@ const publishClipQueue = BullModule.registerQueue({ name: QueueName.PUBLISH_CLIP
     detectClipsQueue,
     renderClipQueue,
     publishClipQueue,
+    schedulePublishClipQueue,
+    syncPublishStatsQueue,
   ],
 })
 export class QueueModule {}

@@ -1,0 +1,84 @@
+# Monitoring
+
+Lightweight operational visibility on `apps/api` - deliberately **no Prometheus, OpenTelemetry, or
+Grafana**: every endpoint below is a plain JSON response computed from data this stack already has
+(BullMQ's own queue state, Postgres, the existing render-graph telemetry, Node's own process APIs).
+If a real metrics backend is adopted later, `apps/api/src/monitoring/metrics-registry.ts` is the one
+place that would start pushing to it instead of just counting in memory - everything else here can
+be scraped as-is by whatever's doing the scraping.
+
+All endpoints are unauthenticated and unthrottled, same posture as `/health` - a load balancer,
+uptime checker, or on-call engineer needs to reach them without a session, and none of them return
+video/user data, only operational numbers.
+
+## `GET /metrics`
+
+Three sections in one response:
+
+- **`process`** - uptime, memory (`rssBytes`/`heapUsedBytes`/`heapTotalBytes`), CPU time
+  (`userMs`/`systemMs`, cumulative since process start - diff two snapshots for a rate). All Node
+  built-ins, no dependency.
+- **`http`** - cumulative request count by status class (`2xx`/`3xx`/`4xx`/`5xx`) for **this
+  process only** (see the in-memory-counter caveat below).
+- **`pipeline`** - a 24-hour rollup reusing data already being recorded elsewhere rather than a
+  parallel metrics path: `videosByStatus` (from `Video.status`), `videoFailures` (from
+  `VideoStatusEvent` where `toStatus = FAILED`), `renderJobs` (count + average duration from
+  `JobExecution.totalDurationMs` - the render-graph telemetry documented in `worker.md`), and
+  `nodeExecutions` (per-status counts and failure rate from `NodeExecution`).
+
+```json
+{
+  "process": { "uptimeSeconds": 102, "memory": { "rssBytes": 220618752, "heapUsedBytes": 135794272, "heapTotalBytes": 142757888 }, "cpu": { "userMs": 12843, "systemMs": 8406 } },
+  "http": { "totalRequests": 8, "byStatusClass": { "2xx": 8, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 } },
+  "pipeline": { "windowHours": 24, "videosByStatus": { "RENDERED": 1 }, "videoFailures": 7, "renderJobs": { "count": 7, "avgDurationMs": 93915 }, "nodeExecutions": { "byStatus": { "FALLBACK": 35, "SUCCESS": 182 }, "failureRate": 0 } }
+}
+```
+
+**Caveat**: `http` counters (`apps/api/src/monitoring/metrics-registry.ts`) are process-local, same
+limitation as `apps/worker`'s `subprocessLimiter.ts` - with N horizontally-scaled `apps/api`
+replicas, each one reports only its own share of requests. Fine as a quick "is this instance under
+load" signal; not a substitute for a real aggregated backend if that's ever adopted.
+
+## `GET /queues`
+
+Per-queue job counts (`waiting`/`active`/`completed`/`failed`/`delayed`/`paused`) for **every**
+queue in the system - including `schedule-publish-clip`/`sync-publish-stats`, which `apps/api`
+never produces into (see `queue.module.ts`) but are registered read-only so this endpoint has the
+full picture, not just the queues `apps/api` happens to enqueue into.
+
+Also reports `likelyStalled`: jobs that have been `active` for more than 5 minutes with no
+progress, checked over at most the 100 most-recently-active jobs per queue (bounded so this
+endpoint can never itself become a slow query). This is a **visibility heuristic**, not BullMQ's
+actual stalled-job recovery mechanism (`maxStalledCount` on the `Worker` side), which already
+exists and handles the real recovery independently of this endpoint.
+
+## `GET /workers`
+
+Connected worker count per queue, read from BullMQ's own worker registry (`Queue.getWorkers()`) -
+not a separate worker-registration mechanism, since BullMQ already tracks this.
+
+## `GET /storage`
+
+Object-storage reachability (reuses `checkStorageConnection`) plus aggregate usage
+(`objectCount`/`totalSizeBytes`) via `packages/storage`'s `getBucketUsage()`. S3-compatible storage
+has no cheap "aggregate bucket size" API - this pages through the key listing (`ListObjectsV2`,
+1000 keys/page) up to 20 pages. A bucket bigger than that comes back with `truncated: true` and a
+count/size that's a lower bound, not the true total - flagged explicitly rather than silently
+under-reporting.
+
+## `GET /database`
+
+Reachability + round-trip latency (`SELECT 1` via Prisma).
+
+## `GET /redis`
+
+Reachability + round-trip latency + `usedMemoryBytes` (parsed from Redis's own `INFO` output).
+Uses BullMQ's adapter-agnostic `IRedisClient` interface (same one `HealthController` uses) rather
+than assuming ioredis-specific methods like `ping()` - a `GET` on a key that will never exist is the
+shared interface's equivalent reachability/latency probe.
+
+## Related
+
+`GET /backups` (backup freshness) lives in `docs/backup-restore.md`, not here, since it's about
+backup health specifically rather than general operational monitoring. `docs/alerting.md` builds on
+top of everything above.

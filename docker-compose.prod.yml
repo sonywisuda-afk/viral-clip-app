@@ -67,6 +67,34 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
 
+  # Scheduled Postgres + object-storage backups (pg_dump + mc mirror), each
+  # verified and pruned to BACKUP_RETENTION_DAYS - see ops/backup and
+  # docs/backup-restore.md. Writes status to the backup-status volume,
+  # which api reads (read-only) to serve GET /backups.
+  backup:
+    build:
+      context: ./ops/backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - backup-data:/backups
+      - backup-status:/status
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
   api:
     build:
       context: .
@@ -86,8 +114,13 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
       REDIS_URL: redis://redis:6379
       WEB_ORIGIN: http://localhost:3000
+      # Read-only view onto the backup service's status files - see
+      # GET /backups in apps/api/src/health.
+      BACKUP_STATUS_DIR: /status
     ports:
       - '${API_PORT:-3001}:3001'
+    volumes:
+      - backup-status:/status:ro
     # Sized generously above normal usage (NestJS + a handful of concurrent
     # HTTP requests) but well below what caused a real OOM under load - a
     # container that leaks/spikes past this gets killed and restarted
@@ -158,3 +191,10 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  # Backup artifacts and status live in named volumes like everything else
+  # here, which is a real improvement over no backup at all but is NOT
+  # off-box durability by itself - see docs/backup-restore.md's "off-box
+  # copies" section for why this volume still needs to be copied
+  # somewhere else periodically, and how.
+  backup-data:
+  backup-status:
