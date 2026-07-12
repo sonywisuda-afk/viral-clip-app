@@ -13,9 +13,12 @@ import {
   type OAuthRefreshClient,
 } from '@speedora/social';
 import { Worker } from 'bullmq';
+import { forStage } from '../logger';
 import { prisma } from '../prisma';
 import { syncPublishStatsQueue } from '../queues';
 import { createRedisConnection } from '../redis';
+
+const logger = forStage('sync-publish-stats');
 
 // How often view/like/comment counts are refreshed - a balance between
 // freshness and API cost (YouTube Data API quota units, Meta/TikTok rate
@@ -128,7 +131,11 @@ export function createSyncPublishStatsWorker(): Worker {
           });
           synced += 1;
         } catch (error) {
-          console.error(`[sync-publish-stats] record ${record.id} failed:`, error);
+          logger.error(
+            'record failed',
+            { publishRecordId: record.id, socialAccountId: record.socialAccountId },
+            error,
+          );
           Sentry.captureException(error, {
             tags: { publishRecordId: record.id, socialAccountId: record.socialAccountId },
           });
@@ -136,9 +143,7 @@ export function createSyncPublishStatsWorker(): Worker {
       }
 
       if (synced > 0 || pending > 0) {
-        console.log(
-          `[sync-publish-stats] synced ${synced} record(s), ${pending} TikTok record(s) still pending user finishing their post`,
-        );
+        logger.info('synced publish stats', { synced, pending });
       }
     },
     { connection: createRedisConnection() },

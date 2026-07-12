@@ -13,8 +13,11 @@ import {
 } from '@speedora/social';
 import { getObjectStream, getPresignedDownloadUrl } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
+import { forStage } from '../logger';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
+
+const logger = forStage('publish-clip');
 
 // No constructor deps for any of the three clients (all read their
 // credentials from process.env directly, same as apps/api's instances) -
@@ -70,7 +73,7 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
         include: { clip: true, socialAccount: true },
       });
 
-      console.log(`[publish-clip] publishing record ${publishRecordId} (clip ${record.clipId})`);
+      logger.info('publishing record', { publishRecordId, clipId: record.clipId });
 
       // Idempotency guard + atomic claim: QUEUED is this job's only valid
       // precondition (see ClipsService.publish and
@@ -90,9 +93,10 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
         data: { status: PublishStatus.PUBLISHING },
       });
       if (claim.count !== 1) {
-        console.log(
-          `[publish-clip] record ${publishRecordId} is not QUEUED (already claimed or ` +
-            `finished by another execution) - skipping to avoid a duplicate publish`,
+        logger.info(
+          'record is not QUEUED (already claimed or finished by another execution) - ' +
+            'skipping to avoid a duplicate publish',
+          { publishRecordId },
         );
         return { publishRecordId, platformPostId: record.platformPostId ?? '' };
       }
@@ -121,9 +125,10 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
               data: resolved.updated,
             });
           } catch (error) {
-            console.warn(
-              `[publish-clip] record ${publishRecordId}: failed to persist the refreshed ` +
-                'access token, continuing with it in-memory for this attempt:',
+            logger.warn(
+              'failed to persist the refreshed access token, continuing with it in-memory ' +
+                'for this attempt',
+              { publishRecordId },
               error,
             );
           }
@@ -190,10 +195,14 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
           },
         });
 
-        console.log(`[publish-clip] record ${publishRecordId} -> ${logDetail}`);
+        logger.info('record published', { publishRecordId, detail: logDetail });
         return { publishRecordId, platformPostId };
       } catch (error) {
-        console.error(`[publish-clip] record ${publishRecordId} failed:`, error);
+        logger.error(
+          'record failed',
+          { publishRecordId, clipId: record.clipId, attempt: job.attemptsMade + 1 },
+          error,
+        );
         Sentry.captureException(error, {
           tags: {
             publishRecordId,

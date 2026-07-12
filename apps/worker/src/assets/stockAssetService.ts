@@ -1,8 +1,11 @@
+import { forStage } from '../logger';
 import { pexelsAdapter } from './pexelsAdapter';
 import { pixabayAdapter } from './pixabayAdapter';
 import { StockAssetCache } from './stockAssetCache';
 import type { AssetProvider, StockAsset } from './types';
 import { unsplashAdapter } from './unsplashAdapter';
+
+const logger = forStage('stock-asset-service');
 
 // Tier 1: rich in real stock VIDEO footage - tried first, since a B-roll
 // cutaway reads better as a moving clip than a still image whenever a
@@ -47,8 +50,9 @@ export class StockAssetService {
             return asset;
           }
         } catch (error) {
-          console.warn(
-            `[stock-asset-service] ${provider.name} failed for "${keyword}", trying the next provider:`,
+          logger.warn(
+            'provider failed, trying the next provider',
+            { provider: provider.name, keyword },
             error,
           );
         }

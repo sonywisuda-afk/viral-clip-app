@@ -56,6 +56,8 @@ async function main() {
     scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
   } = await import('./workers/sync-publish-stats.worker');
   const { prisma } = await import('./prisma');
+  const { forStage } = await import('./logger');
+  const logger = forStage('main');
 
   // Registers (or re-confirms) each repeatable trigger before the worker
   // that consumes it starts, so there's no window where a queue could fire
@@ -73,7 +75,7 @@ async function main() {
     createSyncPublishStatsWorker(),
   ];
 
-  console.log(`worker started, listening on ${workers.length} queues`);
+  logger.info('worker started', { queueCount: workers.length });
 
   // Generous margin over worker.close()'s own wait for in-flight jobs to
   // finish (each job is bounded well under this by its own lockDuration/
@@ -91,11 +93,11 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
 
-    console.log('shutting down workers...');
+    logger.info('shutting down workers');
     const forceExitTimer = setTimeout(() => {
-      console.error(
-        `[worker] graceful shutdown exceeded ${SHUTDOWN_TIMEOUT_MS}ms - forcing exit`,
-      );
+      logger.error('graceful shutdown exceeded timeout, forcing exit', {
+        timeoutMs: SHUTDOWN_TIMEOUT_MS,
+      });
       process.exit(1);
     }, SHUTDOWN_TIMEOUT_MS);
 
@@ -125,7 +127,8 @@ async function main() {
   process.on('SIGTERM', shutdown);
 }
 
-main().catch((error) => {
-  console.error('[worker] failed to start:', error);
+main().catch(async (error) => {
+  const { forStage } = await import('./logger');
+  forStage('main').error('worker failed to start', {}, error);
   process.exit(1);
 });

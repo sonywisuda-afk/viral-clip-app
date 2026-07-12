@@ -1,5 +1,8 @@
+import { forStage } from '../logger';
 import { fetchJson } from './httpClient';
 import type { AssetProvider, StockAsset } from './types';
+
+const logger = forStage('unsplash-adapter');
 
 interface UnsplashPhoto {
   id: string;
@@ -64,7 +67,7 @@ export class UnsplashAdapter implements AssetProvider {
       signal: controller.signal,
     })
       .catch((error) => {
-        console.warn('[unsplash-adapter] download-tracking ping failed (non-fatal):', error);
+        logger.warn('download-tracking ping failed (non-fatal)', {}, error);
       })
       .finally(() => clearTimeout(timeoutId));
   }

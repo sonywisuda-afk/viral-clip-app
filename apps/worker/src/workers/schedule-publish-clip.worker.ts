@@ -1,9 +1,12 @@
 import { PublishStatus } from '@speedora/database';
 import { PUBLISH_RETRY_OPTIONS, QueueName } from '@speedora/shared';
 import { Worker } from 'bullmq';
+import { forStage } from '../logger';
 import { prisma } from '../prisma';
 import { publishClipQueue, schedulePublishClipQueue } from '../queues';
 import { createRedisConnection } from '../redis';
+
+const logger = forStage('schedule-publish-clip');
 
 // Ceiling on how late a scheduled publish can actually fire relative to its
 // scheduledAt - worst case, it just missed a poll and waits almost a full
@@ -59,7 +62,7 @@ export function createSchedulePublishClipWorker(): Worker {
       }
 
       if (claimed > 0) {
-        console.log(`[schedule-publish-clip] claimed and enqueued ${claimed} due record(s)`);
+        logger.info('claimed and enqueued due records', { claimed });
       }
     },
     { connection: createRedisConnection() },

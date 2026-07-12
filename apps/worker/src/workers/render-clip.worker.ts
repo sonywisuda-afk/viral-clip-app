@@ -58,9 +58,12 @@ import {
   type ReframeOptions,
 } from '../ffmpeg';
 import { withJobTimeout } from '../jobTimeout';
+import { forStage } from '../logger';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
+
+const logger = forStage('render-clip');
 
 // Re-anchors a clip's transcript words onto the clip's own timeline (0 =
 // this clip's start) - the convention shared by @speedora/cutlist's cut
@@ -175,7 +178,7 @@ async function buildReframePlan(
   try {
     samples = await detectFaces({ sourcePath, startTime, endTime }, faceDetectionDeps);
   } catch (error) {
-    console.warn('[render-clip] face detection failed, falling back to center-crop:', error);
+    logger.warn('face detection failed, falling back to center-crop', {}, error);
   }
 
   const emphasisWords = findEmphasisWords(toClipRelativeWords(transcript, startTime));
@@ -278,7 +281,7 @@ async function buildBRollOverlays(
         endTime: moment.t + BROLL_DURATION_SECONDS,
       });
     } catch (error) {
-      console.warn(`[render-clip] B-roll moment "${moment.keyword}" failed, skipping it:`, error);
+      logger.warn('B-roll moment failed, skipping it', { keyword: moment.keyword }, error);
     } finally {
       if (rawPath) await cleanupTempFile(rawPath);
       if (fadedInPath) await cleanupTempFile(fadedInPath);
@@ -311,16 +314,12 @@ function verifyUploadChecksum(
   clipId: string,
 ): void {
   if (!etag) {
-    console.warn(
-      `[render-clip] clip ${clipId}: upload returned no ETag, skipping checksum verification`,
-    );
+    logger.warn('upload returned no ETag, skipping checksum verification', { clipId });
     return;
   }
   const normalized = etag.replace(/"/g, '');
   if (normalized.includes('-')) {
-    console.warn(
-      `[render-clip] clip ${clipId}: multipart-shaped ETag, skipping checksum verification`,
-    );
+    logger.warn('multipart-shaped ETag, skipping checksum verification', { clipId });
     return;
   }
   if (normalized.toLowerCase() !== expectedMd5Hex.toLowerCase()) {
@@ -368,7 +367,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             select: { outputUrl: true },
           });
           if (!existingClip) {
-            console.log(`[render-clip] clip ${clipId} was deleted - skipping orphaned job`);
+            logger.info('clip was deleted - skipping orphaned job', { clipId, videoId });
             return { clipId, outputUrl: '' };
           }
 
@@ -379,15 +378,11 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           // existing file just gets overwritten), and - observed for real - two such re-runs landing
           // concurrently compete for the same CPU and can keep each other from ever finishing.
           if (existingClip.outputUrl) {
-            console.log(
-              `[render-clip] clip ${clipId} is already rendered - skipping duplicate job`,
-            );
+            logger.info('clip is already rendered - skipping duplicate job', { clipId, videoId });
             return { clipId, outputUrl: existingClip.outputUrl };
           }
 
-          console.log(
-            `[render-clip] rendering clip ${clipId} for video ${videoId} (${startTime}s - ${endTime}s)`,
-          );
+          logger.info('rendering clip', { clipId, videoId, startTime, endTime });
 
           let sourcePath: string | null = null;
           let subtitlesPath: string | null = null;
@@ -501,14 +496,15 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               try {
                 await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration);
                 renderedPath = trimmedPath;
-                console.log(
-                  `[render-clip] clip ${clipId}: removed ${totalCutSeconds(cuts).toFixed(1)}s of ` +
-                    `silence/filler across ${cuts.length} cut(s)`,
-                );
+                logger.info('removed silence/filler cuts', {
+                  clipId,
+                  removedSeconds: Number(totalCutSeconds(cuts).toFixed(1)),
+                  cutCount: cuts.length,
+                });
               } catch (error) {
-                console.warn(
-                  `[render-clip] silence/filler trim failed for clip ${clipId}, keeping the ` +
-                    'untrimmed render:',
+                logger.warn(
+                  'silence/filler trim failed, keeping the untrimmed render',
+                  { clipId },
                   error,
                 );
               }
@@ -584,9 +580,10 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               });
             } catch (error) {
               if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
-                console.log(
-                  `[render-clip] clip ${clipId} was already claimed by another concurrent execution - ` +
-                    'skipping (benign, same outcome as the early idempotency check above)',
+                logger.info(
+                  'clip was already claimed by another concurrent execution - skipping ' +
+                    '(benign, same outcome as the early idempotency check above)',
+                  { clipId },
                 );
                 return { clipId, outputUrl: outputKey };
               }
@@ -623,19 +620,19 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   ),
                 );
               } catch (error) {
-                console.warn(
-                  `[render-clip] ranking sibling clips of video ${videoId} failed, continuing ` +
-                    'without highlightRank:',
+                logger.warn(
+                  'ranking sibling clips failed, continuing without highlightRank',
+                  { videoId },
                   error,
                 );
               }
             }
 
-            console.log(`[render-clip] clip ${clipId} -> ${outputKey}`);
+            logger.info('clip rendered', { clipId, outputUrl: outputKey });
 
             return { clipId, outputUrl: outputKey };
           } catch (error) {
-            console.error(`[render-clip] clip ${clipId} failed:`, error);
+            logger.error('clip failed', { clipId, videoId }, error);
             // Tags only - never the transcript text or the source video itself.
             Sentry.captureException(error, { tags: { videoId, clipId } });
             await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {

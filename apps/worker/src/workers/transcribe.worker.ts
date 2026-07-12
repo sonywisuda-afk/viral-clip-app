@@ -29,6 +29,7 @@ import {
 import { type AudioWindow, extractAudio, getMediaDurationSeconds } from '../ffmpeg';
 import { groq, GROQ_WHISPER_MODEL } from '../groq';
 import { withJobTimeout } from '../jobTimeout';
+import { forStage } from '../logger';
 import { openai, OPENAI_WHISPER_MODEL } from '../openai';
 import { prisma } from '../prisma';
 import { detectClipsQueue } from '../queues';
@@ -148,6 +149,8 @@ export function computeChunkExtractionWindow(
 // while still failing an actually-hung job instead of never returning.
 const TRANSCRIBE_JOB_TIMEOUT_MS = 60 * 60 * 1000;
 
+const logger = forStage('transcribe');
+
 export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJobResult> {
   return new Worker<TranscribeJobData, TranscribeJobResult>(
     QueueName.TRANSCRIBE,
@@ -168,7 +171,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             select: { status: true },
           });
           if (!existingVideo) {
-            console.log(`[transcribe] video ${videoId} was deleted - skipping orphaned job`);
+            logger.info('video was deleted - skipping orphaned job', { videoId });
             return { videoId, segments: [] };
           }
 
@@ -183,14 +186,15 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           // execution of this same job already completed the real work, so re-doing it here would only
           // waste a paid transcription-API call, not produce a different or more-correct result.
           if (existingVideo.status !== VideoStatus.UPLOADED) {
-            console.log(
-              `[transcribe] video ${videoId} is already past UPLOADED (status: ${existingVideo.status}) - ` +
-                'skipping to avoid a duplicate Whisper API pass (see BullMQ stalled-job re-processing note above)',
+            logger.info(
+              'video is already past UPLOADED - skipping to avoid a duplicate Whisper API pass ' +
+                '(see BullMQ stalled-job re-processing note above)',
+              { videoId, status: existingVideo.status },
             );
             return { videoId, segments: [] };
           }
 
-          console.log(`[transcribe] processing video ${videoId} from ${sourceUrl} via ${provider}`);
+          logger.info('processing video', { videoId, sourceUrl, provider });
 
           let sourcePath: string | null = null;
           const audioPaths: string[] = [];
@@ -225,10 +229,11 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             const chunks = planTranscriptionChunks(durationSeconds);
             const singleRequest = chunks.length === 1;
             if (!singleRequest) {
-              console.log(
-                `[transcribe] video ${videoId} is ~${Math.round(durationSeconds / 60)} min - ` +
-                  `splitting into ${chunks.length} chunks`,
-              );
+              logger.info('splitting a long video into chunks', {
+                videoId,
+                approxMinutes: Math.round(durationSeconds / 60),
+                chunkCount: chunks.length,
+              });
             }
 
             // Whisper timestamps are 0-based within each audio file it's given,
@@ -317,14 +322,15 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             try {
               speakerTurns = await diarizeSpeakers(diarizeAudioPath);
               const speakerCount = new Set(speakerTurns.map((turn) => turn.speaker)).size;
-              console.log(
-                `[transcribe] video ${videoId}: diarization found ${speakerCount} speaker(s) ` +
-                  `across ${speakerTurns.length} turn(s)`,
-              );
+              logger.info('diarization found speakers', {
+                videoId,
+                speakerCount,
+                turnCount: speakerTurns.length,
+              });
             } catch (error) {
-              console.warn(
-                `[transcribe] speaker diarization failed for video ${videoId}, continuing without ` +
-                  'speaker labels:',
+              logger.warn(
+                'speaker diarization failed, continuing without speaker labels',
+                { videoId },
                 error,
               );
             }
@@ -353,9 +359,9 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             try {
               emotionResults = await detectVocalEmotions(diarizeAudioPath, mergedSegments);
             } catch (error) {
-              console.warn(
-                `[transcribe] vocal emotion detection failed for video ${videoId}, continuing ` +
-                  'without emotion labels:',
+              logger.warn(
+                'vocal emotion detection failed, continuing without emotion labels',
+                { videoId },
                 error,
               );
             }
@@ -373,9 +379,9 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
               );
               loudnessResults = loudness;
             } catch (error) {
-              console.warn(
-                `[transcribe] audio loudness analysis failed for video ${videoId}, continuing ` +
-                  'without loudness data:',
+              logger.warn(
+                'audio loudness analysis failed, continuing without loudness data',
+                { videoId },
                 error,
               );
             }
@@ -395,9 +401,9 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
                 voiceActivityDeps,
               );
             } catch (error) {
-              console.warn(
-                `[transcribe] voice activity detection failed for video ${videoId}, continuing ` +
-                  'without VAD data:',
+              logger.warn(
+                'voice activity detection failed, continuing without VAD data',
+                { videoId },
                 error,
               );
             }
@@ -455,13 +461,13 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
               }),
             ]);
 
-            console.log(`[transcribe] video ${videoId} -> ${segments.length} segments`);
+            logger.info('video transcribed', { videoId, segmentCount: segments.length });
 
             await detectClipsQueue.add(QueueName.DETECT_CLIPS, { videoId, segments });
 
             return { videoId, segments };
           } catch (error) {
-            console.error(`[transcribe] video ${videoId} failed:`, error);
+            logger.error('video failed', { videoId }, error);
             // Tags only - never the transcript text/audio or OPENAI_API_KEY.
             Sentry.captureException(error, { tags: { videoId } });
             await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {

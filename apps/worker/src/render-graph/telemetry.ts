@@ -10,8 +10,8 @@
 //   - Sentry - real-time alerting, but only for outcome: 'failure' (a "never throws" node
 //     throwing anyway is a real bug worth paging on; a routine optional-node fallback is expected
 //     behavior already logged by onRenderGraphNodeFailure below and would just be alert noise).
-//   - console.debug - a structured line per node for local dev/investigation without a DB round
-//     trip.
+//   - the structured logger (logger.ts) at debug level - a JSON line per node for local
+//     dev/investigation without a DB round trip.
 // All three are best-effort: a telemetry failure must never fail or slow down the render-clip job
 // itself, so every write here is fire-and-forget with its own catch.
 import * as Sentry from '@sentry/node';
@@ -22,6 +22,7 @@ import {
   type NodeExecutionStatus,
 } from '@speedora/database';
 import { version as WORKER_VERSION } from '../../package.json';
+import { forStage } from '../logger';
 import { prisma } from '../prisma';
 import {
   runGraph,
@@ -32,17 +33,20 @@ import {
 } from './executor';
 import type { RenderGraphContext } from './context';
 
-// Reproduces render-clip.worker.ts's exact pre-graph warn-message format
-// (`[render-clip] ${label} failed for clip ${clipId}, continuing without ${dataLabel}:`) - kept
-// here (render-clip-specific), not in executor.ts (which stays generic and knows nothing about
-// this wording or about `clipId`).
+const renderClipLogger = forStage('render-clip');
+const renderGraphLogger = forStage('render-graph');
+
+// Reproduces render-clip.worker.ts's exact pre-graph warn-message shape - kept here
+// (render-clip-specific), not in executor.ts (which stays generic and knows nothing about this
+// wording or about `clipId`).
 export function onRenderGraphNodeFailure(
   node: GraphNode<RenderGraphContext, unknown>,
   error: unknown,
   ctx: RenderGraphContext,
 ): void {
-  console.warn(
-    `[render-clip] ${node.label} failed for clip ${ctx.clipId}, continuing without ${node.dataLabel}:`,
+  renderClipLogger.warn(
+    `${node.label} failed, continuing without ${node.dataLabel}`,
+    { clipId: ctx.clipId, nodeId: node.id },
     error,
   );
 }
@@ -66,10 +70,13 @@ function reportNodeExecution(
   jobExecutionId: string,
   event: NodeExecutionEvent<RenderGraphContext>,
 ): void {
-  console.debug(
-    `[render-graph] node="${event.node.id}" level=${event.level} outcome=${event.outcome} ` +
-      `durationMs=${event.durationMs} clip=${event.ctx.clipId}`,
-  );
+  renderGraphLogger.debug('node completed', {
+    nodeId: event.node.id,
+    level: event.level,
+    outcome: event.outcome,
+    durationMs: event.durationMs,
+    clipId: event.ctx.clipId,
+  });
 
   if (event.outcome === 'failure') {
     Sentry.captureException(event.error, {
@@ -89,8 +96,9 @@ function reportNodeExecution(
     event.durationMs,
     errorMessage,
   ).catch((error: unknown) => {
-    console.warn(
-      `[render-graph] failed to record NodeExecution telemetry for node "${event.node.id}" (clip ${event.ctx.clipId}):`,
+    renderGraphLogger.warn(
+      'failed to record NodeExecution telemetry',
+      { nodeId: event.node.id, clipId: event.ctx.clipId },
       error,
     );
   });
@@ -112,8 +120,9 @@ export async function runInstrumentedRenderGraph(
     });
     jobExecutionId = job.id;
   } catch (error) {
-    console.warn(
-      `[render-graph] failed to start JobExecution telemetry row for clip ${ctx.clipId}, continuing without node telemetry:`,
+    renderGraphLogger.warn(
+      'failed to start JobExecution telemetry row, continuing without node telemetry',
+      { clipId: ctx.clipId },
       error,
     );
   }
@@ -129,8 +138,9 @@ export async function runInstrumentedRenderGraph(
     if (jobExecutionId) {
       finishJobExecution(prisma, jobExecutionId, Date.now() - jobStartedAt).catch(
         (error: unknown) => {
-          console.warn(
-            `[render-graph] failed to finish JobExecution telemetry row ${jobExecutionId} for clip ${ctx.clipId}:`,
+          renderGraphLogger.warn(
+            'failed to finish JobExecution telemetry row',
+            { jobExecutionId, clipId: ctx.clipId },
             error,
           );
         },

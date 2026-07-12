@@ -9,6 +9,7 @@ import {
 import { uploadObject } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
 import { withJobTimeout } from '../jobTimeout';
+import { forStage } from '../logger';
 import { prisma } from '../prisma';
 import { transcribeQueue } from '../queues';
 import { createRedisConnection } from '../redis';
@@ -31,6 +32,8 @@ async function reportProgress(videoId: string, percent: number): Promise<void> {
 // see youtube.ts) plus headroom for the upload step afterward.
 const IMPORT_YOUTUBE_JOB_TIMEOUT_MS = 75 * 60 * 1000;
 
+const logger = forStage('import-youtube');
+
 export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, ImportYoutubeJobResult> {
   return new Worker<ImportYoutubeJobData, ImportYoutubeJobResult>(
     QueueName.IMPORT_YOUTUBE,
@@ -49,7 +52,7 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
             select: { status: true },
           });
           if (!existingVideo) {
-            console.log(`[import-youtube] video ${videoId} was deleted - skipping orphaned job`);
+            logger.info('video was deleted - skipping orphaned job', { videoId });
             return { videoId, sourceUrl: '' };
           }
 
@@ -62,14 +65,14 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
           // re-doing it here would only waste a multi-minute download, not
           // produce a different or more-correct result.
           if (existingVideo.status !== VideoStatus.IMPORTING) {
-            console.log(
-              `[import-youtube] video ${videoId} is already past IMPORTING (status: ${existingVideo.status}) - ` +
-                'skipping to avoid a duplicate yt-dlp download',
+            logger.info(
+              'video is already past IMPORTING - skipping to avoid a duplicate yt-dlp download',
+              { videoId, status: existingVideo.status },
             );
             return { videoId, sourceUrl: '' };
           }
 
-          console.log(`[import-youtube] downloading video ${videoId} from ${url}`);
+          logger.info('downloading video', { videoId, url });
 
           let downloadPath: string | null = null;
 
@@ -110,13 +113,13 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
               data: { sourceUrl, importProgress: null },
             });
 
-            console.log(`[import-youtube] video ${videoId} -> ${sourceUrl}`);
+            logger.info('video imported', { videoId, sourceUrl });
 
             await transcribeQueue.add(QueueName.TRANSCRIBE, { videoId, sourceUrl, provider });
 
             return { videoId, sourceUrl };
           } catch (error) {
-            console.error(`[import-youtube] video ${videoId} failed:`, error);
+            logger.error('video failed', { videoId }, error);
             // Tags only - never the URL's page content or any downloaded bytes.
             Sentry.captureException(error, { tags: { videoId } });
             await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {

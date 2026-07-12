@@ -19,10 +19,21 @@ import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { logger } from '../logger';
 import { SocialAccountsService } from './social.service';
 
 interface OAuthState {
   sub: string;
+}
+
+// No request-id middleware exists in this app yet - rather than adding one
+// just for these three log lines, this reads whatever the client/a reverse
+// proxy already set (a common convention), and is simply omitted from the
+// log entry when absent. "Include standard fields where available" - this
+// is the "where available" case.
+function requestIdOf(res: Response): string | undefined {
+  const value = res.req?.headers?.['x-request-id'];
+  return Array.isArray(value) ? value[0] : value;
 }
 
 @Controller('social')
@@ -103,7 +114,7 @@ export class SocialController {
       await this.socialAccounts.connectYouTube(userId, tokens, channel);
       res.redirect(`${webOrigin}/social?connected=youtube`);
     } catch (err) {
-      console.error('[social] YouTube OAuth callback failed:', err);
+      logger.error('YouTube OAuth callback failed', { userId, requestId: requestIdOf(res) }, err);
       res.redirect(`${webOrigin}/social?error=connect_failed`);
     }
   }
@@ -154,7 +165,7 @@ export class SocialController {
       await this.socialAccounts.connectTikTok(userId, tokens, user);
       res.redirect(`${webOrigin}/social?connected=tiktok`);
     } catch (err) {
-      console.error('[social] TikTok OAuth callback failed:', err);
+      logger.error('TikTok OAuth callback failed', { userId, requestId: requestIdOf(res) }, err);
       res.redirect(`${webOrigin}/social?error=connect_failed`);
     }
   }
@@ -206,7 +217,7 @@ export class SocialController {
       await this.socialAccounts.connectInstagram(userId, tokens, account);
       res.redirect(`${webOrigin}/social?connected=instagram`);
     } catch (err) {
-      console.error('[social] Instagram OAuth callback failed:', err);
+      logger.error('Instagram OAuth callback failed', { userId, requestId: requestIdOf(res) }, err);
       res.redirect(`${webOrigin}/social?error=connect_failed`);
     }
   }

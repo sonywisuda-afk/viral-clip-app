@@ -14,6 +14,7 @@ import {
 } from '@speedora/shared';
 import { Worker, type Job } from 'bullmq';
 import { withJobTimeout } from '../jobTimeout';
+import { forStage } from '../logger';
 import { openai } from '../openai';
 import { prisma } from '../prisma';
 import { renderClipQueue } from '../queues';
@@ -24,6 +25,8 @@ import { createRedisConnection } from '../redis';
 // default request timeout; generous headroom above that for the
 // scoring/filtering/DB-write work around it.
 const DETECT_CLIPS_JOB_TIMEOUT_MS = 15 * 60 * 1000;
+
+const logger = forStage('detect-clips');
 
 // Adapter (see root ARCHITECTURE.md's DB-vs-JSON-contract pattern): this file
 // is the only place that touches Prisma/BullMQ/Sentry for the detect-clips
@@ -78,7 +81,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
             select: { status: true },
           });
           if (!existingVideo) {
-            console.log(`[detect-clips] video ${videoId} was deleted - skipping orphaned job`);
+            logger.info('video was deleted - skipping orphaned job', { videoId });
             return { videoId, candidates: [] };
           }
 
@@ -88,14 +91,14 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           // of this same job already ran scoreClipCandidates() - a paid LLM call - and re-running it via
           // a BullMQ stalled-job re-processing would just duplicate that cost.
           if (existingVideo.status !== VideoStatus.TRANSCRIBED) {
-            console.log(
-              `[detect-clips] video ${videoId} is already past TRANSCRIBED (status: ${existingVideo.status}) - ` +
-                'skipping to avoid a duplicate LLM call',
+            logger.info(
+              'video is already past TRANSCRIBED - skipping to avoid a duplicate LLM call',
+              { videoId, status: existingVideo.status },
             );
             return { videoId, candidates: [] };
           }
 
-          console.log(`[detect-clips] analyzing ${segments.length} segments for video ${videoId}`);
+          logger.info('analyzing transcript segments', { videoId, segmentCount: segments.length });
 
           try {
             const { candidates: rawCandidates } = await scoreClipCandidates(
@@ -158,7 +161,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
               emojiSuggestions: clip.emojiSuggestions,
             }));
 
-            console.log(`[detect-clips] video ${videoId} -> ${candidates.length} candidates`);
+            logger.info('video analyzed', { videoId, candidateCount: candidates.length });
 
             if (candidates.length > 0) {
               const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } });
@@ -185,7 +188,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
 
             return { videoId, candidates };
           } catch (error) {
-            console.error(`[detect-clips] video ${videoId} failed:`, error);
+            logger.error('video failed', { videoId }, error);
             // Tags only - never the transcript text or OPENAI_API_KEY.
             Sentry.captureException(error, { tags: { videoId } });
             await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {

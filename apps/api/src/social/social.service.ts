@@ -15,6 +15,7 @@ import {
   type YouTubeTokens,
 } from '@speedora/social';
 import type { SocialAccount, SocialPlatform as SharedSocialPlatform } from '@speedora/shared';
+import { logger } from '../logger';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -180,7 +181,7 @@ export class SocialAccountsService {
       // Best-effort - the local row is still removed even if the token was
       // already invalid/expired on the platform's side (e.g. user revoked
       // access from their Google/TikTok account settings directly).
-      console.warn(`[social] failed to revoke token for account ${id}:`, error);
+      logger.warn('failed to revoke token', { userId, socialAccountId: id }, error);
     }
     await this.prisma.socialAccount.delete({ where: { id } });
   }
