@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { DetectSceneCutsDeps } from '@speedora/scene-intelligence';
+import { limitExecFile } from './subprocessLimiter';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = limitExecFile(promisify(execFile));
 
 // Deployment-specific plumbing for @speedora/scene-intelligence's
 // detectSceneCuts(): which ffmpeg binary to invoke - same FFMPEG_PATH env

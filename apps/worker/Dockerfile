@@ -36,6 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     curl \
+    # Provides pgrep, used by this image's own HEALTHCHECK below - this
+    # image has no HTTP server to probe (see that HEALTHCHECK's comment),
+    # so liveness is "is the process still running" instead.
+    procps \
     # opencv-python-headless still dynamically links these even in headless
     # mode - without them it fails at import time with a missing .so error,
     # not at install time, so this list was found by trial and error against
@@ -112,7 +116,15 @@ COPY --from=build /out .
 # as it already does in CI where DATABASE_URL etc. also aren't a file.
 USER node
 # No HTTP server here (apps/worker only consumes BullMQ jobs), so there's no
-# endpoint to HEALTHCHECK against. Liveness is the process itself: if it
-# crashes, the container exits non-zero and the orchestrator restarts it -
-# see validateEnv() in env.ts for the fail-fast-at-boot half of that story.
+# endpoint to HEALTHCHECK against the way apps/api's/apps/web's Dockerfiles
+# do. If the process crashes outright, the container exits non-zero and the
+# orchestrator restarts it on its own (see validateEnv() in env.ts for the
+# fail-fast-at-boot half of that story) - no HEALTHCHECK needed for THAT
+# case. This HEALTHCHECK instead catches the case Docker's own exit-code
+# handling can't: the process wedged but still technically alive (the exact
+# "worker stopped making progress but never crashed" shape of tonight's
+# incidents) - a plain "is dist/main.js still running" liveness probe, not a
+# real dependency check like api's/web's.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD pgrep -f "dist/main.js" || exit 1
 CMD ["node", "dist/main.js"]

@@ -10,6 +10,7 @@ import type {
   CameraMotionSample,
   CaptionStyle,
   ClipScores,
+  CompositionFeatures,
   DiarizationFeatures,
   EditingRhythmFeatures,
   FaceLandmarkFeatures,
@@ -164,6 +165,12 @@ export function toSharedEditingRhythmFeatures(
   editingRhythmFeatures: unknown,
 ): EditingRhythmFeatures | null {
   return (editingRhythmFeatures as EditingRhythmFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.compositionFeatures (Composition Intelligence roadmap).
+export function toSharedCompositionFeatures(compositionFeatures: unknown): CompositionFeatures | null {
+  return (compositionFeatures as CompositionFeatures | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

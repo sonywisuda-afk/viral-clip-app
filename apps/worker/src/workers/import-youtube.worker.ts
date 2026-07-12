@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import * as Sentry from '@sentry/node';
 import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
@@ -34,9 +34,28 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
       // and without this check the job would burn a real (possibly large,
       // multi-minute) yt-dlp download before failing on the final
       // prisma.video.update().
-      const videoStillExists = await prisma.video.count({ where: { id: videoId } });
-      if (videoStillExists === 0) {
+      const existingVideo = await prisma.video.findUnique({
+        where: { id: videoId },
+        select: { status: true },
+      });
+      if (!existingVideo) {
         console.log(`[import-youtube] video ${videoId} was deleted - skipping orphaned job`);
+        return { videoId, sourceUrl: '' };
+      }
+
+      // Idempotency guard: same BullMQ stalled-job re-processing risk as
+      // transcribe.worker.ts (see its comment for the full incident this
+      // pattern was born from). IMPORTING is this job's own precondition
+      // (see VideosService.upload/retry, the only two callers that enqueue
+      // it) - status having moved past it already means some execution of
+      // this same job already finished the real yt-dlp download, so
+      // re-doing it here would only waste a multi-minute download, not
+      // produce a different or more-correct result.
+      if (existingVideo.status !== VideoStatus.IMPORTING) {
+        console.log(
+          `[import-youtube] video ${videoId} is already past IMPORTING (status: ${existingVideo.status}) - ` +
+            'skipping to avoid a duplicate yt-dlp download',
+        );
         return { videoId, sourceUrl: '' };
       }
 
@@ -68,9 +87,14 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
         // (render-clip.worker.ts). apps/worker is a legitimate second
         // writer of videos/*, alongside StorageService.saveVideo() (apps/api)
         // for a direct upload.
-        const buffer = await readFile(downloadPath);
+        //
+        // Streamed straight from disk (not read into a Buffer first) - a YouTube source can be
+        // several hundred MB+, and unlike uploadObject's own S3 call, a plain readFile() has no
+        // timeout at all, so it could hang indefinitely (observed for real: a completed download
+        // sitting at importProgress 100 with no forward progress and no error) instead of failing
+        // cleanly. Streaming makes this step subject to uploadObject's own requestTimeout instead.
         const sourceUrl = `videos/${videoId}.mp4`;
-        await uploadObject(sourceUrl, buffer, 'video/mp4');
+        await uploadObject(sourceUrl, createReadStream(downloadPath), 'video/mp4');
 
         await updateVideoStatus(prisma, videoId, VideoStatus.UPLOADED, {
           data: { sourceUrl, importProgress: null },
@@ -93,6 +117,18 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
         if (downloadPath) await cleanupTempFile(downloadPath);
       }
     },
-    { connection: createRedisConnection() },
+    {
+      connection: createRedisConnection(),
+      // Explicit, not the implicit default - same "one at a time per worker
+      // process, raise only after a real capacity-planning decision" reasoning
+      // as transcribe.worker.ts.
+      concurrency: 1,
+      // Comfortably above this job's worst-case real duration (a large
+      // yt-dlp download) - same BullMQ stalled-job mis-detection reasoning
+      // as transcribe.worker.ts (a real incident: a completed download
+      // sitting at importProgress 100 with no forward progress got
+      // reprocessed from scratch).
+      lockDuration: 20 * 60 * 1000,
+    },
   );
 }

@@ -1,12 +1,22 @@
-const execFileMock = jest.fn(
-  (
-    _file: string,
-    _args: string[],
-    callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
-  ) => {
-    callback(null, { stdout: '', stderr: '' });
-  },
-);
+// The real signature is (file, args, options?, callback) - options is only passed by callers that
+// need a timeout (renderClip, trimCutRanges), so the callback can land in either the 3rd or 4th
+// position depending on the call site. `file`/`args` stay concretely typed (fixed tuple positions
+// before the rest element), so every `const [file, args] = execFileMock.mock.calls[0]` destructure
+// elsewhere in this file keeps its inferred types; only the callback's position is flexible.
+const execFileMock = jest.fn((_file: string, _args: string[], ...rest: unknown[]) => {
+  const callback = rest[rest.length - 1] as (
+    error: Error | null,
+    result: { stdout: string; stderr: string },
+  ) => void;
+  callback(null, { stdout: '', stderr: '' });
+});
+// Loosely-typed alias for setting mock behavior (mockImplementation/mockImplementationOnce) -
+// TypeScript's contravariant parameter checking rejects a 3-arg override function (the common case
+// for every function in this file except renderClip/trimCutRanges) as assignable to execFileMock's
+// own `...rest: unknown[]` signature, even though it's safe at runtime (fewer params is always
+// callable). `execFileMock` itself stays strongly typed for READING `.mock.calls[...]` everywhere
+// below; this alias is only ever used for WRITING mock behavior.
+const execFileMockBehavior = execFileMock as unknown as jest.Mock;
 
 jest.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => (execFileMock as unknown as (...a: unknown[]) => void)(...args),
@@ -41,7 +51,7 @@ describe('getVideoDimensions', () => {
   });
 
   it('parses width,height from ffprobe csv output', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(null, { stdout: '320,240\n', stderr: '' });
     });
 
@@ -103,7 +113,7 @@ describe('extractAudio', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
@@ -119,7 +129,7 @@ describe('getMediaDurationSeconds', () => {
   });
 
   it('parses the duration in seconds from ffprobe', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(null, { stdout: '3600.5\n', stderr: '' });
     });
 
@@ -134,7 +144,7 @@ describe('getMediaDurationSeconds', () => {
   });
 
   it('returns NaN when ffprobe reports no duration', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(null, { stdout: 'N/A\n', stderr: '' });
     });
 
@@ -148,7 +158,7 @@ describe('getVideoCodec', () => {
   });
 
   it("reads the first video stream's codec name from ffprobe", async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(null, { stdout: 'av1\n', stderr: '' });
     });
 
@@ -190,7 +200,7 @@ describe('reencodeToH264', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
@@ -309,7 +319,8 @@ describe('renderClip', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
       callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
@@ -323,6 +334,20 @@ describe('renderClip', () => {
         reframe: null,
       }),
     ).rejects.toThrow('ffmpeg exited with code 1');
+  });
+
+  it('passes a timeout so a hung render pass cannot block the job forever', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 0,
+      endTime: 5,
+      subtitlesPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: null,
+    });
+
+    const [, , options] = execFileMock.mock.calls[0];
+    expect((options as { timeout: number }).timeout).toBeGreaterThan(0);
   });
 
   describe('B-roll overlays (Fase 15)', () => {
@@ -465,7 +490,7 @@ describe('trimAndFadeInBRoll', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
@@ -500,7 +525,7 @@ describe('fadeOutBRoll', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMockBehavior.mockImplementationOnce((_file: string, _args: string[], callback: (error: Error | null, result: { stdout: string; stderr: string }) => void) => {
       callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
@@ -560,12 +585,20 @@ describe('trimCutRanges', () => {
   });
 
   it('propagates the error when ffmpeg fails', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
       callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
     await expect(
       trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10),
     ).rejects.toThrow('ffmpeg exited with code 1');
+  });
+
+  it('passes a timeout so a hung trim pass cannot block the job forever', async () => {
+    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10);
+
+    const [, , options] = execFileMock.mock.calls[0];
+    expect((options as { timeout: number }).timeout).toBeGreaterThan(0);
   });
 });

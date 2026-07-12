@@ -328,6 +328,25 @@ that extracting it later (if a second consumer ever needs one) is mechanical, no
   stay outside the graph exactly as they were; `buildReframePlan`'s own face detection
   (`@speedora/reframe`'s `detectFaces`, a separate concern from the AI-signal graph, still
   imperative, its output threaded into `RenderGraphContext` as a fixed value).
+- **Phase 1 telemetry** (`apps/worker/src/render-graph/telemetry.ts`) — with most Fusion Engine
+  signals still wired at `weight: 0`, the highest-leverage next step is calibrating those weights
+  against real production data, not adding more detectors; that needs the executor's per-node
+  behavior to be SQL-queryable first. `executor.ts` grew a Prisma-agnostic `onNodeComplete` hook
+  (fired once per node with its outcome/timing - see `NodeExecutionEvent`); `telemetry.ts` is the
+  render-clip-specific fan-out around it, via `runInstrumentedRenderGraph()` (render-clip.worker.ts's
+  drop-in replacement for calling `runGraph()` directly). One `JobExecution` row per render-clip
+  run, parenting that run's `NodeExecution` rows (one per node) - a two-level schema, not one flat
+  table, so job-wide facts (`graphVersion`/`workerVersion`/`gitCommit`, total runtime) aren't
+  repeated per node. Every node's outcome fans out to three places: Postgres (the source of truth
+  for Phase 2 calibration queries), Sentry (`captureException`, but only for outcome `'failure'` -
+  a routine optional-node fallback is already logged by `onRenderGraphNodeFailure` and would just
+  be alert noise if it also paged), and a `console.debug` line for local investigation without a DB
+  round trip. All three writes are best-effort/fire-and-forget - a telemetry failure must never
+  fail or slow down the render-clip job itself. Deliberately deferred rather than spun into their
+  own migration now: a `SKIPPED`/`CACHED`/`TIMEOUT` status taxonomy (nothing in the executor
+  currently produces those outcomes - only `SUCCESS`/`FALLBACK`/`FAILED` are real states today) and
+  populating `NodeExecution.metadata` (no node currently has a way to attach extra context beyond
+  its typed `Out` value).
 
 ## Checklist for adding a new stateless module
 

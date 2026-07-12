@@ -43,6 +43,11 @@ import { sceneNodes } from './nodes/scene';
 export { runGraph, GraphConfigError, GraphCycleError, type GraphNode } from './executor';
 export type { RenderGraphContext } from './context';
 export { toClipUpdateData, toFusionInput } from './sinks';
+export {
+  onRenderGraphNodeFailure,
+  runInstrumentedRenderGraph,
+  RENDER_CLIP_GRAPH_VERSION,
+} from './telemetry';
 
 // The full render-clip graph - grows one node-group array at a time as more of
 // render-clip.worker.ts's detectors/derive functions migrate in (see ARCHITECTURE.md's
@@ -92,19 +97,4 @@ export interface RenderGraphResult {
   compositionFeatures: CompositionFeatures;
   audioFeatures: AudioFeatures;
   editingRhythmFeatures: EditingRhythmFeatures;
-}
-
-// Reproduces render-clip.worker.ts's exact pre-graph warn-message format
-// (`[render-clip] ${label} failed for clip ${clipId}, continuing without ${dataLabel}:`) - kept
-// here (render-clip-specific), not in executor.ts (which stays generic and knows nothing about
-// this wording or about `clipId`).
-export function onRenderGraphNodeFailure(
-  node: GraphNode<RenderGraphContext, unknown>,
-  error: unknown,
-  ctx: RenderGraphContext,
-): void {
-  console.warn(
-    `[render-clip] ${node.label} failed for clip ${ctx.clipId}, continuing without ${node.dataLabel}:`,
-    error,
-  );
 }

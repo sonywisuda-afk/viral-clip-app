@@ -42,6 +42,7 @@ import {
   toSharedOcrText,
   toSharedCameraMotion,
   toSharedCameraMotionFeatures,
+  toSharedCompositionFeatures,
   toSharedDiarizationFeatures,
   toSharedEditingRhythmFeatures,
   toSharedMotionEnergy,
@@ -454,6 +455,7 @@ export class VideosService {
           llmFeatures,
           highlightPrediction,
           highlightRecommendation,
+          compositionFeatures,
           ...clip
         }) => ({
           ...clip,
@@ -499,6 +501,7 @@ export class VideosService {
           llmFeatures: toSharedLlmFeatures(llmFeatures),
           highlightPrediction: toSharedHighlightPrediction(highlightPrediction),
           highlightRecommendation: toSharedHighlightRecommendation(highlightRecommendation),
+          compositionFeatures: toSharedCompositionFeatures(compositionFeatures),
           publishRecords: publishRecords.map(toSharedPublishRecord),
         }),
       ),

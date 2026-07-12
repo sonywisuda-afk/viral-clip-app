@@ -2,6 +2,7 @@ const execFileMock = jest.fn(
   (
     _file: string,
     _args: string[],
+    _options: unknown,
     callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
   ) => {
     callback(null, { stdout: '[]', stderr: '' });
@@ -30,8 +31,15 @@ describe('diarizeSpeakers', () => {
     expect(args).toHaveLength(2);
   });
 
+  it('passes a timeout so a hung pyannote inference cannot block the job forever', async () => {
+    await diarizeSpeakers('/tmp/audio.mp3');
+
+    const [, , options] = execFileMock.mock.calls[0];
+    expect((options as { timeout: number }).timeout).toBeGreaterThan(0);
+  });
+
   it('parses the JSON array of speaker turns from stdout', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
       callback(null, {
         stdout: JSON.stringify([
           { start: 0, end: 5.2, speaker: 'SPEAKER_00' },
@@ -50,11 +58,22 @@ describe('diarizeSpeakers', () => {
   });
 
   it('propagates the error when the python subprocess fails (missing token, gated model not accepted, etc.)', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
       callback(new Error('python3 exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
     await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toThrow('python3 exited with code 1');
+  });
+
+  it('propagates a timeout as an ordinary rejection (the same "skip speaker labels" path as any other diarization failure)', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(Object.assign(new Error('python3 ETIMEDOUT'), { killed: true, signal: 'SIGTERM' }), {
+        stdout: '',
+        stderr: '',
+      });
+    });
+
+    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toThrow('ETIMEDOUT');
   });
 });
 

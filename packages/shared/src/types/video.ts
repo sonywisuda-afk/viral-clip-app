@@ -247,6 +247,26 @@ export interface EditingRhythmFeatures {
   accelerationScore: number | null;
 }
 
+// Composition Intelligence roadmap (rule of thirds, headroom, lead room,
+// centering, composition stability, framing consistency, subject loss
+// ratio) - mirrors @speedora/contracts' CompositionFeatures shape rather
+// than importing it, same duplication precedent as CameraMotionSample/
+// EditingRhythmFeatures above. A COMPOSITE signal (its input is OTHER
+// modules' already-computed bounding boxes via the standalone
+// @speedora/primary-subject package, not a fresh detector) - see
+// @speedora/composition-intelligence's own module comment. All fields null
+// when there were zero usable primary-subject samples for this clip, same
+// nullability convention as EditingRhythmFeatures' constituent scores.
+export interface CompositionFeatures {
+  ruleOfThirdsScore: number | null;
+  headroomScore: number | null;
+  leadRoomScore: number | null;
+  centeringScore: number | null;
+  subjectLossRatio: number | null;
+  compositionStability: number | null;
+  framingConsistency: number | null;
+}
+
 // Speaker Intelligence roadmap, Milestone A (Voice Activity Detection) -
 // mirrors @speedora/contracts' VoiceActivitySegment/VoiceActivityFeatures
 // shapes rather than importing them, same duplication precedent as
@@ -997,6 +1017,12 @@ export interface Clip {
   // until every clip in the video has finished rendering (see
   // render-clip.worker.ts's rankClips() call).
   highlightRank: number | null;
+  // Composition Intelligence roadmap - wired into the Fusion Engine at
+  // weight 0 pending calibration (see ARCHITECTURE.md's Composition
+  // Intelligence section). Null when there were zero usable primary-subject
+  // samples for this clip, same nullability convention as
+  // motionEnergyFeatures/sceneFeatures above.
+  compositionFeatures: CompositionFeatures | null;
   // Publish attempts to connected social accounts (Fase 6b) - empty until
   // the user hits "Publish now" at least once. Small array in practice (at
   // most one per connected platform account), so returned inline rather

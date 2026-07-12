@@ -1,10 +1,29 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { computeCutJunctionTimestamps, type CutRange } from '@speedora/cutlist';
+import { limitExecFile } from './subprocessLimiter';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = limitExecFile(promisify(execFile));
 const FFMPEG_PATH = process.env.FFMPEG_PATH ?? 'ffmpeg';
 const FFPROBE_PATH = process.env.FFPROBE_PATH ?? 'ffprobe';
+
+// trimCutRanges' own bound (see its call site below) - observed for real hanging well past 25
+// minutes for an ordinary clip-length re-encode under load, with no ffmpeg output changing at all
+// past a certain point. Same "bounded operation, ordinary rejection instead of an indefinite hang"
+// reasoning as diarization.ts's/vocalEmotion.ts's timeouts - render-clip.worker.ts's caller treats
+// a trim failure as "keep the untrimmed render" (see its own comment), not a job failure, so this
+// only needs to be generous enough for a legitimate re-encode, not unbounded.
+const TRIM_TIMEOUT_MS = 5 * 60 * 1000;
+
+// renderClip's own bound (see its call site below) - the main crop+B-roll+subtitles encode,
+// observed for real hanging over an hour under load with a complex filter graph (multiple B-roll
+// overlays + dynamic crop + subtitles) on a longer clip. Unlike TRIM_TIMEOUT_MS this one has no
+// graceful fallback available (there is no clip without this render succeeding), so a timeout here
+// still fails the render-clip job - but a bounded, clean failure the caller's existing FAILED/retry
+// path already handles, instead of a worker slot wedged for however long the machine happens to
+// stay pathologically slow. More generous than TRIM_TIMEOUT_MS since this is strictly the more
+// expensive of the two operations (full encode vs. a re-encode of already-rendered output).
+const RENDER_TIMEOUT_MS = 15 * 60 * 1000;
 
 export async function getVideoDimensions(
   inputPath: string,
@@ -302,7 +321,7 @@ export async function renderClip(options: {
 
   args.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart', outputPath);
 
-  await execFileAsync(FFMPEG_PATH, args);
+  await execFileAsync(FFMPEG_PATH, args, { timeout: RENDER_TIMEOUT_MS });
 }
 
 // Fase 15 (Auto B-roll), pass 1 of 2 - trims a downloaded stock clip to
@@ -521,20 +540,24 @@ export async function trimCutRanges(
     videoFilters.push(`eq=eval=frame:brightness='${dipExpr}'`);
   }
 
-  await execFileAsync(FFMPEG_PATH, [
-    '-y',
-    '-i',
-    inputPath,
-    '-vf',
-    videoFilters.join(','),
-    '-af',
-    `aselect='${keepExpr}',asetpts=N/SR/TB`,
-    '-c:v',
-    'libx264',
-    '-c:a',
-    'aac',
-    '-movflags',
-    '+faststart',
-    outputPath,
-  ]);
+  await execFileAsync(
+    FFMPEG_PATH,
+    [
+      '-y',
+      '-i',
+      inputPath,
+      '-vf',
+      videoFilters.join(','),
+      '-af',
+      `aselect='${keepExpr}',asetpts=N/SR/TB`,
+      '-c:v',
+      'libx264',
+      '-c:a',
+      'aac',
+      '-movflags',
+      '+faststart',
+      outputPath,
+    ],
+    { timeout: TRIM_TIMEOUT_MS },
+  );
 }

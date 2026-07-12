@@ -575,8 +575,85 @@ model Clip {
   updatedAt               DateTime     @updatedAt
 
   publishRecords PublishRecord[]
+  jobExecutions  JobExecution[]
 
   @@index([videoId])
+}
+
+// Phase 1 instrumentation for the render-graph executor (apps/worker/src/render-graph/executor.ts
+// - see ARCHITECTURE.md's "Composing multiple modules" section). One row per runGraph() call (i.e.
+// one per render-clip job), parent to that run's NodeExecution rows below. Exists so Phase 2
+// (weight calibration for the many Fusion Engine signals still at weight: 0 - Composition, Object,
+// Speaker, Gesture, etc.) can query real production timing/failure-rate data instead of scraping
+// logs - e.g. "which node fails most often", "which detector is most expensive", "does a
+// high-confidence Composition signal actually move highlightScore". A job-level parent (rather than
+// one flat node-row table) avoids repeating job-wide facts (graphVersion/workerVersion/gitCommit,
+// total runtime) on every one of a job's ~30 node rows, and gives "total time for this clip's
+// graph" a natural home instead of a SUM() over loosely-related rows.
+//
+// graphVersion/workerVersion/gitCommit exist because this pipeline is under active development
+// (40+ migrations and counting) - without them, telemetry gathered today is unattributable to which
+// version of the graph/detectors produced it once the graph looks different in six months.
+// workerVersion/gitCommit are best-effort (see render-graph/telemetry.ts) and may be null in local
+// dev where those env vars aren't set.
+model JobExecution {
+  id     String @id @default(cuid())
+  clipId String
+  clip   Clip   @relation(fields: [clipId], references: [id], onDelete: Cascade)
+
+  graphVersion  String
+  workerVersion String?
+  gitCommit     String?
+
+  startedAt       DateTime
+  finishedAt      DateTime?
+  totalDurationMs Int?
+
+  createdAt DateTime @default(now())
+
+  nodeExecutions NodeExecution[]
+
+  @@index([clipId])
+}
+
+// One row per graph node per JobExecution. `level` is the node's position in the executor's
+// Kahn's-algorithm level ordering (see executor.ts's computeLevels()) - not currently used for
+// anything (all levels run sequentially today), but cheap to capture now and needed later to
+// reconstruct a per-level timeline once `concurrency: 'level-parallel'` is ever turned on for real
+// detectors (see ARCHITECTURE.md's executor section on why that's gated on a capacity-planning
+// decision, not an architecture one).
+model NodeExecution {
+  id             String       @id @default(cuid())
+  jobExecutionId String
+  jobExecution   JobExecution @relation(fields: [jobExecutionId], references: [id], onDelete: Cascade)
+
+  nodeId String
+  level  Int
+  status NodeExecutionStatus
+
+  startedAt  DateTime
+  finishedAt DateTime
+  durationMs Int
+
+  // Only set when status is FALLBACK or FAILED - the caught error's message (never the full error
+  // object/stack), same "tags only" discipline as VideoStatusEvent.errorMessage.
+  errorMessage String?
+  // Deliberately unpopulated today - no node currently has a way to attach extra context beyond
+  // its typed `Out` value (see executor.ts's GraphNode<Ctx, Out>), and inventing that plumbing
+  // ahead of a concrete need would be exactly the kind of speculative abstraction this codebase
+  // avoids. Reserved so a future per-node detail (e.g. frame count, detector confidence) doesn't
+  // need its own migration - same "one JSON blob, not a column per metric" call already made for
+  // Clip.scores.
+  metadata Json?
+
+  @@index([nodeId, startedAt])
+  @@index([jobExecutionId])
+}
+
+enum NodeExecutionStatus {
+  SUCCESS
+  FALLBACK
+  FAILED
 }
 
 // A connected social platform account for publishing (Fase 6a - connect
@@ -643,4 +720,9 @@ model PublishRecord {
 
   @@index([clipId])
   @@index([socialAccountId])
+  // schedule-publish-clip.worker.ts's poller runs this exact
+  // (status, scheduledAt) combination every 60 seconds, forever, for the
+  // life of the deployment - a composite index keeps that query cheap
+  // regardless of how many PublishRecord rows accumulate over time.
+  @@index([status, scheduledAt])
 }

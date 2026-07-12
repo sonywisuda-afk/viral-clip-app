@@ -153,9 +153,30 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
       // first prisma.video.update() (P2025, no such row) - checked here,
       // before any of that work starts, rather than discovered expensively
       // partway through.
-      const videoStillExists = await prisma.video.count({ where: { id: videoId } });
-      if (videoStillExists === 0) {
+      const existingVideo = await prisma.video.findUnique({
+        where: { id: videoId },
+        select: { status: true },
+      });
+      if (!existingVideo) {
         console.log(`[transcribe] video ${videoId} was deleted - skipping orphaned job`);
+        return { videoId, segments: [] };
+      }
+
+      // Idempotency guard: BullMQ's own stalled-job recovery (see docs/queue.md) can re-queue and
+      // re-run THIS SAME job a second time if the first attempt's lock isn't renewed in time (e.g.
+      // a slow but not-yet-fixed downstream step hanging past the lock TTL) - observed for real
+      // during Phase 1 timeout work, where a stalled transcribe job got reprocessed and burned a
+      // full second pass of Whisper API calls for a video that had already finished transcribing,
+      // duplicating both the cost and (at the time) the TranscriptSegment rows. UPLOADED is this
+      // job's own precondition (see reportProgress(0) below and VideosService.upload/retry, the
+      // only two callers that enqueue this job) - status having moved past it already means some
+      // execution of this same job already completed the real work, so re-doing it here would only
+      // waste a paid transcription-API call, not produce a different or more-correct result.
+      if (existingVideo.status !== VideoStatus.UPLOADED) {
+        console.log(
+          `[transcribe] video ${videoId} is already past UPLOADED (status: ${existingVideo.status}) - ` +
+            'skipping to avoid a duplicate Whisper API pass (see BullMQ stalled-job re-processing note above)',
+        );
         return { videoId, segments: [] };
       }
 
@@ -440,6 +461,22 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
         for (const audioPath of audioPaths) await cleanupTempFile(audioPath);
       }
     },
-    { connection: createRedisConnection() },
+    {
+      connection: createRedisConnection(),
+      // Explicit, not the implicit default - one video transcribes at a
+      // time per worker process. Raising this needs a real capacity-
+      // planning decision (CPU/memory headroom for concurrent Whisper
+      // uploads + diarization/emotion/loudness/VAD subprocesses), not an
+      // accidental default.
+      concurrency: 1,
+      // Comfortably above this job's worst-case real duration (multi-chunk
+      // Whisper calls + diarization + vocal emotion, each independently
+      // timeout-bounded but stackable) - BullMQ's default 30s lock/stall
+      // window is far shorter than that, which is why a legitimately-still-
+      // running job got mistaken for stalled and reprocessed for real
+      // tonight, duplicating a paid Whisper API pass (see the idempotency
+      // guard above, which is the other half of this fix).
+      lockDuration: 20 * 60 * 1000,
+    },
   );
 }

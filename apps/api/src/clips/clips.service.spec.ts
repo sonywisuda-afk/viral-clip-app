@@ -189,6 +189,7 @@ describe('ClipsService', () => {
         llmFeatures: null,
         highlightPrediction: null,
         highlightRecommendation: null,
+        compositionFeatures: null,
         publishRecords: [],
         updatedAt: existingClip.updatedAt,
       });
@@ -397,6 +398,7 @@ describe('ClipsService', () => {
         llmFeatures: null,
         highlightPrediction: null,
         highlightRecommendation: null,
+        compositionFeatures: null,
         publishRecords: [],
         updatedAt: cleared.updatedAt,
       });

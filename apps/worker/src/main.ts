@@ -55,6 +55,7 @@ async function main() {
     createSyncPublishStatsWorker,
     scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
   } = await import('./workers/sync-publish-stats.worker');
+  const { prisma } = await import('./prisma');
 
   // Registers (or re-confirms) each repeatable trigger before the worker
   // that consumes it starts, so there's no window where a queue could fire
@@ -74,17 +75,49 @@ async function main() {
 
   console.log(`worker started, listening on ${workers.length} queues`);
 
+  // Generous margin over worker.close()'s own wait for in-flight jobs to
+  // finish (each job is bounded well under this by its own lockDuration/
+  // subprocess timeouts) plus queue/DB teardown - without this, a job or
+  // connection that hangs during shutdown itself would block `docker stop`
+  // indefinitely until it's SIGKILLed, rather than exiting cleanly (if
+  // slowly) on its own.
+  const SHUTDOWN_TIMEOUT_MS = 30_000;
+  let shuttingDown = false;
+
   const shutdown = async () => {
+    // SIGINT and SIGTERM can both arrive (or the same signal twice) -
+    // without this guard, a second call would race the first's queue/worker
+    // .close() calls and process.exit().
+    if (shuttingDown) return;
+    shuttingDown = true;
+
     console.log('shutting down workers...');
-    await Promise.all(workers.map((worker) => worker.close()));
-    await Promise.all([
-      transcribeQueue.close(),
-      detectClipsQueue.close(),
-      renderClipQueue.close(),
-      publishClipQueue.close(),
-      schedulePublishClipQueue.close(),
-      syncPublishStatsQueue.close(),
-    ]);
+    const forceExitTimer = setTimeout(() => {
+      console.error(
+        `[worker] graceful shutdown exceeded ${SHUTDOWN_TIMEOUT_MS}ms - forcing exit`,
+      );
+      process.exit(1);
+    }, SHUTDOWN_TIMEOUT_MS);
+
+    try {
+      await Promise.all(workers.map((worker) => worker.close()));
+      await Promise.all([
+        transcribeQueue.close(),
+        detectClipsQueue.close(),
+        renderClipQueue.close(),
+        publishClipQueue.close(),
+        schedulePublishClipQueue.close(),
+        syncPublishStatsQueue.close(),
+      ]);
+      // Closed last, after every worker/queue is done touching it - not
+      // strictly required before process.exit() would tear the process down
+      // anyway, but an explicit disconnect lets Postgres release the
+      // connection immediately rather than waiting for the socket to time
+      // out server-side.
+      await prisma.$disconnect();
+    } finally {
+      clearTimeout(forceExitTimer);
+    }
     process.exit(0);
   };
 

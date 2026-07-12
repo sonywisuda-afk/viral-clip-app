@@ -1,5 +1,5 @@
-import { createWriteStream } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
@@ -21,9 +21,8 @@ import {
 } from '@speedora/shared';
 import { type AudioActivityWindow } from '@speedora/facial-intelligence';
 import {
-  onRenderGraphNodeFailure,
   renderClipGraph,
-  runGraph,
+  runInstrumentedRenderGraph,
   toClipUpdateData,
   toFusionInput,
   type RenderGraphContext,
@@ -309,10 +308,24 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
       // makes it equally moot. Without this, a stale job would burn a full
       // render (source download, face/scene/facial/gesture detection,
       // FFmpeg) before failing on the final prisma.clip.update().
-      const clipStillExists = await prisma.clip.count({ where: { id: clipId } });
-      if (clipStillExists === 0) {
+      const existingClip = await prisma.clip.findUnique({
+        where: { id: clipId },
+        select: { outputUrl: true },
+      });
+      if (!existingClip) {
         console.log(`[render-clip] clip ${clipId} was deleted - skipping orphaned job`);
         return { clipId, outputUrl: '' };
+      }
+
+      // Same idempotency reasoning as transcribe.worker.ts/detect-clips.worker.ts (see their own
+      // comments) - a clip already having outputUrl set means some earlier execution of this same
+      // job already finished the real work (source download, every detector, the full FFmpeg
+      // render). Re-running it wastes CPU/time re-encoding an output nothing will read (the
+      // existing file just gets overwritten), and - observed for real - two such re-runs landing
+      // concurrently compete for the same CPU and can keep each other from ever finishing.
+      if (existingClip.outputUrl) {
+        console.log(`[render-clip] clip ${clipId} is already rendered - skipping duplicate job`);
+        return { clipId, outputUrl: existingClip.outputUrl };
       }
 
       console.log(
@@ -356,9 +369,10 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           speakerTurns: toSpeakerTurns(transcript, startTime),
           reframe: { outputWidth: reframe.outputWidth, outputHeight: reframe.outputHeight },
         };
-        const graphResult = (await runGraph(renderClipGraph, renderGraphContext, {
-          onNodeFailure: onRenderGraphNodeFailure,
-        })) as unknown as RenderGraphResult;
+        const graphResult = (await runInstrumentedRenderGraph(
+          renderClipGraph,
+          renderGraphContext,
+        )) as unknown as RenderGraphResult;
         // Every raw signal and derived feature that used to be a local `let`/`const` here
         // (sceneCuts, facialEmotions, faceLandmarks, sceneFeatures, speakerScores,
         // compositionFeatures, editingRhythmFeatures, ...) now lives on `graphResult` alone - see
@@ -423,16 +437,34 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         if (cuts.length > 0) {
           trimmedPath = await reserveScratchPath('trimmed', '.mp4');
           const totalOutputDuration = endTime - startTime - totalCutSeconds(cuts);
-          await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration);
-          renderedPath = trimmedPath;
-          console.log(
-            `[render-clip] clip ${clipId}: removed ${totalCutSeconds(cuts).toFixed(1)}s of ` +
-              `silence/filler across ${cuts.length} cut(s)`,
-          );
+          // Optional polish, not required for a correct clip - the untrimmed render above is
+          // already a complete, valid output. Caught (not left to fail the whole job) for the same
+          // "external ffmpeg call, bounded by TRIM_TIMEOUT_MS but still allowed to fail" reasoning
+          // as every other optional signal in this file, prompted by a real timeout observed here.
+          try {
+            await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration);
+            renderedPath = trimmedPath;
+            console.log(
+              `[render-clip] clip ${clipId}: removed ${totalCutSeconds(cuts).toFixed(1)}s of ` +
+                `silence/filler across ${cuts.length} cut(s)`,
+            );
+          } catch (error) {
+            console.warn(
+              `[render-clip] silence/filler trim failed for clip ${clipId}, keeping the ` +
+                'untrimmed render:',
+              error,
+            );
+          }
         }
 
         const outputKey = `renders/${clipId}.mp4`;
-        await uploadObject(outputKey, await readFile(renderedPath), 'video/mp4');
+        // Streamed straight from disk (not read into a Buffer first) - same
+        // "no timeout at all on a plain readFile()" reasoning as
+        // import-youtube.worker.ts's own upload, now applied here too. A
+        // rendered clip can be tens to hundreds of MB, and this makes the
+        // step subject to uploadObject's own requestTimeout instead of
+        // being able to hang indefinitely.
+        await uploadObject(outputKey, createReadStream(renderedPath), 'video/mp4');
 
         // toClipUpdateData() replaces this call's former hand-written object literal the same way
         // toFusionInput() replaced computeHighlightScore's - see render-graph/sinks.ts's
@@ -444,33 +476,72 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         // signature, which Prisma's Json input type requires - same reasoning as
         // detect-clips.worker.ts's own scores write), and every highlight* field from
         // computeHighlightScore()'s own separate output above.
-        await prisma.clip.update({
-          where: { id: clipId },
-          data: toClipUpdateData(graphResult, {
-            outputUrl: outputKey,
-            llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
-            highlightScore: highlight.highlightScore,
-            highlightBreakdown: highlight.contributions,
-            highlightExplainability: highlight.explainability,
-            highlightConfidence: highlight.confidence,
-            highlightReason: highlight.reason,
-            highlightPrediction: highlight.prediction,
-            highlightRecommendation: highlight.recommendation,
-          }),
-        });
+        //
+        // The `where` clause's outputUrl: null is an optimistic-concurrency claim, not just a
+        // filter - a clip's outputUrl starts null and this is the only write that ever sets it, so
+        // "still null" means no other execution of this same job has finished first. Two renders
+        // racing (observed for real: BullMQ stalled-job recovery re-running an already-finished
+        // render concurrently with the original) now have only one winner; the loser's update
+        // matches zero rows, which Prisma reports as P2025 (caught below as benign) instead of
+        // silently overwriting the winner's result. The clip update and the conditional
+        // "every sibling clip now rendered -> mark the video RENDERED" status transition are done
+        // in one $transaction so a crash between them can never leave this clip rendered but its
+        // video stuck one status behind (or vice-versa) - the video-status write is inlined here
+        // (not updateVideoStatus(), which needs a full PrismaClient and opens its own nested
+        // transaction) so it joins this SAME transaction, same "inlined to share one transaction"
+        // convention as transcribe.worker.ts's own status write.
+        let allRendered = false;
+        try {
+          allRendered = await prisma.$transaction(async (tx) => {
+            await tx.clip.update({
+              where: { id: clipId, outputUrl: null },
+              data: toClipUpdateData(graphResult, {
+                outputUrl: outputKey,
+                llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+                highlightScore: highlight.highlightScore,
+                highlightBreakdown: highlight.contributions,
+                highlightExplainability: highlight.explainability,
+                highlightConfidence: highlight.confidence,
+                highlightReason: highlight.reason,
+                highlightPrediction: highlight.prediction,
+                highlightRecommendation: highlight.recommendation,
+              }),
+            });
 
-        const siblingClips = await prisma.clip.findMany({ where: { videoId } });
-        const allRendered = siblingClips.every((clip) => clip.outputUrl !== null);
+            const siblingClips = await tx.clip.findMany({ where: { videoId } });
+            const allDone = siblingClips.every((clip) => clip.outputUrl !== null);
+            if (allDone) {
+              await tx.video.update({ where: { id: videoId }, data: { status: VideoStatus.RENDERED } });
+              await tx.videoStatusEvent.create({
+                data: { videoId, toStatus: VideoStatus.RENDERED, errorMessage: null },
+              });
+            }
+            return allDone;
+          });
+        } catch (error) {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === 'P2025'
+          ) {
+            console.log(
+              `[render-clip] clip ${clipId} was already claimed by another concurrent execution - ` +
+                'skipping (benign, same outcome as the early idempotency check above)',
+            );
+            return { clipId, outputUrl: outputKey };
+          }
+          throw error;
+        }
+
         if (allRendered) {
-          await updateVideoStatus(prisma, videoId, VideoStatus.RENDERED);
-
           // Ranking (Fase 31) - only meaningful once every clip in the
           // video has a highlightScore to compare against its siblings.
           // Never fails the render job itself: ranking is a pure/
           // synchronous helper over data that's already just been written,
           // and a failure here would be surprising, but is still wrapped
           // defensively since it runs after the clip's own render is
-          // already a done deal.
+          // already a done deal. Deliberately outside the transaction above
+          // (unchanged) - ranking is independently fault-tolerant by design
+          // and doesn't need to be atomic with the render/status write.
           try {
             const scoredSiblings = await prisma.clip.findMany({
               where: { videoId },
@@ -519,6 +590,24 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
       }
     },
-    { connection: createRedisConnection() },
+    {
+      connection: createRedisConnection(),
+      // Explicit, not the implicit default - same "one at a time per worker
+      // process, raise only after a real capacity-planning decision" reasoning
+      // as transcribe.worker.ts. Especially load-bearing here: this job's own
+      // subprocess concurrency limiter (subprocessLimiter.ts) caps
+      // system-wide FFmpeg/Python contention, but only across whatever jobs
+      // are actually running - raising this above 1 without also revisiting
+      // that limiter's ceiling would just move the contention problem rather
+      // than fix it.
+      concurrency: 1,
+      // Comfortably above this job's worst-case real duration (source
+      // download + every detector + up to RENDER_TIMEOUT_MS's 15 minutes of
+      // FFmpeg encoding + the trim pass) - same BullMQ stalled-job
+      // mis-detection reasoning as transcribe.worker.ts. This is the exact
+      // job that raced itself for CPU tonight after being mistaken for
+      // stalled.
+      lockDuration: 20 * 60 * 1000,
+    },
   );
 }

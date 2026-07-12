@@ -35,6 +35,7 @@ import {
   toSharedOcrText,
   toSharedCameraMotion,
   toSharedCameraMotionFeatures,
+  toSharedCompositionFeatures,
   toSharedEditingRhythmFeatures,
   toSharedLipSyncVerifications,
   toSharedMotionEnergy,
@@ -338,6 +339,7 @@ export class ClipsService {
     highlightPrediction: unknown;
     highlightRecommendation: unknown;
     highlightRank: number | null;
+    compositionFeatures: unknown;
     publishRecords: Parameters<typeof toSharedPublishRecord>[0][];
     updatedAt: Date;
   }) {
@@ -397,6 +399,7 @@ export class ClipsService {
       highlightPrediction: toSharedHighlightPrediction(clip.highlightPrediction),
       highlightRecommendation: toSharedHighlightRecommendation(clip.highlightRecommendation),
       highlightRank: clip.highlightRank,
+      compositionFeatures: toSharedCompositionFeatures(clip.compositionFeatures),
       publishRecords: clip.publishRecords.map(toSharedPublishRecord) satisfies PublishRecord[],
       updatedAt: clip.updatedAt,
     };

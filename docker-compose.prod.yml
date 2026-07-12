@@ -88,6 +88,14 @@ services:
       WEB_ORIGIN: http://localhost:3000
     ports:
       - '${API_PORT:-3001}:3001'
+    # Sized generously above normal usage (NestJS + a handful of concurrent
+    # HTTP requests) but well below what caused a real OOM under load - a
+    # container that leaks/spikes past this gets killed and restarted
+    # (restart: unless-stopped) rather than taking down the whole host.
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   worker:
     build:
@@ -111,6 +119,17 @@ services:
       # dev - the image already has a real ffmpeg on PATH (see
       # apps/worker/Dockerfile).
       FFMPEG_PATH: ffmpeg
+    # By far the heaviest process in this stack - FFmpeg encodes plus
+    # concurrent Python/MediaPipe subprocesses (bounded by
+    # subprocessLimiter.ts's MAX_CONCURRENT_SUBPROCESSES, but each one can
+    # still be memory-hungry on its own) are exactly what exhausted host
+    # memory during a real incident. This limit turns that into a contained,
+    # restarted container instead of a host-wide OOM taking down Postgres/
+    # Redis/api alongside it.
+    deploy:
+      resources:
+        limits:
+          memory: 4g
 
   web:
     build:
@@ -122,9 +141,19 @@ services:
         NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION: ${NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION:-false}
     restart: unless-stopped
     depends_on:
-      - api
+      # Every other depends_on in this file gates on condition: service_healthy
+      # (postgres/redis/migrate above) - this one used to be the plain short
+      # form (no condition), which only waits for the container to START, not
+      # for api to actually be able to serve requests. api's own Dockerfile
+      # HEALTHCHECK (hitting /health/live) is what this condition reads.
+      api:
+        condition: service_healthy
     ports:
       - '3000:3000'
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
 volumes:
   postgres-data:

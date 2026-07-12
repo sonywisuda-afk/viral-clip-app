@@ -33,6 +33,12 @@ COPY --from=build /out .
 # same as it already does in CI where DATABASE_URL etc. also aren't a file.
 USER node
 EXPOSE 3001
+# /live (not /health) - a cheap liveness probe with no Postgres/Redis/
+# storage round-trip, so Docker's own polling loop doesn't add load to
+# those on every interval. depends_on: condition: service_healthy (see
+# docker-compose.prod.yml's web service) relies on this signal too - a
+# container that's up but can't reach its dependencies still reports
+# healthy here, same tradeoff every liveness-vs-readiness probe makes.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD node -e "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    CMD node -e "fetch('http://localhost:3001/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/main.js"]

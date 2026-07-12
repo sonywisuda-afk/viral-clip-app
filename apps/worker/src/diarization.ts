@@ -2,10 +2,23 @@ import { execFile } from 'node:child_process';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import { diarizeSpeakersOutputSchema, type SpeakerTurn } from '@speedora/contracts';
+import { limitExecFile } from './subprocessLimiter';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = limitExecFile(promisify(execFile));
 const PYTHON_PATH = process.env.PYTHON_PATH ?? 'python3';
 const SCRIPT_PATH = path.join(__dirname, '../scripts/diarize_speakers.py');
+
+// pyannote's CPU inference has no progress feedback and no upper bound of its
+// own - on a real (non-trivial) video, without this the whole transcribe job
+// (not just diarization) can sit unresponsive far past what
+// transcribeProgress's 0-100 range implies, since diarization runs AFTER the
+// last reportProgress() call in transcribe.worker.ts's per-chunk loop. A
+// timeout turns "hang forever" into an ordinary rejection, which the caller
+// already treats as "skip speaker labels for this video" (see the module
+// comment above) - same outcome as a missing HUGGINGFACE_TOKEN, just via a
+// different failure path. 5 minutes is generous for a typical short-form
+// source clip on CPU while still bounding the worst case.
+const DIARIZATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export type { SpeakerTurn };
 
@@ -27,7 +40,9 @@ export type { SpeakerTurn };
 // an optional signal" pattern as detectFaces's caller in
 // render-clip.worker.ts.
 export async function diarizeSpeakers(audioPath: string): Promise<SpeakerTurn[]> {
-  const { stdout } = await execFileAsync(PYTHON_PATH, [SCRIPT_PATH, audioPath]);
+  const { stdout } = await execFileAsync(PYTHON_PATH, [SCRIPT_PATH, audioPath], {
+    timeout: DIARIZATION_TIMEOUT_MS,
+  });
   return diarizeSpeakersOutputSchema.parse(JSON.parse(stdout));
 }
 

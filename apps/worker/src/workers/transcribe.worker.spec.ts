@@ -102,7 +102,7 @@ jest.mock('../groq', () => ({
 
 const transcriptSegmentCreateManyMock = jest.fn();
 const videoUpdateMock = jest.fn();
-const videoCountMock = jest.fn();
+const videoFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
 const transactionMock = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 jest.mock('../prisma', () => ({
@@ -112,7 +112,7 @@ jest.mock('../prisma', () => ({
     },
     video: {
       update: (...args: unknown[]) => videoUpdateMock(...args),
-      count: (...args: unknown[]) => videoCountMock(...args),
+      findUnique: (...args: unknown[]) => videoFindUniqueMock(...args),
     },
     // Fase 3 (DB+JSON-contract roadmap) - written alongside video.update()
     // in the same $transaction (both the success-path inline transaction
@@ -142,9 +142,10 @@ describe('transcribe worker', () => {
     transactionMock.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
     transcriptSegmentCreateManyMock.mockResolvedValue({ count: 2 });
     videoUpdateMock.mockResolvedValue({});
-    // Video exists by default - individual tests override this to exercise
-    // the orphaned-job (deleted-video) skip path.
-    videoCountMock.mockResolvedValue(1);
+    // Video exists and is at its precondition status (UPLOADED) by default -
+    // individual tests override this to exercise the orphaned-job
+    // (deleted-video) and already-processed (idempotency) skip paths.
+    videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.UPLOADED });
     videoStatusEventCreateMock.mockResolvedValue({});
     detectClipsQueueAdd.mockResolvedValue(undefined);
     // Short enough for a single Whisper request unless a test overrides it.
@@ -634,7 +635,7 @@ describe('transcribe worker', () => {
   });
 
   it('skips an orphaned job for a video that was deleted while queued, without doing any work', async () => {
-    videoCountMock.mockResolvedValue(0);
+    videoFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
     const result = await processor({
@@ -648,6 +649,25 @@ describe('transcribe worker', () => {
     expect(result).toEqual({ videoId: 'video-1', segments: [] });
     // No Whisper call, no download, no progress/status writes, no
     // downstream enqueue - the job is a pure no-op once the video is gone.
+    expect(getObjectStreamMock).not.toHaveBeenCalled();
+    expect(groqTranscriptionsCreateMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalled();
+    expect(detectClipsQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('skips a job for a video already past UPLOADED, without a duplicate Whisper API call (BullMQ stalled-job re-processing guard)', async () => {
+    videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.TRANSCRIBED });
+
+    const processor = getProcessor();
+    const result = await processor({
+      data: {
+        videoId: 'video-1',
+        sourceUrl: 'videos/abc.mp4',
+        provider: TranscriptionProvider.GROQ,
+      },
+    });
+
+    expect(result).toEqual({ videoId: 'video-1', segments: [] });
     expect(getObjectStreamMock).not.toHaveBeenCalled();
     expect(groqTranscriptionsCreateMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();

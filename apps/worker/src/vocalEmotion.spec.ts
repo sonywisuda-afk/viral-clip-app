@@ -2,6 +2,7 @@ const execFileMock = jest.fn(
   (
     _file: string,
     _args: string[],
+    _options: unknown,
     callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
   ) => {
     callback(null, { stdout: '[]', stderr: '' });
@@ -56,6 +57,13 @@ describe('detectVocalEmotions', () => {
     expect(args[2]).toBe('/scratch/vocal-emotion-segments-0.json');
   });
 
+  it('passes a timeout so a hung emotion-classification inference cannot block the job forever', async () => {
+    await detectVocalEmotions('/tmp/audio.mp3', []);
+
+    const [, , options] = execFileMock.mock.calls[0];
+    expect((options as { timeout: number }).timeout).toBeGreaterThan(0);
+  });
+
   it('cleans up the scratch segments file after the script runs', async () => {
     await detectVocalEmotions('/tmp/audio.mp3', []);
 
@@ -63,7 +71,7 @@ describe('detectVocalEmotions', () => {
   });
 
   it('cleans up the scratch segments file even when the script fails', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
       callback(new Error('python3 exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
@@ -74,7 +82,7 @@ describe('detectVocalEmotions', () => {
   });
 
   it('parses the JSON array of emotion results (including null for skipped segments) from stdout', async () => {
-    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
       callback(null, {
         stdout: JSON.stringify([{ emotion: 'hap', score: 0.83 }, null]),
         stderr: '',

@@ -35,12 +35,14 @@ jest.mock('@speedora/storage', () => ({
 
 const publishRecordFindUniqueOrThrowMock = jest.fn();
 const publishRecordUpdateMock = jest.fn();
+const publishRecordUpdateManyMock = jest.fn();
 const socialAccountUpdateMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     publishRecord: {
       findUniqueOrThrow: (...args: unknown[]) => publishRecordFindUniqueOrThrowMock(...args),
       update: (...args: unknown[]) => publishRecordUpdateMock(...args),
+      updateMany: (...args: unknown[]) => publishRecordUpdateManyMock(...args),
     },
     socialAccount: {
       update: (...args: unknown[]) => socialAccountUpdateMock(...args),
@@ -67,6 +69,7 @@ const baseRecord = {
   id: 'record-1',
   clipId: 'clip-1',
   socialAccountId: 'account-1',
+  platformPostId: null as string | null,
   clip: {
     id: 'clip-1',
     outputUrl: 'renders/clip-1.mp4',
@@ -96,6 +99,7 @@ describe('publish-clip worker', () => {
     jest.clearAllMocks();
     publishRecordFindUniqueOrThrowMock.mockResolvedValue(baseRecord);
     publishRecordUpdateMock.mockResolvedValue({});
+    publishRecordUpdateManyMock.mockResolvedValue({ count: 1 });
     socialAccountUpdateMock.mockResolvedValue({});
     resolveAccessTokenMock.mockResolvedValue({ accessToken: 'plaintext-access', refreshed: false });
     getObjectStreamMock.mockResolvedValue({ fake: 'readable' });
@@ -119,8 +123,8 @@ describe('publish-clip worker', () => {
       where: { id: 'record-1' },
       include: { clip: true, socialAccount: true },
     });
-    expect(publishRecordUpdateMock).toHaveBeenCalledWith({
-      where: { id: 'record-1' },
+    expect(publishRecordUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: 'record-1', status: PublishStatus.QUEUED },
       data: { status: PublishStatus.PUBLISHING },
     });
     expect(getObjectStreamMock).toHaveBeenCalledWith('renders/clip-1.mp4');
@@ -139,6 +143,27 @@ describe('publish-clip worker', () => {
         publishedAt: expect.any(Date),
       },
     });
+    expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'yt-video-1' });
+  });
+
+  it('skips a record that is not QUEUED (already claimed or finished), without publishing again', async () => {
+    publishRecordUpdateManyMock.mockResolvedValue({ count: 0 });
+    publishRecordFindUniqueOrThrowMock.mockResolvedValue({
+      ...baseRecord,
+      platformPostId: 'yt-video-1',
+    });
+
+    const processor = getProcessor();
+    const result = await processor(baseJob());
+
+    expect(publishRecordUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: 'record-1', status: PublishStatus.QUEUED },
+      data: { status: PublishStatus.PUBLISHING },
+    });
+    expect(resolveAccessTokenMock).not.toHaveBeenCalled();
+    expect(uploadYouTubeVideoMock).not.toHaveBeenCalled();
+    expect(uploadTikTokVideoMock).not.toHaveBeenCalled();
+    expect(uploadInstagramReelMock).not.toHaveBeenCalled();
     expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'yt-video-1' });
   });
 

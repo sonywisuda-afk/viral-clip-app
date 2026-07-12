@@ -35,7 +35,7 @@ const clipCreateMock = jest.fn((args: { data: Record<string, unknown> }) => {
 });
 const videoUpdateMock = jest.fn();
 const videoFindUniqueOrThrowMock = jest.fn();
-const videoCountMock = jest.fn();
+const videoFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn().mockResolvedValue({});
 const transactionMock = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 jest.mock('../prisma', () => ({
@@ -44,7 +44,7 @@ jest.mock('../prisma', () => ({
     video: {
       update: (...args: unknown[]) => videoUpdateMock(...args),
       findUniqueOrThrow: (...args: unknown[]) => videoFindUniqueOrThrowMock(...args),
-      count: (...args: unknown[]) => videoCountMock(...args),
+      findUnique: (...args: unknown[]) => videoFindUniqueMock(...args),
     },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, in the same $transaction as video.update().
@@ -94,9 +94,11 @@ describe('detect-clips worker (adapter)', () => {
     transactionMock.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
     videoUpdateMock.mockResolvedValue({});
     renderClipQueueAdd.mockResolvedValue(undefined);
-    // Video exists by default - individual tests override this to exercise
-    // the orphaned-job (deleted-video) skip path.
-    videoCountMock.mockResolvedValue(1);
+    // Video exists and is at its precondition status (TRANSCRIBED) by
+    // default - individual tests override this to exercise the
+    // orphaned-job (deleted-video) and already-processed (idempotency) skip
+    // paths.
+    videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.TRANSCRIBED });
   });
 
   it("narrows each TranscriptSegment to the scoring module's own input shape (drops speaker/emotion)", async () => {
@@ -219,7 +221,7 @@ describe('detect-clips worker (adapter)', () => {
   });
 
   it('skips an orphaned job for a video that was deleted while queued, without doing any work', async () => {
-    videoCountMock.mockResolvedValue(0);
+    videoFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
     const result = await processor({
@@ -229,6 +231,21 @@ describe('detect-clips worker (adapter)', () => {
     expect(result).toEqual({ videoId: 'video-1', candidates: [] });
     // No LLM call, no clip writes, no status update, no downstream enqueue -
     // the job is a pure no-op once the video is gone.
+    expect(scoreClipCandidatesMock).not.toHaveBeenCalled();
+    expect(clipCreateMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalled();
+    expect(renderClipQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('skips a job for a video already past TRANSCRIBED, without a duplicate LLM call (BullMQ stalled-job re-processing guard)', async () => {
+    videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.CLIPS_DETECTED });
+
+    const processor = getProcessor();
+    const result = await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
+    });
+
+    expect(result).toEqual({ videoId: 'video-1', candidates: [] });
     expect(scoreClipCandidatesMock).not.toHaveBeenCalled();
     expect(clipCreateMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();

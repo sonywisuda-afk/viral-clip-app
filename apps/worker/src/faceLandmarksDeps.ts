@@ -2,8 +2,9 @@ import { execFile } from 'node:child_process';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { DetectFaceLandmarksDeps } from '@speedora/facial-intelligence';
+import { limitExecFile } from './subprocessLimiter';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = limitExecFile(promisify(execFile));
 
 // Deployment-specific plumbing for @speedora/facial-intelligence's
 // detectFaceLandmarks() - same "deployment config lives here, not inside

@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { AnalyzeAudioLoudnessDeps } from '@speedora/audio-intelligence';
+import { limitExecFile } from './subprocessLimiter';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = limitExecFile(promisify(execFile));
 
 // Deployment-specific plumbing for @speedora/audio-intelligence's
 // analyzeAudioLoudness(): which ffmpeg binary to invoke - same FFMPEG_PATH

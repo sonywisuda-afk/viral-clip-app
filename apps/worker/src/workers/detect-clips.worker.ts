@@ -64,9 +64,25 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
       // Same orphaned-job guard as transcribe.worker.ts - a video deleted
       // while this job was still queued would otherwise burn a real OpenAI
       // API call before failing on the final prisma write.
-      const videoStillExists = await prisma.video.count({ where: { id: videoId } });
-      if (videoStillExists === 0) {
+      const existingVideo = await prisma.video.findUnique({
+        where: { id: videoId },
+        select: { status: true },
+      });
+      if (!existingVideo) {
         console.log(`[detect-clips] video ${videoId} was deleted - skipping orphaned job`);
+        return { videoId, candidates: [] };
+      }
+
+      // Same idempotency guard/reasoning as transcribe.worker.ts (see its own comment) - both
+      // callers of this queue (transcribe.worker.ts, VideosService.retry) only enqueue right after
+      // setting status to TRANSCRIBED, so status having already moved past it means some execution
+      // of this same job already ran scoreClipCandidates() - a paid LLM call - and re-running it via
+      // a BullMQ stalled-job re-processing would just duplicate that cost.
+      if (existingVideo.status !== VideoStatus.TRANSCRIBED) {
+        console.log(
+          `[detect-clips] video ${videoId} is already past TRANSCRIBED (status: ${existingVideo.status}) - ` +
+            'skipping to avoid a duplicate LLM call',
+        );
         return { videoId, candidates: [] };
       }
 
@@ -166,6 +182,16 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
         throw error;
       }
     },
-    { connection: createRedisConnection() },
+    {
+      connection: createRedisConnection(),
+      // Explicit, not the implicit default - same "one at a time per worker
+      // process, raise only after a real capacity-planning decision" reasoning
+      // as transcribe.worker.ts.
+      concurrency: 1,
+      // Comfortably above this job's worst-case real duration (an LLM call
+      // over the full transcript) - same BullMQ stalled-job mis-detection
+      // reasoning as transcribe.worker.ts.
+      lockDuration: 20 * 60 * 1000,
+    },
   );
 }

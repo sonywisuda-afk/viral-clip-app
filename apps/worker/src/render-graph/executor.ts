@@ -37,6 +37,26 @@ export interface GraphNode<Ctx, Out = unknown> {
 export class GraphConfigError extends Error {}
 export class GraphCycleError extends Error {}
 
+// Deliberately not the same name/shape as any Prisma-side status enum - this file stays
+// Prisma-agnostic (see the top-of-file comment); mapping 'success'/'fallback'/'failure' onto a
+// persisted schema is the caller's job (see render-graph/index.ts's onRenderGraphNodeComplete).
+export type NodeOutcome = 'success' | 'fallback' | 'failure';
+
+export interface NodeExecutionEvent<Ctx> {
+  node: GraphNode<Ctx, unknown>;
+  ctx: Ctx;
+  // This node's position in the executor's level ordering (see computeLevels() below) - not
+  // currently consumed by anything at runtime, but cheap to capture now and needed later to
+  // reconstruct a per-level timeline once 'level-parallel' is ever turned on for real detectors.
+  level: number;
+  outcome: NodeOutcome;
+  startedAt: Date;
+  finishedAt: Date;
+  durationMs: number;
+  // Present iff outcome is 'fallback' or 'failure'.
+  error?: unknown;
+}
+
 function computeLevels<Ctx>(
   nodes: ReadonlyArray<GraphNode<Ctx, unknown>>,
 ): GraphNode<Ctx, unknown>[][] {
@@ -102,6 +122,12 @@ export interface RunGraphOptions<Ctx> {
   // real detectors needs a capacity-planning decision this executor doesn't make.
   concurrency?: 'sequential' | 'level-parallel';
   onNodeFailure?: (node: GraphNode<Ctx, unknown>, error: unknown, ctx: Ctx) => void;
+  // Phase 1 instrumentation hook (see docs/ai/composition-intelligence.md's "Open" items /
+  // ARCHITECTURE.md's executor section) - fired once per node, after it settles, regardless of
+  // outcome. Deliberately synchronous and best-effort: a caller persisting this (e.g. to Postgres)
+  // must swallow its own errors internally - a telemetry write is never allowed to fail or slow
+  // down the graph itself, so this executor doesn't await whatever the callback kicks off.
+  onNodeComplete?: (event: NodeExecutionEvent<Ctx>) => void;
 }
 
 // Runs every node in dependency order, returning a plain object keyed by node id. Deliberately
@@ -115,7 +141,11 @@ export async function runGraph<Ctx>(
   ctx: Ctx,
   options: RunGraphOptions<Ctx> = {},
 ): Promise<Record<NodeId, unknown>> {
-  const { concurrency = 'sequential', onNodeFailure = defaultOnNodeFailure } = options;
+  const {
+    concurrency = 'sequential',
+    onNodeFailure = defaultOnNodeFailure,
+    onNodeComplete,
+  } = options;
   const levels = computeLevels(nodes);
 
   const results = new Map<NodeId, unknown>();
@@ -126,21 +156,40 @@ export async function runGraph<Ctx>(
     return results.get(id) as T;
   };
 
-  const runOne = async (node: GraphNode<Ctx, unknown>): Promise<void> => {
+  const runOne = async (node: GraphNode<Ctx, unknown>, level: number): Promise<void> => {
+    const startedAt = new Date();
+    const startedAtMs = Date.now();
+    const complete = (outcome: NodeOutcome, error?: unknown) =>
+      onNodeComplete?.({
+        node,
+        ctx,
+        level,
+        outcome,
+        startedAt,
+        finishedAt: new Date(),
+        durationMs: Date.now() - startedAtMs,
+        error,
+      });
+
     try {
       results.set(node.id, await node.run(get, ctx));
+      complete('success');
     } catch (error) {
-      if (!node.optional) throw error;
+      if (!node.optional) {
+        complete('failure', error);
+        throw error;
+      }
       onNodeFailure(node, error, ctx);
       results.set(node.id, node.fallback);
+      complete('fallback', error);
     }
   };
 
-  for (const level of levels) {
+  for (const [level, nodesInLevel] of levels.entries()) {
     if (concurrency === 'level-parallel') {
-      await Promise.all(level.map(runOne));
+      await Promise.all(nodesInLevel.map((node) => runOne(node, level)));
     } else {
-      for (const node of level) await runOne(node);
+      for (const node of nodesInLevel) await runOne(node, level);
     }
   }
 

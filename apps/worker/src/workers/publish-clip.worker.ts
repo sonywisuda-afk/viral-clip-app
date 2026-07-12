@@ -72,12 +72,32 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
 
       console.log(`[publish-clip] publishing record ${publishRecordId} (clip ${record.clipId})`);
 
-      try {
-        await prisma.publishRecord.update({
-          where: { id: publishRecordId },
-          data: { status: PublishStatus.PUBLISHING },
-        });
+      // Idempotency guard + atomic claim: QUEUED is this job's only valid
+      // precondition (see ClipsService.publish and
+      // schedule-publish-clip.worker.ts, the only two callers that enqueue
+      // this job, both leaving the record QUEUED first). The WHERE-guarded
+      // updateMany is the same claim pattern schedule-publish-clip.worker.ts
+      // already uses for its own SCHEDULED -> QUEUED transition, reused
+      // here for QUEUED -> PUBLISHING - it atomically rules out both a
+      // record that's already PUBLISHED/FAILED *and* a concurrent second
+      // execution of this same job (BullMQ stalled-job recovery, or two
+      // overlapping attempts) racing to publish it twice. Unlike a
+      // duplicated transcribe/render job, reprocessing here doesn't just
+      // waste compute - it can post the same clip to YouTube/TikTok/
+      // Instagram a second time, a user-visible, hard-to-undo duplicate.
+      const claim = await prisma.publishRecord.updateMany({
+        where: { id: publishRecordId, status: PublishStatus.QUEUED },
+        data: { status: PublishStatus.PUBLISHING },
+      });
+      if (claim.count !== 1) {
+        console.log(
+          `[publish-clip] record ${publishRecordId} is not QUEUED (already claimed or ` +
+            `finished by another execution) - skipping to avoid a duplicate publish`,
+        );
+        return { publishRecordId, platformPostId: record.platformPostId ?? '' };
+      }
 
+      try {
         if (!record.clip.outputUrl) {
           throw new Error(`Clip ${record.clipId} has no rendered output to publish`);
         }

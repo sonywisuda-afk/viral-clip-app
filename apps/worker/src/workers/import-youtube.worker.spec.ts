@@ -32,19 +32,19 @@ jest.mock('../storage', () => ({
   cleanupTempFile: (...args: unknown[]) => cleanupTempFileMock(...args),
 }));
 
-const readFileMock = jest.fn();
-jest.mock('node:fs/promises', () => ({
-  readFile: (...args: unknown[]) => readFileMock(...args),
+const createReadStreamMock = jest.fn();
+jest.mock('node:fs', () => ({
+  createReadStream: (...args: unknown[]) => createReadStreamMock(...args),
 }));
 
 const videoUpdateMock = jest.fn();
-const videoCountMock = jest.fn();
+const videoFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     video: {
       update: (...args: unknown[]) => videoUpdateMock(...args),
-      count: (...args: unknown[]) => videoCountMock(...args),
+      findUnique: (...args: unknown[]) => videoFindUniqueMock(...args),
     },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, atomically alongside video.update() via $transaction.
@@ -67,12 +67,13 @@ describe('import-youtube worker', () => {
     jest.clearAllMocks();
     reserveScratchPathMock.mockResolvedValue('/tmp/youtube-import-abc.mp4');
     downloadYoutubeVideoMock.mockResolvedValue(undefined);
-    readFileMock.mockResolvedValue(Buffer.from('fake video bytes'));
+    createReadStreamMock.mockReturnValue('fake-read-stream');
     uploadObjectMock.mockResolvedValue(undefined);
     videoUpdateMock.mockResolvedValue({});
-    // Video exists by default - individual tests override this to exercise
-    // the orphaned-job (deleted-video) skip path.
-    videoCountMock.mockResolvedValue(1);
+    // Video exists and is IMPORTING by default - individual tests override
+    // this to exercise the orphaned-job (deleted-video) and
+    // already-past-IMPORTING skip paths.
+    videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.IMPORTING });
     videoStatusEventCreateMock.mockResolvedValue({});
     transcribeQueueAdd.mockResolvedValue(undefined);
     cleanupTempFileMock.mockResolvedValue(undefined);
@@ -93,9 +94,10 @@ describe('import-youtube worker', () => {
       '/tmp/youtube-import-abc.mp4',
       expect.any(Function),
     );
+    expect(createReadStreamMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
     expect(uploadObjectMock).toHaveBeenCalledWith(
       'videos/video-1.mp4',
-      Buffer.from('fake video bytes'),
+      'fake-read-stream',
       'video/mp4',
     );
     // Reset to 0 before the download starts...
@@ -148,7 +150,7 @@ describe('import-youtube worker', () => {
   });
 
   it('skips an orphaned job for a video that was deleted while queued, without doing any work', async () => {
-    videoCountMock.mockResolvedValue(0);
+    videoFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
     const result = await processor({
@@ -162,6 +164,25 @@ describe('import-youtube worker', () => {
     expect(result).toEqual({ videoId: 'video-1', sourceUrl: '' });
     // No download, no upload, no progress/status writes, no downstream
     // enqueue - the job is a pure no-op once the video is gone.
+    expect(downloadYoutubeVideoMock).not.toHaveBeenCalled();
+    expect(uploadObjectMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalled();
+    expect(transcribeQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('skips a job for a video already past IMPORTING, to avoid a duplicate yt-dlp download', async () => {
+    videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.UPLOADED });
+
+    const processor = getProcessor();
+    const result = await processor({
+      data: {
+        videoId: 'video-1',
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        provider: TranscriptionProvider.GROQ,
+      },
+    });
+
+    expect(result).toEqual({ videoId: 'video-1', sourceUrl: '' });
     expect(downloadYoutubeVideoMock).not.toHaveBeenCalled();
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();

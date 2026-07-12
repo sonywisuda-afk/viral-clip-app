@@ -159,4 +159,62 @@ describe('runGraph', () => {
     const result = await runGraph(nodes, { multiplier: 1 }, { concurrency: 'level-parallel' });
     expect(result).toEqual({ a: 1, b: 2 });
   });
+
+  describe('onNodeComplete (Phase 1 instrumentation)', () => {
+    it('fires with outcome "success", the node\'s level, and a non-negative duration', async () => {
+      const onNodeComplete = jest.fn();
+      const nodes: GraphNode<Ctx, unknown>[] = [
+        required<number>('a', [], () => 1),
+        required<number>('b', ['a'], (get) => get<number>('a') + 1),
+      ];
+      await runGraph(nodes, { multiplier: 1 }, { onNodeComplete });
+
+      expect(onNodeComplete).toHaveBeenCalledTimes(2);
+      const [aEvent] = onNodeComplete.mock.calls.find(([e]) => e.node.id === 'a')!;
+      expect(aEvent).toMatchObject({ outcome: 'success', level: 0 });
+      expect(aEvent.durationMs).toBeGreaterThanOrEqual(0);
+      expect(aEvent.finishedAt.getTime()).toBeGreaterThanOrEqual(aEvent.startedAt.getTime());
+      expect(aEvent.error).toBeUndefined();
+
+      const [bEvent] = onNodeComplete.mock.calls.find(([e]) => e.node.id === 'b')!;
+      expect(bEvent).toMatchObject({ outcome: 'success', level: 1 });
+    });
+
+    it('fires with outcome "fallback" and the caught error when an optional node throws', async () => {
+      const onNodeComplete = jest.fn();
+      const nodes: GraphNode<Ctx, unknown>[] = [
+        optional<number[]>(
+          'flaky',
+          [],
+          () => {
+            throw new Error('subprocess exploded');
+          },
+          [],
+        ),
+      ];
+      await runGraph(nodes, { multiplier: 1 }, { onNodeFailure: () => {}, onNodeComplete });
+
+      expect(onNodeComplete).toHaveBeenCalledTimes(1);
+      const [event] = onNodeComplete.mock.calls[0];
+      expect(event.outcome).toBe('fallback');
+      expect((event.error as Error).message).toBe('subprocess exploded');
+    });
+
+    it('fires with outcome "failure" before rethrowing when a non-optional node throws', async () => {
+      const onNodeComplete = jest.fn();
+      const nodes: GraphNode<Ctx, unknown>[] = [
+        required<number>('buggy', [], () => {
+          throw new Error('this should never happen');
+        }),
+      ];
+      await expect(
+        runGraph(nodes, { multiplier: 1 }, { onNodeComplete }),
+      ).rejects.toThrow('this should never happen');
+
+      expect(onNodeComplete).toHaveBeenCalledTimes(1);
+      const [event] = onNodeComplete.mock.calls[0];
+      expect(event.outcome).toBe('failure');
+      expect((event.error as Error).message).toBe('this should never happen');
+    });
+  });
 });

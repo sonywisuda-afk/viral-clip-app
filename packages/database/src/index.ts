@@ -3,6 +3,7 @@ import { PrismaClient } from './generated/prisma/client';
 
 export * from './generated/prisma/client';
 export * from './video-status';
+export * from './node-execution';
 export { PrismaPg };
 
 export function createPrismaClient(connectionString = process.env.DATABASE_URL) {

@@ -1,6 +1,7 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadBucketCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -92,7 +93,17 @@ async function sendResilient<Output>(command: {
   }
 }
 
-export async function uploadObject(key: string, body: Buffer, contentType?: string): Promise<void> {
+// `body` accepts a Readable, not just a Buffer, so a large source file (e.g. import-youtube.
+// worker.ts's downloaded YouTube video, which can run several hundred MB+) can be streamed
+// straight from disk instead of first being read fully into memory - avoiding both the extra
+// peak-memory pressure and, more importantly, giving the upload a real bound: streamed through
+// this client, it inherits the SAME requestTimeout the PutObjectCommand itself already enforces
+// (see getClient() above), where an unbounded readFile() beforehand would not.
+export async function uploadObject(
+  key: string,
+  body: Buffer | Readable,
+  contentType?: string,
+): Promise<void> {
   await sendResilient(
     new PutObjectCommand({ Bucket: bucket(), Key: key, Body: body, ContentType: contentType }),
   );
@@ -144,6 +155,14 @@ export async function getObjectStreamRange(
 
 export async function deleteObject(key: string): Promise<void> {
   await sendResilient(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
+}
+
+// A lightweight reachability check for apps/api's /health endpoint - confirms
+// the bucket exists and credentials/endpoint are valid without transferring
+// any object data (unlike every other function here, which all move real
+// bytes). Throws on failure; the caller decides how to report that.
+export async function checkStorageConnection(): Promise<void> {
+  await sendResilient(new HeadBucketCommand({ Bucket: bucket() }));
 }
 
 // The one caller (apps/worker's publish-clip job, for an Instagram Reels

@@ -8,10 +8,19 @@ import {
   type VocalEmotionResult,
 } from '@speedora/contracts';
 import { cleanupTempFile, reserveScratchPath } from './storage';
+import { limitExecFile } from './subprocessLimiter';
 
-const execFileAsync = promisify(execFile);
+const execFileAsync = limitExecFile(promisify(execFile));
 const PYTHON_PATH = process.env.PYTHON_PATH ?? 'python3';
 const SCRIPT_PATH = path.join(__dirname, '../scripts/detect_vocal_emotion.py');
+
+// Same reasoning/value as diarization.ts's DIARIZATION_TIMEOUT_MS - a
+// transformers audio-classification model run on CPU, with no progress
+// feedback and no bound of its own, sitting after transcribe.worker.ts's
+// last reportProgress() call. A timeout turns "hang forever" into an
+// ordinary rejection, which the caller already treats as "skip emotion
+// labels for this video".
+const VOCAL_EMOTION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export type { EmotionSegment };
 export type EmotionResult = NonNullable<VocalEmotionResult>;
@@ -41,7 +50,9 @@ export async function detectVocalEmotions(
   const segmentsPath = await reserveScratchPath('vocal-emotion-segments', '.json');
   try {
     await writeFile(segmentsPath, JSON.stringify(segments));
-    const { stdout } = await execFileAsync(PYTHON_PATH, [SCRIPT_PATH, audioPath, segmentsPath]);
+    const { stdout } = await execFileAsync(PYTHON_PATH, [SCRIPT_PATH, audioPath, segmentsPath], {
+      timeout: VOCAL_EMOTION_TIMEOUT_MS,
+    });
     return detectVocalEmotionsOutputSchema.parse(JSON.parse(stdout));
   } finally {
     await cleanupTempFile(segmentsPath);

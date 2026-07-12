@@ -10,8 +10,14 @@ jest.mock('@sentry/node', () => ({
   captureException: (...args: unknown[]) => captureExceptionMock(...args),
 }));
 
+// Returns a path-tagged fake stream (not a real Readable) - enough for
+// uploadObjectMock assertions to tell which scratch file (untrimmed
+// "output" vs. trimmed) actually got streamed, without needing a real
+// filesystem.
+const createReadStreamMock = jest.fn((...args: unknown[]) => ({ fakeStream: args[0] }));
 jest.mock('node:fs', () => ({
   createWriteStream: jest.fn().mockReturnValue({ fake: 'writable' }),
+  createReadStream: (...args: unknown[]) => createReadStreamMock(...args),
 }));
 
 const pipelineMock = jest.fn();
@@ -19,10 +25,8 @@ jest.mock('node:stream/promises', () => ({
   pipeline: (...args: unknown[]) => pipelineMock(...args),
 }));
 
-const readFileMock = jest.fn();
 const writeFileMock = jest.fn();
 jest.mock('node:fs/promises', () => ({
-  readFile: (...args: unknown[]) => readFileMock(...args),
   writeFile: (...args: unknown[]) => writeFileMock(...args),
 }));
 
@@ -147,21 +151,42 @@ jest.mock('@speedora/storage', () => ({
 
 const clipUpdateMock = jest.fn();
 const clipFindManyMock = jest.fn();
-const clipCountMock = jest.fn();
+const clipFindUniqueMock = jest.fn();
 const videoUpdateMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
+// $transaction now has two call shapes to support in this file: the
+// array form (still used by updateVideoStatus() on the FAILED path, see
+// video-status.ts) and the new interactive callback form the render-clip
+// worker itself uses for its final clip-update + conditional
+// video-RENDERED transaction. The callback form's `tx` exposes the exact
+// same mocks as `prisma` itself, so assertions don't need to know or care
+// which one the real code went through.
+const transactionMock = jest.fn((arg: Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)) => {
+  if (typeof arg === 'function') {
+    return arg({
+      clip: {
+        update: (...a: unknown[]) => clipUpdateMock(...a),
+        findMany: (...a: unknown[]) => clipFindManyMock(...a),
+      },
+      video: { update: (...a: unknown[]) => videoUpdateMock(...a) },
+      videoStatusEvent: { create: (...a: unknown[]) => videoStatusEventCreateMock(...a) },
+    });
+  }
+  return Promise.all(arg);
+});
 jest.mock('../prisma', () => ({
   prisma: {
     clip: {
       update: (...args: unknown[]) => clipUpdateMock(...args),
       findMany: (...args: unknown[]) => clipFindManyMock(...args),
-      count: (...args: unknown[]) => clipCountMock(...args),
+      findUnique: (...args: unknown[]) => clipFindUniqueMock(...args),
     },
     video: { update: (...args: unknown[]) => videoUpdateMock(...args) },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, atomically alongside video.update() via $transaction.
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
-    $transaction: (ops: Promise<unknown>[]) => Promise.all(ops),
+    $transaction: (...args: [Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)]) =>
+      transactionMock(...args),
   },
 }));
 
@@ -431,14 +456,14 @@ describe('render-clip worker', () => {
     getObjectStreamMock.mockResolvedValue({ fake: 'readable' });
     pipelineMock.mockResolvedValue(undefined);
     writeFileMock.mockResolvedValue(undefined);
-    readFileMock.mockResolvedValue(Buffer.from('rendered-bytes'));
     renderClipMock.mockResolvedValue(undefined);
     trimCutRangesMock.mockResolvedValue(undefined);
     uploadObjectMock.mockResolvedValue(undefined);
     clipUpdateMock.mockResolvedValue({});
-    // Clip exists by default - individual tests override this to exercise
-    // the orphaned-job (deleted-clip) skip path.
-    clipCountMock.mockResolvedValue(1);
+    // Clip exists and isn't rendered yet by default - individual tests
+    // override this to exercise the orphaned-job (deleted-clip) and
+    // already-rendered (idempotency) skip paths.
+    clipFindUniqueMock.mockResolvedValue({ outputUrl: null });
     videoUpdateMock.mockResolvedValue({});
     videoStatusEventCreateMock.mockResolvedValue({});
     cleanupTempFileMock.mockResolvedValue(undefined);
@@ -501,11 +526,11 @@ describe('render-clip worker', () => {
     );
     expect(uploadObjectMock).toHaveBeenCalledWith(
       'renders/clip-1.mp4',
-      Buffer.from('rendered-bytes'),
+      { fakeStream: expect.stringContaining('output') },
       'video/mp4',
     );
     expect(clipUpdateMock).toHaveBeenCalledWith({
-      where: { id: 'clip-1' },
+      where: { id: 'clip-1', outputUrl: null },
       data: {
         outputUrl: 'renders/clip-1.mp4',
         sceneCuts: [],
@@ -561,7 +586,7 @@ describe('render-clip worker', () => {
   });
 
   it('skips an orphaned job for a clip that was deleted while queued, without doing any work', async () => {
-    clipCountMock.mockResolvedValue(0);
+    clipFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
     const result = await processor({ data: baseJobData });
@@ -574,6 +599,49 @@ describe('render-clip worker', () => {
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(clipUpdateMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('skips a job for a clip already rendered, without a duplicate FFmpeg pass (concurrent-reprocessing guard)', async () => {
+    clipFindUniqueMock.mockResolvedValue({ outputUrl: 'renders/clip-1.mp4' });
+
+    const processor = getProcessor();
+    const result = await processor({ data: baseJobData });
+
+    expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    expect(getObjectStreamMock).not.toHaveBeenCalled();
+    expect(renderClipMock).not.toHaveBeenCalled();
+    expect(uploadObjectMock).not.toHaveBeenCalled();
+    expect(clipUpdateMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('treats a P2025 (no row matched outputUrl: null) on the final clip update as a benign concurrent-execution race, not a job failure', async () => {
+    clipFindManyMock.mockResolvedValue([
+      { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+    ]);
+    // Simulates a second execution of this same job (e.g. BullMQ stalled-job
+    // recovery) losing the optimistic-concurrency race - the clip's
+    // outputUrl was already set by the other, still-in-flight/finished
+    // execution by the time this one's update runs, so the where clause's
+    // outputUrl: null matches zero rows.
+    clipUpdateMock.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('No record found', {
+        code: 'P2025',
+        clientVersion: '5.0.0',
+      }),
+    );
+
+    const processor = getProcessor();
+    const result = await processor({ data: baseJobData });
+
+    expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    // No video-status transition from this losing execution - the winning
+    // execution (whose update actually matched) owns that decision instead.
+    expect(videoUpdateMock).not.toHaveBeenCalled();
+    expect(videoStatusEventCreateMock).not.toHaveBeenCalled();
+    // Not reported as a failure - this is an expected, benign race outcome,
+    // not an error.
+    expect(captureExceptionMock).not.toHaveBeenCalled();
   });
 
   it("passes the job's captionStyle through to buildAss", async () => {
@@ -648,7 +716,7 @@ describe('render-clip worker', () => {
       expect(trimCutRangesMock).not.toHaveBeenCalled();
       expect(uploadObjectMock).toHaveBeenCalledWith(
         'renders/clip-1.mp4',
-        Buffer.from('rendered-bytes'),
+        { fakeStream: expect.stringContaining('output') },
         'video/mp4',
       );
       // No extra "trimmed" scratch file reserved/cleaned up.
@@ -659,11 +727,6 @@ describe('render-clip worker', () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
       ]);
-      readFileMock.mockImplementation((path: string) =>
-        Promise.resolve(
-          path.includes('trimmed') ? Buffer.from('trimmed-bytes') : Buffer.from('rendered-bytes'),
-        ),
-      );
 
       const processor = getProcessor();
       await processor({
@@ -696,7 +759,7 @@ describe('render-clip worker', () => {
       expect(cuts).toEqual([{ start: 0.45, end: 9.35 }]);
       expect(uploadObjectMock).toHaveBeenCalledWith(
         'renders/clip-1.mp4',
-        Buffer.from('trimmed-bytes'),
+        { fakeStream: expect.stringContaining('trimmed') },
         'video/mp4',
       );
       expect(cleanupTempFileMock).toHaveBeenCalledWith(expect.stringContaining('trimmed'));
@@ -954,7 +1017,7 @@ describe('render-clip worker', () => {
         sceneIntelligenceDeps,
       );
       expect(clipUpdateMock).toHaveBeenCalledWith({
-        where: { id: 'clip-1' },
+        where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [1.5, 4.2],
@@ -1089,7 +1152,7 @@ describe('render-clip worker', () => {
       const result = await processor({ data: baseJobData });
 
       expect(clipUpdateMock).toHaveBeenCalledWith({
-        where: { id: 'clip-1' },
+        where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [],
@@ -1374,7 +1437,7 @@ describe('render-clip worker', () => {
         facialIntelligenceDeps,
       );
       expect(clipUpdateMock).toHaveBeenCalledWith({
-        where: { id: 'clip-1' },
+        where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [],
@@ -1509,7 +1572,7 @@ describe('render-clip worker', () => {
       const result = await processor({ data: baseJobData });
 
       expect(clipUpdateMock).toHaveBeenCalledWith({
-        where: { id: 'clip-1' },
+        where: { id: 'clip-1', outputUrl: null },
         data: {
           outputUrl: 'renders/clip-1.mp4',
           sceneCuts: [],
