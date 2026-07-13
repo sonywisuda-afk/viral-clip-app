@@ -18,9 +18,7 @@ function isFeatureKey(key: string): boolean {
 }
 
 function numericValuesFor(records: DatasetRecord[], feature: string): number[] {
-  return records
-    .map((r) => r[feature])
-    .filter((v): v is number => typeof v === 'number');
+  return records.map((r) => r[feature]).filter((v): v is number => typeof v === 'number');
 }
 
 export interface MissingDataEntry {
@@ -123,8 +121,7 @@ export interface FeatureDriftEntry {
 }
 
 export type FeatureDriftResult =
-  | { insufficientData: true }
-  | { insufficientData: false; entries: FeatureDriftEntry[] };
+  { insufficientData: true } | { insufficientData: false; entries: FeatureDriftEntry[] };
 
 const MIN_TOTAL_FOR_DRIFT = 10;
 const MIN_PER_BUCKET_FOR_DRIFT = 5;
@@ -158,7 +155,10 @@ export function detectFeatureDrift(records: TimestampedRecord[]): FeatureDriftRe
   for (const feature of featureKeys) {
     const earlierValues = numericValuesFor(earlier, feature);
     const laterValues = numericValuesFor(later, feature);
-    if (earlierValues.length < MIN_PER_BUCKET_FOR_DRIFT || laterValues.length < MIN_PER_BUCKET_FOR_DRIFT) {
+    if (
+      earlierValues.length < MIN_PER_BUCKET_FOR_DRIFT ||
+      laterValues.length < MIN_PER_BUCKET_FOR_DRIFT
+    ) {
       continue;
     }
     const meanEarlier = earlierValues.reduce((sum, v) => sum + v, 0) / earlierValues.length;

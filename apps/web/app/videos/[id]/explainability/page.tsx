@@ -102,7 +102,11 @@ export default function ExplainabilityPage({ params }: { params: { id: string } 
                   selectedClipId={selectedClipId}
                   onSelectClip={setSelectedClipId}
                 />
-                <ExplainabilityDetailPanel results={results} loading={detailLoading} error={detailError} />
+                <ExplainabilityDetailPanel
+                  results={results}
+                  loading={detailLoading}
+                  error={detailError}
+                />
               </div>
             ) : null}
           </>

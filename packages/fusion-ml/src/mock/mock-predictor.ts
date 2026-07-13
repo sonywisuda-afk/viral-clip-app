@@ -30,7 +30,9 @@ export class MockPredictor implements Predictor {
     }
 
     const average =
-      vector.values.length === 0 ? 0 : vector.values.reduce((sum, v) => sum + v, 0) / vector.values.length;
+      vector.values.length === 0
+        ? 0
+        : vector.values.reduce((sum, v) => sum + v, 0) / vector.values.length;
     return {
       clipId: vector.clipId,
       score: average * 100,

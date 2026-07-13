@@ -115,8 +115,8 @@ export default function OpsAiPage() {
 
             {forbidden ? (
               <p className="mt-8 font-body text-sm text-muted-foreground">
-                Halaman ini dibatasi untuk role ADMIN/AI_ENGINEER/OPERATOR. Akun kamu saat ini
-                tidak memiliki akses.
+                Halaman ini dibatasi untuk role ADMIN/AI_ENGINEER/OPERATOR. Akun kamu saat ini tidak
+                memiliki akses.
               </p>
             ) : error ? (
               <p className="mt-4 font-body text-sm text-destructive">{error}</p>
@@ -156,7 +156,9 @@ export default function OpsAiPage() {
                       <CardTitle className="text-base">Score Distribution</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {distribution ? <HistogramBars bars={distribution.scoreDistribution} /> : null}
+                      {distribution ? (
+                        <HistogramBars bars={distribution.scoreDistribution} />
+                      ) : null}
                     </CardContent>
                   </Card>
                   <Card>
@@ -164,7 +166,9 @@ export default function OpsAiPage() {
                       <CardTitle className="text-base">Confidence Distribution</CardTitle>
                     </CardHeader>
                     <CardContent>
-                      {distribution ? <HistogramBars bars={distribution.confidenceDistribution} /> : null}
+                      {distribution ? (
+                        <HistogramBars bars={distribution.confidenceDistribution} />
+                      ) : null}
                     </CardContent>
                   </Card>
                 </div>
@@ -174,7 +178,9 @@ export default function OpsAiPage() {
                     <CardTitle className="text-base">Feature Completeness</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {distribution ? <FeatureCompletenessTable rows={distribution.featureCompleteness} /> : null}
+                    {distribution ? (
+                      <FeatureCompletenessTable rows={distribution.featureCompleteness} />
+                    ) : null}
                   </CardContent>
                 </Card>
 
@@ -183,7 +189,9 @@ export default function OpsAiPage() {
                     <CardTitle className="text-base">Feature Distribution</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {distribution ? <FeatureDistributionTable rows={distribution.featureDistribution} /> : null}
+                    {distribution ? (
+                      <FeatureDistributionTable rows={distribution.featureDistribution} />
+                    ) : null}
                   </CardContent>
                 </Card>
 
@@ -191,14 +199,18 @@ export default function OpsAiPage() {
                   <CardHeader>
                     <CardTitle className="text-base">Correlation Summary</CardTitle>
                   </CardHeader>
-                  <CardContent>{correlation ? <CorrelationPanel {...correlation} /> : null}</CardContent>
+                  <CardContent>
+                    {correlation ? <CorrelationPanel {...correlation} /> : null}
+                  </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Weight Calibration</CardTitle>
                   </CardHeader>
-                  <CardContent>{calibration ? <CalibrationTable {...calibration} /> : null}</CardContent>
+                  <CardContent>
+                    {calibration ? <CalibrationTable {...calibration} /> : null}
+                  </CardContent>
                 </Card>
 
                 <Card>

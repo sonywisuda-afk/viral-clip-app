@@ -65,7 +65,11 @@ export function ClipGrid({ videoId, clips }: { videoId: string; clips: Clip[] })
   }, [clips, sortKey, sortDir]);
 
   if (clips.length === 0) {
-    return <p className="font-body text-sm text-muted-foreground">Tidak ada klip yang ditemukan untuk video ini.</p>;
+    return (
+      <p className="font-body text-sm text-muted-foreground">
+        Tidak ada klip yang ditemukan untuk video ini.
+      </p>
+    );
   }
 
   return (

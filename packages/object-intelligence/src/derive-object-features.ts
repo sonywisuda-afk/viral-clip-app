@@ -61,7 +61,10 @@ export function deriveObjectFeatures(tracks: ObjectTrack[], totalSamples: number
   // deriveOcrFeatures' dominantTextCategory.
   const weightedCounts = new Map<string, number>();
   for (const track of tracks) {
-    weightedCounts.set(track.category, (weightedCounts.get(track.category) ?? 0) + track.appearsFrames);
+    weightedCounts.set(
+      track.category,
+      (weightedCounts.get(track.category) ?? 0) + track.appearsFrames,
+    );
   }
   let dominantObject = tracks[0].category;
   let dominantWeight = 0;

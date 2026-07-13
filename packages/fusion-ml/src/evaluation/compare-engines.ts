@@ -35,7 +35,10 @@ export function compareEngines(
     precisionAtKValue = precisionAtK(orderedB, relevant, k);
     recallAtKValue = recallAtK(orderedB, relevant, k);
     ndcgValue = ndcg(
-      resultsB.rankings.map((r) => ({ clipId: r.clipId, relevance: relevant.has(r.clipId) ? 1 : 0 })),
+      resultsB.rankings.map((r) => ({
+        clipId: r.clipId,
+        relevance: relevant.has(r.clipId) ? 1 : 0,
+      })),
       k,
     );
   }

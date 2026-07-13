@@ -61,7 +61,10 @@ export function bucketByPublishDate(
   days: number,
   now: Date = new Date(),
 ): EngagementTrendPoint[] {
-  const buckets = new Map<string, { totalViews: number; engagementScores: number[]; publishCount: number }>();
+  const buckets = new Map<
+    string,
+    { totalViews: number; engagementScores: number[]; publishCount: number }
+  >();
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);

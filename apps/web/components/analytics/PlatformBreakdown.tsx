@@ -12,9 +12,7 @@ export interface PlatformBreakdownProps {
 export function PlatformBreakdown({ breakdown }: PlatformBreakdownProps) {
   if (breakdown.length === 0) {
     return (
-      <p className="font-body text-sm text-muted-foreground">
-        Belum ada klip yang dipublikasikan.
-      </p>
+      <p className="font-body text-sm text-muted-foreground">Belum ada klip yang dipublikasikan.</p>
     );
   }
 

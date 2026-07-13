@@ -1,4 +1,9 @@
-import type { FusionBreakdown, FusionContribution, FusionFactor, PredictionBucket } from '@speedora/shared';
+import type {
+  FusionBreakdown,
+  FusionContribution,
+  FusionFactor,
+  PredictionBucket,
+} from '@speedora/shared';
 
 // Milestone 4 (AI Explainability) - pure, no-JSX helpers for the
 // explainability page/components. Kept separate from the components so
@@ -38,7 +43,8 @@ export function groupBreakdownBySignal(breakdown: FusionBreakdown): SignalGroup[
   // it doesn't have (TS2802); Array.from() doesn't hit that restriction.
   const groups: SignalGroup[] = Array.from(bySignal.entries()).map(([signal, features]) => ({
     signal,
-    averageNormalizedValue: features.reduce((sum, f) => sum + f.normalizedValue, 0) / features.length,
+    averageNormalizedValue:
+      features.reduce((sum, f) => sum + f.normalizedValue, 0) / features.length,
     totalWeightedContribution: features.reduce((sum, f) => sum + f.weightedContribution, 0),
     active: features.some((f) => f.weight > 0),
     features,

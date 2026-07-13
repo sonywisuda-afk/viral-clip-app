@@ -1,5 +1,9 @@
 import type { TrainingSample } from '@speedora/contracts';
-import { BaselineLinearModelTrainer, BaselineLinearPredictor, type LinearRegressionModel } from './linear-regression';
+import {
+  BaselineLinearModelTrainer,
+  BaselineLinearPredictor,
+  type LinearRegressionModel,
+} from './linear-regression';
 
 // Noiseless synthetic dataset: label = 3*x0 + 2*x1 + 1 exactly.
 function syntheticSamples(): TrainingSample[] {
@@ -99,7 +103,12 @@ describe('BaselineLinearPredictor', () => {
     const predictor = new BaselineLinearPredictor(model);
 
     await expect(
-      predictor.predict({ clipId: 'c1', featureNames: ['other'], values: [1], extractedAt: '2026-01-01T00:00:00.000Z' }),
+      predictor.predict({
+        clipId: 'c1',
+        featureNames: ['other'],
+        values: [1],
+        extractedAt: '2026-01-01T00:00:00.000Z',
+      }),
     ).rejects.toThrow();
   });
 });

@@ -121,7 +121,11 @@ export function DashboardClient({
   // cadence as the original hand-rolled setInterval - just with dedup/
   // revalidate-on-focus for free. Pages beyond 1 (via "Load More") are kept
   // in separate, un-polled state and merged for rendering.
-  const { data, error: videosError, mutate } = useSWR<PaginatedVideos>(
+  const {
+    data,
+    error: videosError,
+    mutate,
+  } = useSWR<PaginatedVideos>(
     ['videos', DEFAULT_LIMIT],
     () => listVideos({ limit: DEFAULT_LIMIT }),
     {
@@ -766,8 +770,8 @@ export function DashboardClient({
                                         <div className="space-y-1.5">
                                           <div className="flex flex-wrap items-center gap-2">
                                             <span>
-                                              {PLATFORM_LABELS[record.platform] ?? record.platform}
-                                              : Dijadwalkan untuk{' '}
+                                              {PLATFORM_LABELS[record.platform] ?? record.platform}:
+                                              Dijadwalkan untuk{' '}
                                               <span className="font-mono">
                                                 {record.scheduledAt
                                                   ? new Date(record.scheduledAt).toLocaleString()

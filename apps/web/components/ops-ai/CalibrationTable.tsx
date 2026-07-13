@@ -30,23 +30,33 @@ export function CalibrationTable({
   return (
     <div>
       <p className="font-body text-xs text-muted-foreground">
-        Saran heuristik saja - tinjau sebelum mengubah packages/fusion-engine/src/weights.ts,
-        jangan diterapkan otomatis.
+        Saran heuristik saja - tinjau sebelum mengubah packages/fusion-engine/src/weights.ts, jangan
+        diterapkan otomatis.
       </p>
       <table className="mt-2 w-full border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left">
-            <th className="p-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Signal</th>
-            <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Current</th>
-            <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Suggested</th>
+            <th className="p-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+              Signal
+            </th>
+            <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+              Current
+            </th>
+            <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+              Suggested
+            </th>
           </tr>
         </thead>
         <tbody>
           {suggestions.map((row) => (
             <tr key={row.signal} className="border-b border-border/50">
               <td className="p-2 font-body text-xs text-foreground">{signalLabel(row.signal)}</td>
-              <td className="p-2 text-right font-mono text-xs text-muted-foreground">{row.currentWeight}</td>
-              <td className="p-2 text-right font-mono text-xs text-signal-pink">{row.suggestedWeight}</td>
+              <td className="p-2 text-right font-mono text-xs text-muted-foreground">
+                {row.currentWeight}
+              </td>
+              <td className="p-2 text-right font-mono text-xs text-signal-pink">
+                {row.suggestedWeight}
+              </td>
             </tr>
           ))}
         </tbody>

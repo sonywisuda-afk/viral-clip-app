@@ -11,12 +11,37 @@ import { LetterboxBand } from '@/components/signature/LetterboxBand';
 import { LiveReel, type LiveReelThumbnail } from '@/components/signature/LiveReel';
 
 const COLOR_TOKENS = [
-  { name: 'Bay Black', hex: '#0B0E14', className: 'bg-bay-black', textClassName: 'text-paper-white' },
-  { name: 'Slate Panel', hex: '#151922', className: 'bg-slate-panel', textClassName: 'text-paper-white' },
+  {
+    name: 'Bay Black',
+    hex: '#0B0E14',
+    className: 'bg-bay-black',
+    textClassName: 'text-paper-white',
+  },
+  {
+    name: 'Slate Panel',
+    hex: '#151922',
+    className: 'bg-slate-panel',
+    textClassName: 'text-paper-white',
+  },
   { name: 'Chrome', hex: '#A8B0BE', className: 'bg-chrome', textClassName: 'text-bay-black' },
-  { name: 'Signal Pink', hex: '#FF3B7F', className: 'bg-signal-pink', textClassName: 'text-paper-white' },
-  { name: 'Signal Cyan', hex: '#22E6D6', className: 'bg-signal-cyan', textClassName: 'text-bay-black' },
-  { name: 'Paper White', hex: '#EDEFF2', className: 'bg-paper-white', textClassName: 'text-bay-black' },
+  {
+    name: 'Signal Pink',
+    hex: '#FF3B7F',
+    className: 'bg-signal-pink',
+    textClassName: 'text-paper-white',
+  },
+  {
+    name: 'Signal Cyan',
+    hex: '#22E6D6',
+    className: 'bg-signal-cyan',
+    textClassName: 'text-bay-black',
+  },
+  {
+    name: 'Paper White',
+    hex: '#EDEFF2',
+    className: 'bg-paper-white',
+    textClassName: 'text-bay-black',
+  },
 ];
 
 function placeholderThumb(index: number, tone: string): string {
@@ -66,8 +91,8 @@ export default function StyleguidePage() {
           Styleguide
         </h1>
         <p className="mt-3 max-w-2xl text-muted-foreground">
-          Fase 0 foundation review — color tokens, type scale, and the signature Letterbox
-          Band / Live Reel components before any real page gets built on top of them.
+          Fase 0 foundation review — color tokens, type scale, and the signature Letterbox Band /
+          Live Reel components before any real page gets built on top of them.
         </p>
       </div>
 
@@ -110,8 +135,8 @@ export default function StyleguidePage() {
               Body — Manrope
             </Badge>
             <p className="max-w-2xl font-body text-base text-foreground">
-              Upload a long-form video and get short, caption-burned clips ranked by virality
-              score — ready to publish to YouTube Shorts, TikTok, and Instagram Reels.
+              Upload a long-form video and get short, caption-burned clips ranked by virality score
+              — ready to publish to YouTube Shorts, TikTok, and Instagram Reels.
             </p>
             <p className="mt-2 max-w-2xl font-body text-sm text-muted-foreground">
               Secondary body copy uses Chrome for reduced emphasis.
@@ -131,7 +156,10 @@ export default function StyleguidePage() {
         </div>
       </Section>
 
-      <Section title="Base Components" description="shadcn primitives restyled onto the token system.">
+      <Section
+        title="Base Components"
+        description="shadcn primitives restyled onto the token system."
+      >
         <div className="grid gap-8 md:grid-cols-2">
           <div className="flex flex-wrap items-center gap-3">
             <Button>Primary CTA</Button>
@@ -189,10 +217,18 @@ export default function StyleguidePage() {
         <div className="space-y-4">
           <LiveReel variant="progress" progress={progress} label="Detecting viral moments" />
           <div className="flex items-center gap-3">
-            <Button size="sm" variant="outline" onClick={() => setProgress((p) => Math.max(0, p - 10))}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setProgress((p) => Math.max(0, p - 10))}
+            >
               -10
             </Button>
-            <Button size="sm" variant="outline" onClick={() => setProgress((p) => Math.min(100, p + 10))}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setProgress((p) => Math.min(100, p + 10))}
+            >
               +10
             </Button>
             <span className="font-mono text-xs text-muted-foreground">
@@ -202,7 +238,10 @@ export default function StyleguidePage() {
         </div>
       </Section>
 
-      <Section title="Live Reel — thumbnail-strip" description="Clip gallery filmstrip of rendered clips.">
+      <Section
+        title="Live Reel — thumbnail-strip"
+        description="Clip gallery filmstrip of rendered clips."
+      >
         <LiveReel
           variant="thumbnail-strip"
           thumbnails={DEMO_THUMBNAILS}
@@ -211,8 +250,16 @@ export default function StyleguidePage() {
         />
       </Section>
 
-      <Section title="Live Reel — ruler" description="Timeline editor ruler with playhead and click-to-seek.">
-        <LiveReel variant="ruler" durationSeconds={90} currentTime={seekTime} onSeek={setSeekTime} />
+      <Section
+        title="Live Reel — ruler"
+        description="Timeline editor ruler with playhead and click-to-seek."
+      >
+        <LiveReel
+          variant="ruler"
+          durationSeconds={90}
+          currentTime={seekTime}
+          onSeek={setSeekTime}
+        />
       </Section>
 
       <div className="py-16">

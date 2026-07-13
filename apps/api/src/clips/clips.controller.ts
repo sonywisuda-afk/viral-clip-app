@@ -128,11 +128,7 @@ export class ClipsController {
   // Phase 3 (Hover Preview, "Clip Preview") - see VideosController's own
   // hoverPreview endpoint for the reasoning.
   @Get(':id/hover-preview')
-  async hoverPreview(
-    @CurrentUser() user: SafeUser,
-    @Param('id') id: string,
-    @Res() res: Response,
-  ) {
+  async hoverPreview(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {
     const { hoverPreviewUrl } = await this.clipsService.findHoverPreviewOrThrow(id, user.id);
     const stream = await getObjectStream(hoverPreviewUrl);
 

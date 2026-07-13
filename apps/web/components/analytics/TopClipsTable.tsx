@@ -105,7 +105,9 @@ export function TopClipsTable({ clips }: TopClipsTableProps) {
               </td>
               <td className="p-2 text-right font-mono text-foreground">{clip.viewCount ?? '—'}</td>
               <td className="p-2 text-right font-mono text-foreground">{clip.likeCount ?? '—'}</td>
-              <td className="p-2 text-right font-mono text-foreground">{clip.commentCount ?? '—'}</td>
+              <td className="p-2 text-right font-mono text-foreground">
+                {clip.commentCount ?? '—'}
+              </td>
               <td className="p-2 text-right font-mono text-foreground">{clip.shareCount ?? '—'}</td>
               <td className="p-2 text-right font-mono text-muted-foreground">
                 {formatPublishDate(clip.publishedAt)}

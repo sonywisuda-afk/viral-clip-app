@@ -29,7 +29,11 @@ export interface ExplainabilityDetailPanelProps {
 // and have it render as its own card, side by side, without this component
 // needing a redesign - see packages/shared/src/types/explainability.ts's
 // ClipExplainabilityDto comment.
-export function ExplainabilityDetailPanel({ results, loading, error }: ExplainabilityDetailPanelProps) {
+export function ExplainabilityDetailPanel({
+  results,
+  loading,
+  error,
+}: ExplainabilityDetailPanelProps) {
   if (loading) {
     return <p className="font-body text-sm text-muted-foreground">Memuat penjelasan AI...</p>;
   }
@@ -37,7 +41,11 @@ export function ExplainabilityDetailPanel({ results, loading, error }: Explainab
     return <p className="font-body text-sm text-destructive">{error}</p>;
   }
   if (results.length === 0) {
-    return <p className="font-body text-sm text-muted-foreground">Pilih klip untuk melihat penjelasan AI.</p>;
+    return (
+      <p className="font-body text-sm text-muted-foreground">
+        Pilih klip untuk melihat penjelasan AI.
+      </p>
+    );
   }
 
   return (
@@ -47,7 +55,9 @@ export function ExplainabilityDetailPanel({ results, loading, error }: Explainab
         return (
           <Card key={result.engine}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">{ENGINE_LABELS[result.engine] ?? result.engine}</CardTitle>
+              <CardTitle className="text-base">
+                {ENGINE_LABELS[result.engine] ?? result.engine}
+              </CardTitle>
               <Badge variant="outline" className={TONE_CLASSES[badge.tone]}>
                 {badge.label}
               </Badge>
@@ -71,7 +81,8 @@ export function ExplainabilityDetailPanel({ results, loading, error }: Explainab
                     {formatConfidence(result.highlightConfidence)}
                   </p>
                   <p className="max-w-[16rem] font-body text-[10px] text-muted-foreground">
-                    Estimasi heuristik cakupan &amp; kualitas sinyal, bukan probabilitas terkalibrasi.
+                    Estimasi heuristik cakupan &amp; kualitas sinyal, bukan probabilitas
+                    terkalibrasi.
                   </p>
                 </div>
               </div>

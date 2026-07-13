@@ -215,10 +215,7 @@ describe('VideosController', () => {
 
       await controller.animatedThumbnail(user, 'video-1', res);
 
-      expect(videosService.findAnimatedThumbnailOrThrow).toHaveBeenCalledWith(
-        'video-1',
-        'user-1',
-      );
+      expect(videosService.findAnimatedThumbnailOrThrow).toHaveBeenCalledWith('video-1', 'user-1');
       expect(getObjectStream).toHaveBeenCalledWith('animated-thumbnails/video-1.webp');
       expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
       expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
@@ -241,9 +238,7 @@ describe('VideosController', () => {
       videosService.findAnimatedThumbnailOrThrow.mockRejectedValue(new Error('not found'));
       const res = { setHeader: jest.fn() } as unknown as Response;
 
-      await expect(controller.animatedThumbnail(user, 'missing', res)).rejects.toThrow(
-        'not found',
-      );
+      await expect(controller.animatedThumbnail(user, 'missing', res)).rejects.toThrow('not found');
       expect(getObjectStream).not.toHaveBeenCalled();
     });
   });
@@ -296,11 +291,7 @@ describe('VideosController', () => {
 
       await controller.storyboardFrame(user, 'video-1', '0', res);
 
-      expect(videosService.findStoryboardFrameOrThrow).toHaveBeenCalledWith(
-        'video-1',
-        'user-1',
-        0,
-      );
+      expect(videosService.findStoryboardFrameOrThrow).toHaveBeenCalledWith('video-1', 'user-1', 0);
       expect(getObjectStream).toHaveBeenCalledWith('storyboards/video-1-0.webp');
       expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
       expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');

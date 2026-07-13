@@ -25,7 +25,12 @@ export interface ScoreGaugeProps {
  * at a glance. Originally built for virality score; reusable for any other
  * 0-100 metric via `label`.
  */
-export function ScoreGauge({ score, size = 64, className, label = 'Virality score' }: ScoreGaugeProps) {
+export function ScoreGauge({
+  score,
+  size = 64,
+  className,
+  label = 'Virality score',
+}: ScoreGaugeProps) {
   const gradientId = useId();
   const clamped = Math.min(100, Math.max(0, score));
   const strokeWidth = Math.max(3, size * 0.07);
@@ -34,8 +39,17 @@ export function ScoreGauge({ score, size = 64, className, label = 'Virality scor
   const offset = circumference * (1 - clamped / 100);
 
   return (
-    <div className={cn('relative inline-flex items-center justify-center', className)} style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90" role="img" aria-label={`${label} ${Math.round(clamped)} out of 100`}>
+    <div
+      className={cn('relative inline-flex items-center justify-center', className)}
+      style={{ width: size, height: size }}
+    >
+      <svg
+        width={size}
+        height={size}
+        className="-rotate-90"
+        role="img"
+        aria-label={`${label} ${Math.round(clamped)} out of 100`}
+      >
         <defs>
           <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor="#FF3B7F" />

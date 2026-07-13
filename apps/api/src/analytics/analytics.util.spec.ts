@@ -61,7 +61,11 @@ describe('bucketUploadsByDay', () => {
 
   it('counts uploads on their correct day', () => {
     const result = bucketUploadsByDay(
-      [new Date('2026-01-08T03:00:00.000Z'), new Date('2026-01-08T20:00:00.000Z'), new Date('2026-01-10T00:00:00.000Z')],
+      [
+        new Date('2026-01-08T03:00:00.000Z'),
+        new Date('2026-01-08T20:00:00.000Z'),
+        new Date('2026-01-10T00:00:00.000Z'),
+      ],
       5,
       now,
     );

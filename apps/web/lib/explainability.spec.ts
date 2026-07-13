@@ -10,9 +10,30 @@ import {
 describe('groupBreakdownBySignal', () => {
   it('groups contributions by signal and sums their weighted contribution', () => {
     const breakdown: FusionBreakdown = [
-      { signal: 'audio', feature: 'averageRmsDb', rawValue: -18, normalizedValue: 0.7, weight: 0.175, weightedContribution: 0.1225 },
-      { signal: 'audio', feature: 'speakingRateStdDev', rawValue: 0.3, normalizedValue: 0.5, weight: 0.175, weightedContribution: 0.0875 },
-      { signal: 'scene', feature: 'cutsPerMinute', rawValue: 4, normalizedValue: 0.6, weight: 0.25, weightedContribution: 0.15 },
+      {
+        signal: 'audio',
+        feature: 'averageRmsDb',
+        rawValue: -18,
+        normalizedValue: 0.7,
+        weight: 0.175,
+        weightedContribution: 0.1225,
+      },
+      {
+        signal: 'audio',
+        feature: 'speakingRateStdDev',
+        rawValue: 0.3,
+        normalizedValue: 0.5,
+        weight: 0.175,
+        weightedContribution: 0.0875,
+      },
+      {
+        signal: 'scene',
+        feature: 'cutsPerMinute',
+        rawValue: 4,
+        normalizedValue: 0.6,
+        weight: 0.25,
+        weightedContribution: 0.15,
+      },
     ];
 
     const groups = groupBreakdownBySignal(breakdown);
@@ -29,8 +50,22 @@ describe('groupBreakdownBySignal', () => {
 
   it('sorts groups by total weighted contribution descending', () => {
     const breakdown: FusionBreakdown = [
-      { signal: 'low', feature: 'x', rawValue: 0, normalizedValue: 0.1, weight: 0.1, weightedContribution: 0.01 },
-      { signal: 'high', feature: 'y', rawValue: 0, normalizedValue: 0.9, weight: 0.5, weightedContribution: 0.45 },
+      {
+        signal: 'low',
+        feature: 'x',
+        rawValue: 0,
+        normalizedValue: 0.1,
+        weight: 0.1,
+        weightedContribution: 0.01,
+      },
+      {
+        signal: 'high',
+        feature: 'y',
+        rawValue: 0,
+        normalizedValue: 0.9,
+        weight: 0.5,
+        weightedContribution: 0.45,
+      },
     ];
 
     const groups = groupBreakdownBySignal(breakdown);
@@ -40,7 +75,14 @@ describe('groupBreakdownBySignal', () => {
 
   it('marks a weight-0 signal as not active, not hidden', () => {
     const breakdown: FusionBreakdown = [
-      { signal: 'composition', feature: 'ruleOfThirdsScore', rawValue: 0.5, normalizedValue: 0.5, weight: 0, weightedContribution: 0 },
+      {
+        signal: 'composition',
+        feature: 'ruleOfThirdsScore',
+        rawValue: 0.5,
+        normalizedValue: 0.5,
+        weight: 0,
+        weightedContribution: 0,
+      },
     ];
 
     const groups = groupBreakdownBySignal(breakdown);
@@ -80,9 +122,15 @@ describe('formatConfidence', () => {
 
 describe('predictionBadge', () => {
   it('maps each bucket to a label and tone', () => {
-    expect(predictionBadge('likely_high_performer')).toEqual({ label: 'Berpotensi Tinggi', tone: 'good' });
+    expect(predictionBadge('likely_high_performer')).toEqual({
+      label: 'Berpotensi Tinggi',
+      tone: 'good',
+    });
     expect(predictionBadge('uncertain')).toEqual({ label: 'Belum Pasti', tone: 'neutral' });
-    expect(predictionBadge('likely_low_performer')).toEqual({ label: 'Berpotensi Rendah', tone: 'bad' });
+    expect(predictionBadge('likely_low_performer')).toEqual({
+      label: 'Berpotensi Rendah',
+      tone: 'bad',
+    });
   });
 
   it('returns an unknown badge for null/undefined', () => {

@@ -60,7 +60,12 @@ describe('trainingSampleSchema', () => {
   it('rejects a sample whose featureVector is invalid', () => {
     const result = trainingSampleSchema.safeParse({
       sampleId: 's1',
-      featureVector: { clipId: 'clip-1', featureNames: ['audio', 'scene'], values: [0.5], extractedAt: 'x' },
+      featureVector: {
+        clipId: 'clip-1',
+        featureNames: ['audio', 'scene'],
+        values: [0.5],
+        extractedAt: 'x',
+      },
       label: 0.7,
     });
     expect(result.success).toBe(false);

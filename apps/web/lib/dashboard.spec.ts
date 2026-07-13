@@ -1,10 +1,5 @@
 import { VideoStatus } from '@speedora/shared';
-import {
-  formatBytes,
-  formatDuration,
-  formatRelativeTime,
-  videoProcessingStage,
-} from './dashboard';
+import { formatBytes, formatDuration, formatRelativeTime, videoProcessingStage } from './dashboard';
 
 describe('formatBytes', () => {
   it('formats 0 (and negative) bytes as "0 B"', () => {

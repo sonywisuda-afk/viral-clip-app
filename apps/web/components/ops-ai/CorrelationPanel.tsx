@@ -33,7 +33,9 @@ export function CorrelationPanel({
       <table className="mt-2 w-full border-collapse font-body text-sm">
         <thead>
           <tr className="border-b border-border text-left">
-            <th className="p-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Feature</th>
+            <th className="p-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+              Feature
+            </th>
             <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
               Correlation vs. Engagement
             </th>
@@ -43,7 +45,9 @@ export function CorrelationPanel({
           {correlations.map((row) => (
             <tr key={row.feature} className="border-b border-border/50">
               <td className="p-2 font-mono text-xs text-foreground">{row.feature}</td>
-              <td className="p-2 text-right font-mono text-xs text-signal-cyan">{row.correlation.toFixed(3)}</td>
+              <td className="p-2 text-right font-mono text-xs text-signal-cyan">
+                {row.correlation.toFixed(3)}
+              </td>
             </tr>
           ))}
         </tbody>

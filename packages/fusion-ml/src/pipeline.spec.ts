@@ -1,4 +1,8 @@
-import { BaselineLinearModelTrainer, BaselineLinearPredictor, type LinearRegressionModel } from './baseline/linear-regression';
+import {
+  BaselineLinearModelTrainer,
+  BaselineLinearPredictor,
+  type LinearRegressionModel,
+} from './baseline/linear-regression';
 import { InMemoryFeatureRegistry } from './feature-registry';
 import type { DatasetBuilder } from './interfaces';
 import { InMemoryModelRegistry } from './model-registry';
@@ -32,7 +36,9 @@ describe('runFusionV3Pipeline', () => {
     expect(result.datasetVersion.checksum).toHaveLength(64);
 
     expect(result.featureSchema.featureNames.length).toBeGreaterThan(0);
-    expect(await featureRegistry.get(result.featureSchema.featureVersion)).toEqual(result.featureSchema);
+    expect(await featureRegistry.get(result.featureSchema.featureVersion)).toEqual(
+      result.featureSchema,
+    );
 
     const registered = await modelRegistry.get(result.modelMetadata.modelVersion);
     expect(registered).not.toBeNull();

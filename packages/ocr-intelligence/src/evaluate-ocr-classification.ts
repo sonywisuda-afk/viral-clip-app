@@ -1,4 +1,8 @@
-import { OCR_TEXT_CATEGORIES, type OcrLabeledTrack, type OcrTextCategory } from '@speedora/contracts';
+import {
+  OCR_TEXT_CATEGORIES,
+  type OcrLabeledTrack,
+  type OcrTextCategory,
+} from '@speedora/contracts';
 
 // AI Fusion roadmap's OCR initiative, Batch OCR-2.5 (Calibration &
 // Evaluation) - user's own explicit direction, inserted BEFORE OCR-3

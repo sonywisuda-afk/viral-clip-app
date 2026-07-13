@@ -568,19 +568,25 @@ export function trackObjects(samples: ObjectSample[]): ObjectTrack[] {
   // buildTrack() like occlusionScore/visibilityScore/activityScore.
   const built = finished.map((track) => buildTrack(track, samples.length));
   const tracksWithoutSocial = built.map((b) => b.track);
-  return built.map(({ track, proximityScore, convergenceScore, visibilityScore, activityScore }, index) => {
-    const temporalOverlapScore = computeTemporalOverlapScore(track, tracksWithoutSocial);
-    const partnerScore = computeCoOccurringPartnerScore(finished[index], finished);
-    const interactionConfidence = computeInteractionConfidence(
-      proximityScore,
-      temporalOverlapScore,
-      convergenceScore,
-    );
-    const socialScore = computeSocialScore(interactionConfidence, partnerScore, temporalOverlapScore);
-    return {
-      ...track,
-      interactionConfidence,
-      attentionScore: computeAttentionScore(visibilityScore, activityScore, socialScore),
-    };
-  });
+  return built.map(
+    ({ track, proximityScore, convergenceScore, visibilityScore, activityScore }, index) => {
+      const temporalOverlapScore = computeTemporalOverlapScore(track, tracksWithoutSocial);
+      const partnerScore = computeCoOccurringPartnerScore(finished[index], finished);
+      const interactionConfidence = computeInteractionConfidence(
+        proximityScore,
+        temporalOverlapScore,
+        convergenceScore,
+      );
+      const socialScore = computeSocialScore(
+        interactionConfidence,
+        partnerScore,
+        temporalOverlapScore,
+      );
+      return {
+        ...track,
+        interactionConfidence,
+        attentionScore: computeAttentionScore(visibilityScore, activityScore, socialScore),
+      };
+    },
+  );
 }

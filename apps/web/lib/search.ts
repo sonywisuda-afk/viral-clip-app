@@ -18,11 +18,7 @@ export function hasAnyResults(results: SearchResultsDto): boolean {
 // Falls back to the full text when the query isn't actually found in it
 // (can happen if a transcript segment's own casing/whitespace splits the
 // match across the contains() boundary Postgres used).
-export function formatTranscriptSnippet(
-  text: string,
-  query: string,
-  contextChars = 40,
-): string {
+export function formatTranscriptSnippet(text: string, query: string, contextChars = 40): string {
   const trimmedQuery = query.trim();
   if (trimmedQuery.length === 0) return text;
 

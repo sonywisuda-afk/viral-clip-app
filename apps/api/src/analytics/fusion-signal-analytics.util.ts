@@ -35,7 +35,9 @@ export function computeScoreDistribution(scores: number[]): HistogramBucket[] {
 // correct, honest signal, not a bug. `clipsWithSignal` counts clips where
 // the signal was extracted at all (an entry exists), regardless of its
 // weighted magnitude - a completeness read, separate from the contribution %.
-export function computeSignalContributions(breakdowns: FusionBreakdown[]): SignalContributionEntry[] {
+export function computeSignalContributions(
+  breakdowns: FusionBreakdown[],
+): SignalContributionEntry[] {
   const totalBySignal = new Map<string, number>();
   const clipsBySignal = new Map<string, number>();
 

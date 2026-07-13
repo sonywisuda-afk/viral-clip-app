@@ -139,7 +139,11 @@ function eyeGazeOffset(
 function continuousGazeOffsetFor(sample: FaceLandmarkSample): number | null {
   const offsets: number[] = [];
   if (sample.leftIris && sample.leftEyeInnerCorner && sample.leftEyeOuterCorner) {
-    const offset = eyeGazeOffset(sample.leftIris, sample.leftEyeInnerCorner, sample.leftEyeOuterCorner);
+    const offset = eyeGazeOffset(
+      sample.leftIris,
+      sample.leftEyeInnerCorner,
+      sample.leftEyeOuterCorner,
+    );
     if (offset !== null) offsets.push(offset);
   }
   if (sample.rightIris && sample.rightEyeInnerCorner && sample.rightEyeOuterCorner) {
@@ -150,7 +154,9 @@ function continuousGazeOffsetFor(sample: FaceLandmarkSample): number | null {
     );
     if (offset !== null) offsets.push(offset);
   }
-  return offsets.length === 0 ? null : offsets.reduce((sum, value) => sum + value, 0) / offsets.length;
+  return offsets.length === 0
+    ? null
+    : offsets.reduce((sum, value) => sum + value, 0) / offsets.length;
 }
 
 // Step: per-sample looking-direction bucket - head rotation takes priority
@@ -178,7 +184,11 @@ function lookingDirectionFor(sample: FaceLandmarkSample): LookingDirection | nul
     return sample.rotation.pitch > 0 ? 'down' : 'up';
   }
 
-  const leftGaze = eyeGazeOffset(sample.leftIris, sample.leftEyeInnerCorner, sample.leftEyeOuterCorner);
+  const leftGaze = eyeGazeOffset(
+    sample.leftIris,
+    sample.leftEyeInnerCorner,
+    sample.leftEyeOuterCorner,
+  );
   const rightGaze = eyeGazeOffset(
     sample.rightIris,
     sample.rightEyeInnerCorner,
@@ -454,8 +464,7 @@ export function deriveFaceLandmarkFeatures(
 
   let articulationRate: number | null = null;
   if (withBlendshapes.length >= 3) {
-    const duration =
-      withBlendshapes[withBlendshapes.length - 1].t - withBlendshapes[0].t;
+    const duration = withBlendshapes[withBlendshapes.length - 1].t - withBlendshapes[0].t;
     if (duration > 0) {
       let directionChanges = 0;
       let previousDirection: 1 | -1 | null = null;
@@ -480,8 +489,7 @@ export function deriveFaceLandmarkFeatures(
   const averageMouthWidth =
     withMouthWidth.length === 0
       ? null
-      : withMouthWidth.reduce((sum, sample) => sum + sample.mouthWidth!, 0) /
-        withMouthWidth.length;
+      : withMouthWidth.reduce((sum, sample) => sum + sample.mouthWidth!, 0) / withMouthWidth.length;
 
   const averageCheekRaise =
     withBlendshapes.length === 0
@@ -584,7 +592,11 @@ export function deriveFaceLandmarkFeatures(
           const b = sample.blendshapes!;
           return (
             sum +
-            (b.browDownLeft + b.browDownRight + b.browInnerUp + b.browOuterUpLeft + b.browOuterUpRight) /
+            (b.browDownLeft +
+              b.browDownRight +
+              b.browInnerUp +
+              b.browOuterUpLeft +
+              b.browOuterUpRight) /
               5
           );
         }, 0) / withBlendshapes.length;
@@ -621,7 +633,9 @@ export function deriveFaceLandmarkFeatures(
   // catch-all once data exists but nothing else matched, not the default
   // for missing data (see dominantAffect: null below for that case).
   const normalizedHeadMovement =
-    averageHeadMovementRate === null ? null : clamp01(averageHeadMovementRate / HEAD_MOVEMENT_RATE_CAP);
+    averageHeadMovementRate === null
+      ? null
+      : clamp01(averageHeadMovementRate / HEAD_MOVEMENT_RATE_CAP);
   const normalizedArticulation =
     articulationRate === null ? null : clamp01(articulationRate / ARTICULATION_RATE_NORM_CAP);
   const normalizedLipVelocity =

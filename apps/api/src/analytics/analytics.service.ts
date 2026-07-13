@@ -16,7 +16,10 @@ import {
 } from '../videos/transcript-segment.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { bucketUploadsByDay, computeAverageEngagementScore } from './analytics.util';
-import { computeScoreDistribution, computeSignalContributions } from './fusion-signal-analytics.util';
+import {
+  computeScoreDistribution,
+  computeSignalContributions,
+} from './fusion-signal-analytics.util';
 import {
   bucketByPublishDate,
   computeConfidenceDistribution,
@@ -58,25 +61,29 @@ export class AnalyticsService {
   // check-calibration-coverage.ts already uses in apps/worker for its own
   // multi-query report.
   async getOverview(userId: string): Promise<AnalyticsOverviewDto> {
-    const [totalVideos, totalClips, publishedClips, snapshots, videos, publishedRecords] = await Promise.all([
-      this.prisma.video.count({ where: { ownerId: userId } }),
-      this.prisma.clip.count({ where: { video: { ownerId: userId } } }),
-      this.prisma.clip.count({
-        where: { video: { ownerId: userId }, publishRecords: { some: { status: PublishStatus.PUBLISHED } } },
-      }),
-      this.prisma.publishRecordStatsSnapshot.findMany({
-        where: { publishRecord: { clip: { video: { ownerId: userId } } } },
-        select: { publishRecordId: true, capturedAt: true, engagementScore: true },
-      }),
-      this.prisma.video.findMany({
-        where: { ownerId: userId },
-        select: { status: true, createdAt: true },
-      }),
-      this.prisma.publishRecord.findMany({
-        where: { status: PublishStatus.PUBLISHED, clip: { video: { ownerId: userId } } },
-        select: { socialAccount: { select: { platform: true } } },
-      }),
-    ]);
+    const [totalVideos, totalClips, publishedClips, snapshots, videos, publishedRecords] =
+      await Promise.all([
+        this.prisma.video.count({ where: { ownerId: userId } }),
+        this.prisma.clip.count({ where: { video: { ownerId: userId } } }),
+        this.prisma.clip.count({
+          where: {
+            video: { ownerId: userId },
+            publishRecords: { some: { status: PublishStatus.PUBLISHED } },
+          },
+        }),
+        this.prisma.publishRecordStatsSnapshot.findMany({
+          where: { publishRecord: { clip: { video: { ownerId: userId } } } },
+          select: { publishRecordId: true, capturedAt: true, engagementScore: true },
+        }),
+        this.prisma.video.findMany({
+          where: { ownerId: userId },
+          select: { status: true, createdAt: true },
+        }),
+        this.prisma.publishRecord.findMany({
+          where: { status: PublishStatus.PUBLISHED, clip: { video: { ownerId: userId } } },
+          select: { socialAccount: { select: { platform: true } } },
+        }),
+      ]);
 
     const processingStatusCounts = new Map<VideoStatus, number>();
     for (const video of videos) {
@@ -171,7 +178,10 @@ export class AnalyticsService {
     previousWindowStart.setDate(previousWindowStart.getDate() - options.days);
 
     const [currentRecords, previousRecords] = await Promise.all([
-      this.fetchPublishedRecords(userId, { platform: options.platform, publishedAfter: windowStart }),
+      this.fetchPublishedRecords(userId, {
+        platform: options.platform,
+        publishedAfter: windowStart,
+      }),
       this.fetchPublishedRecords(userId, {
         platform: options.platform,
         publishedAfter: previousWindowStart,
@@ -214,7 +224,9 @@ export class AnalyticsService {
     // published to two platforms shouldn't count its highlightScore twice.
     const clipsById = new Map(currentRecords.map((r) => [r.clip.id, r.clip]));
     const clips = Array.from(clipsById.values());
-    const highlightScores = clips.map((c) => c.highlightScore).filter((v): v is number => v !== null);
+    const highlightScores = clips
+      .map((c) => c.highlightScore)
+      .filter((v): v is number => v !== null);
     const confidences = clips
       .map((c) => c.highlightConfidence)
       .filter((v): v is number => v !== null);
@@ -345,7 +357,9 @@ export class AnalyticsService {
       totalShares: acc.totalShares,
     }));
 
-    const sorted = rows.sort((a, b) => (b.averageEngagementScore ?? -1) - (a.averageEngagementScore ?? -1));
+    const sorted = rows.sort(
+      (a, b) => (b.averageEngagementScore ?? -1) - (a.averageEngagementScore ?? -1),
+    );
     return { videos: sorted.slice(0, options.limit ?? DEFAULT_PERFORMANCE_LIMIT) };
   }
 }

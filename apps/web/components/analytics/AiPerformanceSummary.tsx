@@ -25,7 +25,11 @@ export function AiPerformanceSummary({ summary }: AiPerformanceSummaryProps) {
       <div className="grid gap-4 sm:grid-cols-2">
         <StatTile
           label="Rata-rata Highlight Score"
-          value={summary.averageHighlightScore !== null ? String(Math.round(summary.averageHighlightScore)) : '—'}
+          value={
+            summary.averageHighlightScore !== null
+              ? String(Math.round(summary.averageHighlightScore))
+              : '—'
+          }
         />
         <StatTile
           label="Rata-rata Confidence"

@@ -24,7 +24,11 @@ describe('validateFeatureVector', () => {
 
   it('throws on a missing required field', () => {
     expect(() =>
-      validateFeatureVector({ clipId: 'c1', values: [0.5], extractedAt: '2026-01-01T00:00:00.000Z' }),
+      validateFeatureVector({
+        clipId: 'c1',
+        values: [0.5],
+        extractedAt: '2026-01-01T00:00:00.000Z',
+      }),
     ).toThrow();
   });
 

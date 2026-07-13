@@ -57,7 +57,11 @@ describe('PaymentsService', () => {
         redirect_url: 'https://app.sandbox.midtrans.com/snap/v1/redirect/snap-token-1',
       });
 
-      const result = await service.createPremiumCheckout({ id: 'user-1', email: 'a@b.com', role: 'CREATOR' });
+      const result = await service.createPremiumCheckout({
+        id: 'user-1',
+        email: 'a@b.com',
+        role: 'CREATOR',
+      });
 
       expect(prisma.premiumCredit.create).toHaveBeenCalledWith({
         data: {

@@ -37,7 +37,10 @@ export interface DatasetBuilder {
 // is, since a real one might be a GBT booster, a linear model, or anything
 // else) and its ModelMetadata for registration.
 export interface ModelTrainer {
-  train(samples: TrainingSample[], config?: unknown): Promise<{ model: unknown; metadata: ModelMetadata }>;
+  train(
+    samples: TrainingSample[],
+    config?: unknown,
+  ): Promise<{ model: unknown; metadata: ModelMetadata }>;
 }
 
 // Scores a batch of predictions against ground truth, returning named

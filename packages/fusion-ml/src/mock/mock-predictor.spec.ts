@@ -15,7 +15,12 @@ describe('MockPredictor', () => {
   it('calls real computeHighlightScore from @speedora/fusion-engine when a FusionInput fixture is injected', async () => {
     const fusionInput: FusionInput = {
       clipId: 'clip-1',
-      audio: { averageRmsDb: -20, peakDb: -10, averageSpeakingRateWordsPerSecond: 3, speakingRateStdDev: 0.5 },
+      audio: {
+        averageRmsDb: -20,
+        peakDb: -10,
+        averageSpeakingRateWordsPerSecond: 3,
+        speakingRateStdDev: 0.5,
+      },
     };
     // Real v2 output, computed directly - this is the "ground truth" the
     // predictor below must exactly match, proving it's a genuine pass-

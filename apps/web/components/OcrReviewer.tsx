@@ -261,16 +261,14 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
-              {formatTime(clip.startTime)}–{formatTime(clip.endTime)} ({clip.ocrTracks?.length ?? 0})
+              {formatTime(clip.startTime)}–{formatTime(clip.endTime)} ({clip.ocrTracks?.length ?? 0}
+              )
             </button>
           ))}
         </div>
       )}
 
-      <div
-        className="relative w-full overflow-hidden bg-bay-black"
-        style={{ aspectRatio: '16/9' }}
-      >
+      <div className="relative w-full overflow-hidden bg-bay-black" style={{ aspectRatio: '16/9' }}>
         <video
           ref={videoRef}
           src={videoSourceUrl(videoId)}

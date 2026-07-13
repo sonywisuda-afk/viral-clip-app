@@ -62,9 +62,16 @@ describe('SearchService', () => {
       take: 10,
     });
     expect(result).toEqual({
-      videos: [{ videoId: 'video-1', title: 'My Cool Video', createdAt: '2026-01-01T00:00:00.000Z' }],
+      videos: [
+        { videoId: 'video-1', title: 'My Cool Video', createdAt: '2026-01-01T00:00:00.000Z' },
+      ],
       clips: [
-        { clipId: 'clip-1', videoId: 'video-1', hookText: 'You will not believe', hashtags: ['viral'] },
+        {
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          hookText: 'You will not believe',
+          hashtags: ['viral'],
+        },
       ],
       transcriptMatches: [{ videoId: 'video-1', start: 1.5, end: 4.2, text: 'hello world' }],
     });

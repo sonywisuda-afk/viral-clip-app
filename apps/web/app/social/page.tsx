@@ -80,9 +80,7 @@ export default function SocialMediaPage() {
   return (
     <main className="min-h-screen bg-background px-6 py-8">
       <div className="mx-auto max-w-xl">
-        <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">
-          Speedora
-        </h1>
+        <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">Speedora</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">
           Hubungkan akun sosial media untuk publish klip langsung dari dashboard.
         </p>

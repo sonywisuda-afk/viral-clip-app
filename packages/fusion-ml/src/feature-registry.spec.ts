@@ -3,11 +3,15 @@ import { computeFeatureVersion, InMemoryFeatureRegistry } from './feature-regist
 
 describe('computeFeatureVersion', () => {
   it('is deterministic for the same feature name list', () => {
-    expect(computeFeatureVersion(['audio.a', 'scene.b'])).toBe(computeFeatureVersion(['audio.a', 'scene.b']));
+    expect(computeFeatureVersion(['audio.a', 'scene.b'])).toBe(
+      computeFeatureVersion(['audio.a', 'scene.b']),
+    );
   });
 
   it('is order-sensitive, unlike computeDatasetVersion', () => {
-    expect(computeFeatureVersion(['audio.a', 'scene.b'])).not.toBe(computeFeatureVersion(['scene.b', 'audio.a']));
+    expect(computeFeatureVersion(['audio.a', 'scene.b'])).not.toBe(
+      computeFeatureVersion(['scene.b', 'audio.a']),
+    );
   });
 
   it('differs when a feature name changes', () => {

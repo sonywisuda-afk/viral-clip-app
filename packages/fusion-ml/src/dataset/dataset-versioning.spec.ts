@@ -4,7 +4,12 @@ import { computeDatasetVersion } from './dataset-versioning';
 function sample(sampleId: string, label: number): TrainingSample {
   return {
     sampleId,
-    featureVector: { clipId: sampleId, featureNames: ['audio'], values: [0.5], extractedAt: '2026-01-01T00:00:00.000Z' },
+    featureVector: {
+      clipId: sampleId,
+      featureNames: ['audio'],
+      values: [0.5],
+      extractedAt: '2026-01-01T00:00:00.000Z',
+    },
     label,
   };
 }

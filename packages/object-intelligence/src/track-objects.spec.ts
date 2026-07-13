@@ -219,7 +219,7 @@ describe('trackObjects', () => {
       expect(car?.occlusionScore).toBeCloseTo(1 / 3);
     });
 
-    it('averages occlusion across a track\'s own appearances (occluded in one frame, alone in another)', () => {
+    it("averages occlusion across a track's own appearances (occluded in one frame, alone in another)", () => {
       const tracks = trackObjects([
         sample(0, [
           { category: 'person', box: { xCenter: 0.3 } },

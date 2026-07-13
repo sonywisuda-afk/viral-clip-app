@@ -11,7 +11,7 @@ describe('vocalEmotionResultSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  it('rejects an emotion label outside the model taxonomy (e.g. a full word instead of the model\'s own short code)', () => {
+  it("rejects an emotion label outside the model taxonomy (e.g. a full word instead of the model's own short code)", () => {
     const result = vocalEmotionResultSchema.safeParse({ emotion: 'happy', score: 0.5 });
     expect(result.success).toBe(false);
   });

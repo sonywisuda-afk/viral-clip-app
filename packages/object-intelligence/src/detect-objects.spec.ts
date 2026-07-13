@@ -93,8 +93,6 @@ describe('detectObjects', () => {
   it('rejects a malformed input against the detectObjectsInputSchema contract', async () => {
     const execFile = jest.fn().mockResolvedValue({ stdout: '[]', stderr: '' });
 
-    await expect(
-      detectObjects({ sourcePath: '' } as never, fakeDeps(execFile)),
-    ).rejects.toThrow();
+    await expect(detectObjects({ sourcePath: '' } as never, fakeDeps(execFile))).rejects.toThrow();
   });
 });

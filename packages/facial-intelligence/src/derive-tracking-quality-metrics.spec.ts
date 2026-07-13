@@ -148,24 +148,48 @@ describe('deriveTrackingQualityMetrics', () => {
 
   it('gives landmarkJitterScore 0 for a perfectly still bounding box within a track', () => {
     const result = deriveTrackingQualityMetrics([
-      sampleWithFace({ t: 0, trackId: 0, boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.3, height: 0.4 } }),
-      sampleWithFace({ t: 1, trackId: 0, boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.3, height: 0.4 } }),
+      sampleWithFace({
+        t: 0,
+        trackId: 0,
+        boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.3, height: 0.4 },
+      }),
+      sampleWithFace({
+        t: 1,
+        trackId: 0,
+        boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.3, height: 0.4 },
+      }),
     ]);
     expect(result.landmarkJitterScore).toBe(0);
   });
 
   it('gives a higher landmarkJitterScore for a bounding box that moves a lot between samples', () => {
     const result = deriveTrackingQualityMetrics([
-      sampleWithFace({ t: 0, trackId: 0, boundingBox: { xCenter: 0.2, yCenter: 0.5, width: 0.3, height: 0.4 } }),
-      sampleWithFace({ t: 1, trackId: 0, boundingBox: { xCenter: 0.8, yCenter: 0.5, width: 0.3, height: 0.4 } }),
+      sampleWithFace({
+        t: 0,
+        trackId: 0,
+        boundingBox: { xCenter: 0.2, yCenter: 0.5, width: 0.3, height: 0.4 },
+      }),
+      sampleWithFace({
+        t: 1,
+        trackId: 0,
+        boundingBox: { xCenter: 0.8, yCenter: 0.5, width: 0.3, height: 0.4 },
+      }),
     ]);
     expect(result.landmarkJitterScore).toBe(1); // clamped at the cap
   });
 
   it('does not count the jump across a track break as jitter', () => {
     const result = deriveTrackingQualityMetrics([
-      sampleWithFace({ t: 0, trackId: 0, boundingBox: { xCenter: 0.1, yCenter: 0.5, width: 0.3, height: 0.4 } }),
-      sampleWithFace({ t: 1, trackId: 1, boundingBox: { xCenter: 0.9, yCenter: 0.5, width: 0.3, height: 0.4 } }),
+      sampleWithFace({
+        t: 0,
+        trackId: 0,
+        boundingBox: { xCenter: 0.1, yCenter: 0.5, width: 0.3, height: 0.4 },
+      }),
+      sampleWithFace({
+        t: 1,
+        trackId: 1,
+        boundingBox: { xCenter: 0.9, yCenter: 0.5, width: 0.3, height: 0.4 },
+      }),
     ]);
     // Each run has only 1 sample - no within-run consecutive pair to measure jitter from.
     expect(result.landmarkJitterScore).toBeNull();

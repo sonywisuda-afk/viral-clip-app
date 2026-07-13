@@ -27,7 +27,10 @@ import {
 } from '../analytics/fusion-signal-analytics.util';
 import { computeConfidenceDistribution } from '../analytics/performance.util';
 import { PrismaService } from '../prisma/prisma.service';
-import { toSharedHighlightBreakdown, toSharedHighlightExplainability } from '../videos/transcript-segment.util';
+import {
+  toSharedHighlightBreakdown,
+  toSharedHighlightExplainability,
+} from '../videos/transcript-segment.util';
 import { computeAiHealth, computeReadinessVerdict } from './ops-ai.util';
 
 const CLIP_SELECT = {
@@ -76,7 +79,10 @@ export class OpsAiService {
         .flatMap((r) => r.statsSnapshots)
         .sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime())[0];
       if (!latestSnapshot) continue;
-      dataset.push({ ...flattenClipFeatures(clip), engagementScore: latestSnapshot.engagementScore });
+      dataset.push({
+        ...flattenClipFeatures(clip),
+        engagementScore: latestSnapshot.engagementScore,
+      });
     }
     return dataset;
   }
@@ -97,7 +103,9 @@ export class OpsAiService {
       .map((feature) => ({
         feature,
         correlation: pearsonCorrelation(
-          usableWithEngagement.map((r) => (typeof r[feature] === 'number' ? (r[feature] as number) : null)),
+          usableWithEngagement.map((r) =>
+            typeof r[feature] === 'number' ? (r[feature] as number) : null,
+          ),
           engagementScores,
         ),
       }))
@@ -115,7 +123,8 @@ export class OpsAiService {
       clips.map((c) => ({
         highlightScore: c.highlightScore,
         highlightConfidence: c.highlightConfidence,
-        hasExplainability: toSharedHighlightExplainability(c.highlightExplainability).topFactors.length > 0,
+        hasExplainability:
+          toSharedHighlightExplainability(c.highlightExplainability).topFactors.length > 0,
       })),
     );
 
@@ -129,7 +138,9 @@ export class OpsAiService {
     });
 
     const breakdowns = clips.map((c) => toSharedHighlightBreakdown(c.highlightBreakdown));
-    const explainabilities = clips.map((c) => toSharedHighlightExplainability(c.highlightExplainability));
+    const explainabilities = clips.map((c) =>
+      toSharedHighlightExplainability(c.highlightExplainability),
+    );
 
     return {
       results: [
@@ -219,7 +230,10 @@ export class OpsAiService {
   }
 
   async getReadiness(): Promise<OpsAiReadinessDto> {
-    const [timestamped, samples] = await Promise.all([this.fetchFeatureDataset(), this.fetchUsableSamples()]);
+    const [timestamped, samples] = await Promise.all([
+      this.fetchFeatureDataset(),
+      this.fetchUsableSamples(),
+    ]);
     const featureRecords = timestamped.map((t) => t.record);
     const usableWithEngagement = samples.filter((r) => typeof r.engagementScore === 'number');
 

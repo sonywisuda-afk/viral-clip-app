@@ -16,7 +16,11 @@ import { cn } from '@/lib/utils';
 const STAGES = [
   { status: VideoStatus.UPLOADED, label: 'Transcribe', activeCopy: 'Mentranskrip audio' },
   { status: VideoStatus.TRANSCRIBED, label: 'Auto-Clip', activeCopy: 'Mendeteksi momen menarik' },
-  { status: VideoStatus.CLIPS_DETECTED, label: 'Render & Caption', activeCopy: 'Merender & menulis caption' },
+  {
+    status: VideoStatus.CLIPS_DETECTED,
+    label: 'Render & Caption',
+    activeCopy: 'Merender & menulis caption',
+  },
 ] as const;
 
 const STAGE_ORDER = [
@@ -170,7 +174,9 @@ export function ProcessingStatus({
                 </>
               )}
             </p>
-            {retryError ? <p className="mt-2 font-body text-sm text-destructive">{retryError}</p> : null}
+            {retryError ? (
+              <p className="mt-2 font-body text-sm text-destructive">{retryError}</p>
+            ) : null}
             <div className="mt-8 flex flex-wrap justify-center gap-3">
               <Button size="lg" disabled={retrying} onClick={onRetry}>
                 {retrying ? 'Menjalankan Ulang...' : 'Jalankan Ulang'}
@@ -186,7 +192,13 @@ export function ProcessingStatus({
                   <StagePanel
                     key={stage.status}
                     label={stage.label}
-                    state={i < currentIndex ? 'complete' : i === currentIndex ? 'failed' : ('pending' as StageState)}
+                    state={
+                      i < currentIndex
+                        ? 'complete'
+                        : i === currentIndex
+                          ? 'failed'
+                          : ('pending' as StageState)
+                    }
                   />
                 ))}
               </div>
@@ -238,7 +250,11 @@ export function ProcessingStatus({
             </p>
 
             <div className="mt-10">
-              <LiveReel variant="progress" progress={displayedPercent} label={activeStage?.activeCopy} />
+              <LiveReel
+                variant="progress"
+                progress={displayedPercent}
+                label={activeStage?.activeCopy}
+              />
             </div>
 
             <div className="mt-12 grid grid-cols-3 gap-4">
@@ -246,7 +262,13 @@ export function ProcessingStatus({
                 <StagePanel
                   key={stage.status}
                   label={stage.label}
-                  state={i < currentIndex ? 'complete' : i === currentIndex ? 'active' : ('pending' as StageState)}
+                  state={
+                    i < currentIndex
+                      ? 'complete'
+                      : i === currentIndex
+                        ? 'active'
+                        : ('pending' as StageState)
+                  }
                 />
               ))}
             </div>

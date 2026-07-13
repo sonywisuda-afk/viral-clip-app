@@ -180,7 +180,9 @@ export function toSharedEditingRhythmFeatures(
 
 // Same "Json column is opaque" situation as the functions above, for
 // Clip.compositionFeatures (Composition Intelligence roadmap).
-export function toSharedCompositionFeatures(compositionFeatures: unknown): CompositionFeatures | null {
+export function toSharedCompositionFeatures(
+  compositionFeatures: unknown,
+): CompositionFeatures | null {
   return (compositionFeatures as CompositionFeatures | null) ?? null;
 }
 
@@ -269,9 +271,7 @@ export function toSharedDiarizationFeatures(
   return (diarizationFeatures as DiarizationFeatures | null) ?? null;
 }
 
-export function toSharedSpeakerTimeline(
-  speakerTimeline: unknown,
-): SpeakerTimelineEntry[] | null {
+export function toSharedSpeakerTimeline(speakerTimeline: unknown): SpeakerTimelineEntry[] | null {
   return (speakerTimeline as SpeakerTimelineEntry[] | null) ?? null;
 }
 

@@ -13,7 +13,14 @@ import { dashboardExportCsvUrl } from '@/lib/api';
 // server-rendered fallback state.
 const InviteMemberDialog = dynamic(
   () => import('./InviteMemberDialog').then((mod) => mod.InviteMemberDialog),
-  { ssr: false, loading: () => <Button variant="outline" disabled>Invite Member</Button> },
+  {
+    ssr: false,
+    loading: () => (
+      <Button variant="outline" disabled>
+        Invite Member
+      </Button>
+    ),
+  },
 );
 
 // "Create Project" is deliberately an alias for the same upload flow as

@@ -61,7 +61,11 @@ describe('buildDashboardReportCsv', () => {
       { ...overview, averageEngagementScore: null },
       {
         ...performance,
-        aiSummary: { ...performance.aiSummary, averageHighlightScore: null, averageConfidence: null },
+        aiSummary: {
+          ...performance.aiSummary,
+          averageHighlightScore: null,
+          averageConfidence: null,
+        },
       },
     );
 

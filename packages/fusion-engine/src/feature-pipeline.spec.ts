@@ -914,7 +914,12 @@ describe('normalizeFeatures', () => {
 
   it('maps sceneMotion motionVariability (Batch SC-6) onto 0-1 via its own cap', () => {
     const result = normalizeFeatures([
-      { signal: 'sceneMotion', feature: 'motionVariability', value: 0.75, isCategoryDerived: false },
+      {
+        signal: 'sceneMotion',
+        feature: 'motionVariability',
+        value: 0.75,
+        isCategoryDerived: false,
+      },
     ]);
     // MOTION_VARIABILITY_CAP is 1.5 - a CoV of 0.75 maps to the midpoint.
     expect(result[0].normalizedValue).toBeCloseTo(0.5);
@@ -922,7 +927,12 @@ describe('normalizeFeatures', () => {
 
   it("passes cameraMotion's already-0-1 motionTypeDiversity (Batch SC-6) through unchanged", () => {
     const result = normalizeFeatures([
-      { signal: 'cameraMotion', feature: 'motionTypeDiversity', value: 0.7, isCategoryDerived: false },
+      {
+        signal: 'cameraMotion',
+        feature: 'motionTypeDiversity',
+        value: 0.7,
+        isCategoryDerived: false,
+      },
     ]);
     expect(result[0].normalizedValue).toBe(0.7);
   });

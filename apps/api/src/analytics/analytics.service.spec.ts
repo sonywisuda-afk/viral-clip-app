@@ -121,10 +121,24 @@ describe('AnalyticsService', () => {
         highlightConfidence: 0.8,
         highlightReason: 'Strong hook and energy.',
         highlightExplainability: {
-          topFactors: [{ signal: 'audio', feature: 'averageRmsDb', weightedContribution: 0.2, description: 'Loud audio' }],
+          topFactors: [
+            {
+              signal: 'audio',
+              feature: 'averageRmsDb',
+              weightedContribution: 0.2,
+              description: 'Loud audio',
+            },
+          ],
         },
         highlightBreakdown: [
-          { signal: 'audio', feature: 'averageRmsDb', rawValue: -20, normalizedValue: 0.6, weight: 0.5, weightedContribution: 0.2 },
+          {
+            signal: 'audio',
+            feature: 'averageRmsDb',
+            rawValue: -20,
+            normalizedValue: 0.6,
+            weight: 0.5,
+            weightedContribution: 0.2,
+          },
         ],
       },
       socialAccount: { platform: SocialPlatform.YOUTUBE },
@@ -138,8 +152,18 @@ describe('AnalyticsService', () => {
   describe('getPerformanceClips', () => {
     it('maps published records into TopClipRow, sorted by engagementScore descending by default', async () => {
       prisma.publishRecord.findMany.mockResolvedValue([
-        fixtureRecord({ id: 'pr-low', statsSnapshots: [{ viewCount: 10, likeCount: 1, commentCount: 0, shareCount: 0, engagementScore: 0.1 }] }),
-        fixtureRecord({ id: 'pr-high', statsSnapshots: [{ viewCount: 500, likeCount: 50, commentCount: 5, shareCount: 2, engagementScore: 0.9 }] }),
+        fixtureRecord({
+          id: 'pr-low',
+          statsSnapshots: [
+            { viewCount: 10, likeCount: 1, commentCount: 0, shareCount: 0, engagementScore: 0.1 },
+          ],
+        }),
+        fixtureRecord({
+          id: 'pr-high',
+          statsSnapshots: [
+            { viewCount: 500, likeCount: 50, commentCount: 5, shareCount: 2, engagementScore: 0.9 },
+          ],
+        }),
       ]);
 
       const result = await service.getPerformanceClips('user-1', { days: 30 });
@@ -152,7 +176,9 @@ describe('AnalyticsService', () => {
 
     it('falls back to a generic video label when hookText is null', async () => {
       prisma.publishRecord.findMany.mockResolvedValue([
-        fixtureRecord({ clip: { ...fixtureRecord().clip, hookText: null, videoId: 'video-abcdefgh' } }),
+        fixtureRecord({
+          clip: { ...fixtureRecord().clip, hookText: null, videoId: 'video-abcdefgh' },
+        }),
       ]);
 
       const result = await service.getPerformanceClips('user-1', { days: 30 });
@@ -179,12 +205,16 @@ describe('AnalyticsService', () => {
         fixtureRecord({
           id: 'pr-1',
           clip: { ...fixtureRecord().clip, id: 'clip-1', videoId: 'video-1', highlightScore: 60 },
-          statsSnapshots: [{ viewCount: 100, likeCount: 10, commentCount: 0, shareCount: 1, engagementScore: 0.2 }],
+          statsSnapshots: [
+            { viewCount: 100, likeCount: 10, commentCount: 0, shareCount: 1, engagementScore: 0.2 },
+          ],
         }),
         fixtureRecord({
           id: 'pr-2',
           clip: { ...fixtureRecord().clip, id: 'clip-2', videoId: 'video-1', highlightScore: 80 },
-          statsSnapshots: [{ viewCount: 200, likeCount: 20, commentCount: 0, shareCount: 3, engagementScore: 0.4 }],
+          statsSnapshots: [
+            { viewCount: 200, likeCount: 20, commentCount: 0, shareCount: 3, engagementScore: 0.4 },
+          ],
         }),
       ]);
 
@@ -234,8 +264,16 @@ describe('AnalyticsService', () => {
       const today = new Date();
       prisma.publishRecord.findMany
         .mockResolvedValueOnce([
-          fixtureRecord({ id: 'pr-yt', publishedAt: today, socialAccount: { platform: SocialPlatform.YOUTUBE } }),
-          fixtureRecord({ id: 'pr-tt', publishedAt: today, socialAccount: { platform: SocialPlatform.TIKTOK } }),
+          fixtureRecord({
+            id: 'pr-yt',
+            publishedAt: today,
+            socialAccount: { platform: SocialPlatform.YOUTUBE },
+          }),
+          fixtureRecord({
+            id: 'pr-tt',
+            publishedAt: today,
+            socialAccount: { platform: SocialPlatform.TIKTOK },
+          }),
         ])
         .mockResolvedValueOnce([]);
 

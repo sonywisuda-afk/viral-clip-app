@@ -79,10 +79,14 @@ export function TopVideosTable({ videos }: TopVideosTableProps) {
               <td className="max-w-[16rem] truncate p-2 text-foreground">{video.videoLabel}</td>
               <td className="p-2 text-right font-mono text-foreground">{video.clipCount}</td>
               <td className="p-2 text-right font-mono text-signal-cyan">
-                {video.averageEngagementScore !== null ? video.averageEngagementScore.toFixed(2) : '—'}
+                {video.averageEngagementScore !== null
+                  ? video.averageEngagementScore.toFixed(2)
+                  : '—'}
               </td>
               <td className="p-2 text-right font-mono text-signal-cyan">
-                {video.averageHighlightScore !== null ? Math.round(video.averageHighlightScore) : '—'}
+                {video.averageHighlightScore !== null
+                  ? Math.round(video.averageHighlightScore)
+                  : '—'}
               </td>
               <td className="p-2 text-right font-mono text-foreground">{video.totalViews}</td>
               <td className="p-2 text-right font-mono text-foreground">{video.totalLikes}</td>

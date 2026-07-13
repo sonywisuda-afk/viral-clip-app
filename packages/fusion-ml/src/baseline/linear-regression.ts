@@ -1,4 +1,9 @@
-import type { FeatureVector, ModelMetadata, PredictionResult, TrainingSample } from '@speedora/contracts';
+import type {
+  FeatureVector,
+  ModelMetadata,
+  PredictionResult,
+  TrainingSample,
+} from '@speedora/contracts';
 import { computeChecksum } from '../model-registry';
 import { serializeModel } from '../model-serialization';
 import type { ModelTrainer, Predictor } from '../interfaces';

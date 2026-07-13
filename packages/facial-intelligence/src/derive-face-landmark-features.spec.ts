@@ -195,7 +195,9 @@ describe('deriveFaceLandmarkFeatures', () => {
 
   it('averages both mouthSmile blendshapes for averageSmile', () => {
     const result = deriveFaceLandmarkFeatures([
-      sampleWithFace({ blendshapes: blendshapesWith({ mouthSmileLeft: 0.6, mouthSmileRight: 0.8 }) }),
+      sampleWithFace({
+        blendshapes: blendshapesWith({ mouthSmileLeft: 0.6, mouthSmileRight: 0.8 }),
+      }),
     ]);
     expect(result.averageSmile).toBeCloseTo(0.7);
   });
@@ -347,9 +349,7 @@ describe('deriveFaceLandmarkFeatures', () => {
     });
 
     it('does not flag a naturally still/closed mouth at exactly the threshold as occluded (strict less-than)', () => {
-      const result = deriveFaceLandmarkFeatures([
-        sampleWithFace({ mouthContrastRatio: 0.15 }),
-      ]);
+      const result = deriveFaceLandmarkFeatures([sampleWithFace({ mouthContrastRatio: 0.15 })]);
       expect(result.occlusionRate).toBe(0);
     });
 
@@ -562,7 +562,12 @@ describe('deriveFaceLandmarkFeatures', () => {
     it('averages both cheekSquint blendshapes for averageCheekRaise and both eyeSquint blendshapes for averageEyeSquint', () => {
       const result = deriveFaceLandmarkFeatures([
         sampleWithFace({
-          blendshapes: blendshapesWith({ cheekSquintLeft: 0.4, cheekSquintRight: 0.6, eyeSquintLeft: 0.2, eyeSquintRight: 0.8 }),
+          blendshapes: blendshapesWith({
+            cheekSquintLeft: 0.4,
+            cheekSquintRight: 0.6,
+            eyeSquintLeft: 0.2,
+            eyeSquintRight: 0.8,
+          }),
         }),
       ]);
       expect(result.averageCheekRaise).toBeCloseTo(0.5);
@@ -666,10 +671,7 @@ describe('deriveFaceLandmarkFeatures', () => {
     });
 
     it('does not count a single-sample blink as a prolonged closure', () => {
-      const result = deriveFaceLandmarkFeatures([
-        withBlink(0, true),
-        withBlink(1, false),
-      ]);
+      const result = deriveFaceLandmarkFeatures([withBlink(0, true), withBlink(1, false)]);
       expect(result.prolongedClosureCount).toBe(0);
     });
 
@@ -703,10 +705,7 @@ describe('deriveFaceLandmarkFeatures', () => {
     });
 
     it('gives a lower gazeStabilityScore for a gaze that swings between samples', () => {
-      const result = deriveFaceLandmarkFeatures([
-        withGazeOffset(0, 0),
-        withGazeOffset(1, 0.5),
-      ]);
+      const result = deriveFaceLandmarkFeatures([withGazeOffset(0, 0), withGazeOffset(1, 0.5)]);
       expect(result.gazeStabilityScore).toBe(0);
     });
 

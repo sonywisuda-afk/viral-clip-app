@@ -99,19 +99,17 @@ export class DashboardService {
     });
 
     return {
-      events: events.map(
-        (event): ActivityEventDto => ({
-          id: event.id,
-          // Prisma's ActivityEventType mirrors packages/shared's own
-          // (identical string values) - same cast convention as
-          // analytics.service.ts's platform/status fields.
-          type: event.type as unknown as ActivityEventDto['type'],
-          videoId: event.videoId,
-          clipId: event.clipId,
-          metadata: (event.metadata as unknown as Record<string, unknown> | null) ?? null,
-          createdAt: event.createdAt.toISOString(),
-        }),
-      ),
+      events: events.map((event): ActivityEventDto => ({
+        id: event.id,
+        // Prisma's ActivityEventType mirrors packages/shared's own
+        // (identical string values) - same cast convention as
+        // analytics.service.ts's platform/status fields.
+        type: event.type as unknown as ActivityEventDto['type'],
+        videoId: event.videoId,
+        clipId: event.clipId,
+        metadata: (event.metadata as unknown as Record<string, unknown> | null) ?? null,
+        createdAt: event.createdAt.toISOString(),
+      })),
     };
   }
 

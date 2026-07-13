@@ -102,9 +102,7 @@ export const compositionInputSchema = z.object({
   // regime it's in. Null when the caller genuinely doesn't have it - every
   // RB-1 feature still degrades to orientation-agnostic thresholds in that
   // case, it just can't be orientation-aware.
-  frameSize: z
-    .object({ width: z.number().positive(), height: z.number().positive() })
-    .nullable(),
+  frameSize: z.object({ width: z.number().positive(), height: z.number().positive() }).nullable(),
   samples: z.array(compositionSampleSchema),
 });
 export type CompositionInput = z.infer<typeof compositionInputSchema>;

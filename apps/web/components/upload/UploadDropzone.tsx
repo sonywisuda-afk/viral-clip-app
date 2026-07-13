@@ -11,7 +11,9 @@ const MAX_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 export function validateVideoFile(file: File): string | null {
   if (!file.type.startsWith('video/')) {
     const ext = file.name.includes('.') ? file.name.split('.').pop()?.toUpperCase() : null;
-    const found = ext ? `File .${ext} tidak dikenali sebagai video.` : 'Format file ini tidak dikenali sebagai video.';
+    const found = ext
+      ? `File .${ext} tidak dikenali sebagai video.`
+      : 'Format file ini tidak dikenali sebagai video.';
     return `${found} Upload video dalam format ${ACCEPTED_FORMATS_LABEL}.`;
   }
   if (file.size > MAX_SIZE_BYTES) {

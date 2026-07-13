@@ -26,7 +26,9 @@ describe('fetchInstagramMediaStats', () => {
 
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(url.pathname).toBe('/v21.0/media-1/insights');
-    expect(url.searchParams.get('metric')).toBe('plays,likes,comments,shares,ig_reels_avg_watch_time');
+    expect(url.searchParams.get('metric')).toBe(
+      'plays,likes,comments,shares,ig_reels_avg_watch_time',
+    );
     expect(url.searchParams.get('access_token')).toBe('page-token');
     expect(stats).toEqual({
       viewCount: 1234,

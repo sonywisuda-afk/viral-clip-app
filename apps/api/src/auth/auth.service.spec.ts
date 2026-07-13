@@ -171,7 +171,11 @@ describe('AuthService', () => {
         resetPasswordTokenExpiresAt: new Date(Date.now() + 60_000),
       });
       (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
-      prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
+      prisma.user.update.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+      });
 
       const result = await service.resetPassword(rawToken, 'newplaintext');
 

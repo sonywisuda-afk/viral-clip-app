@@ -5,11 +5,7 @@ import { Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { search as searchApi } from '@/lib/api';
-import {
-  formatTranscriptSnippet,
-  formatTranscriptTimestamp,
-  hasAnyResults,
-} from '@/lib/search';
+import { formatTranscriptSnippet, formatTranscriptTimestamp, hasAnyResults } from '@/lib/search';
 
 const DEBOUNCE_MS = 300;
 
@@ -101,9 +97,7 @@ export function SearchBar() {
               )}
               {results.clips.length > 0 && (
                 <div>
-                  <p className="px-2 font-mono text-[10px] uppercase text-muted-foreground">
-                    Klip
-                  </p>
+                  <p className="px-2 font-mono text-[10px] uppercase text-muted-foreground">Klip</p>
                   {results.clips.map((clip) => (
                     <a
                       key={clip.clipId}

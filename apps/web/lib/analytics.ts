@@ -50,7 +50,18 @@ export function formatEngagementScore(score: number | null): string {
 // (Milestone 5B) reuses this for its own date formatting rather than a
 // second copy of the same label list.
 export const MONTH_LABELS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+  'Jan',
+  'Feb',
+  'Mar',
+  'Apr',
+  'Mei',
+  'Jun',
+  'Jul',
+  'Agu',
+  'Sep',
+  'Okt',
+  'Nov',
+  'Des',
 ];
 
 export function formatShortDate(isoDate: string): string {

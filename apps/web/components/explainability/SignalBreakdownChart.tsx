@@ -56,10 +56,7 @@ export function SignalBreakdownChart({ breakdown }: SignalBreakdownChartProps) {
           </div>
           <div className="ml-[7.5rem] mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
             {group.features.map((feature) => (
-              <span
-                key={feature.feature}
-                className="font-mono text-[10px] text-muted-foreground"
-              >
+              <span key={feature.feature} className="font-mono text-[10px] text-muted-foreground">
                 {feature.feature}: {toPercent(feature.normalizedValue)}%
               </span>
             ))}

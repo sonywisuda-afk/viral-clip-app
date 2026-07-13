@@ -10,7 +10,10 @@ export interface FeatureStats {
 // reapplied to validation/inference data without recomputing them from
 // data the model shouldn't see). A feature with min === max normalizes to
 // 0.5 (no signal either way), not NaN or a divide-by-zero.
-export function normalizeFeatureVector(vector: FeatureVector, stats: FeatureStats[]): FeatureVector {
+export function normalizeFeatureVector(
+  vector: FeatureVector,
+  stats: FeatureStats[],
+): FeatureVector {
   if (stats.length !== vector.values.length) {
     throw new Error(
       `stats length (${stats.length}) must match FeatureVector.values length (${vector.values.length})`,

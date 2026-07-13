@@ -1,6 +1,11 @@
 'use client';
 
-import type { AnalyticsOverviewDto, AnalyticsPerformanceDto, TopClipRow, TopVideoRow } from '@speedora/shared';
+import type {
+  AnalyticsOverviewDto,
+  AnalyticsPerformanceDto,
+  TopClipRow,
+  TopVideoRow,
+} from '@speedora/shared';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AiPerformanceSummary } from '../../components/analytics/AiPerformanceSummary';

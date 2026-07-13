@@ -68,7 +68,10 @@ export async function runFusionV3Pipeline(options: PipelineOptions): Promise<Pip
   // of whether a given trainer implementation bothers to read/set them
   // itself (both MockModelTrainer and BaselineLinearModelTrainer do, but a
   // future third trainer isn't required to).
-  const { model, metadata: trainedMetadata } = await options.trainer.train(train, options.trainConfig);
+  const { model, metadata: trainedMetadata } = await options.trainer.train(
+    train,
+    options.trainConfig,
+  );
   const modelMetadata: ModelMetadata = {
     ...trainedMetadata,
     datasetVersion: datasetVersion.versionId,

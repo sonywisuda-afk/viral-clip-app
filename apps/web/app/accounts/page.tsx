@@ -65,9 +65,7 @@ export default function AccountsPage() {
   return (
     <main className="min-h-screen bg-background px-6 py-8">
       <div className="mx-auto max-w-xl">
-        <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">
-          Speedora
-        </h1>
+        <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">Speedora</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">
           Kelola kata sandi dan akun kamu.
         </p>
@@ -133,9 +131,9 @@ export default function AccountsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="font-body text-sm text-muted-foreground">
-                  Menghapus akun akan menghapus <strong className="text-foreground">permanen</strong>{' '}
-                  seluruh video, klip, akun sosial yang terhubung, dan datamu. Tindakan ini tidak
-                  bisa dibatalkan.
+                  Menghapus akun akan menghapus{' '}
+                  <strong className="text-foreground">permanen</strong> seluruh video, klip, akun
+                  sosial yang terhubung, dan datamu. Tindakan ini tidak bisa dibatalkan.
                 </p>
                 <div className="space-y-1.5">
                   <Label htmlFor="delete-confirm">

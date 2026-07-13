@@ -533,9 +533,7 @@ export class VideosService {
       // endpoint instead" treatment as each clip's downloadUrl/thumbnailUrl
       // below (Product Experience roadmap).
       thumbnailUrl: thumbnailUrl ? `/videos/${video.id}/thumbnail` : null,
-      animatedThumbnailUrl: animatedThumbnailUrl
-        ? `/videos/${video.id}/animated-thumbnail`
-        : null,
+      animatedThumbnailUrl: animatedThumbnailUrl ? `/videos/${video.id}/animated-thumbnail` : null,
       hoverPreviewUrl: hoverPreviewUrl ? `/videos/${video.id}/hover-preview` : null,
       // Only the COUNT of extracted frames is needed here - each entry is an
       // endpoint path, not a raw key (see findStoryboardFrameOrThrow above).

@@ -87,8 +87,7 @@ export function deriveMotionEnergyFeatures(
   const peakIndices = findPeakIndices(values, averageMotionEnergy, stddev);
   const peakCount = peakIndices.length;
   const peakTimestamps = peakIndices.map((index) => samples[index].t);
-  const peakRatePerMinute =
-    clipDurationSeconds > 0 ? (peakCount / clipDurationSeconds) * 60 : null;
+  const peakRatePerMinute = clipDurationSeconds > 0 ? (peakCount / clipDurationSeconds) * 60 : null;
 
   // Batch SC-6 - Motion Complexity (motion-energy half). Coefficient of
   // variation, null when the mean is 0 (a clip whose motionEnergy is

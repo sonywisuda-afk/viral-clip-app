@@ -36,7 +36,9 @@ export function computeAiHealth(clips: AiHealthInput[]): AiHealthResult {
   return {
     totalClipsWithScore: withScore.length,
     averageConfidence:
-      confidences.length === 0 ? null : confidences.reduce((sum, v) => sum + v, 0) / confidences.length,
+      confidences.length === 0
+        ? null
+        : confidences.reduce((sum, v) => sum + v, 0) / confidences.length,
     lowConfidenceThreshold: LOW_CONFIDENCE_THRESHOLD,
     highConfidenceThreshold: HIGH_CONFIDENCE_THRESHOLD,
     lowConfidenceClips: confidences.filter((c) => c < LOW_CONFIDENCE_THRESHOLD).length,

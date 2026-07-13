@@ -139,11 +139,7 @@ export class VideosController {
   // (non-Range) stream is enough since this is a small static image, not
   // something a <video> element seeks through.
   @Get(':id/thumbnail')
-  async thumbnail(
-    @CurrentUser() user: SafeUser,
-    @Param('id') id: string,
-    @Res() res: Response,
-  ) {
+  async thumbnail(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {
     const { thumbnailUrl } = await this.videosService.findThumbnailOrThrow(id, user.id);
     if (!thumbnailUrl) {
       throw new NotFoundException(`Video ${id} has no thumbnail`);
@@ -188,11 +184,7 @@ export class VideosController {
   // above, for the longer/smoother preview fetched on-demand only on hover
   // (see lib/useHoverPreview.ts) rather than always shown.
   @Get(':id/hover-preview')
-  async hoverPreview(
-    @CurrentUser() user: SafeUser,
-    @Param('id') id: string,
-    @Res() res: Response,
-  ) {
+  async hoverPreview(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {
     const { hoverPreviewUrl } = await this.videosService.findHoverPreviewOrThrow(id, user.id);
     if (!hoverPreviewUrl) {
       throw new NotFoundException(`Video ${id} has no hover preview`);

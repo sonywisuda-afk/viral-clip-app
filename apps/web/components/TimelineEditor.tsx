@@ -67,7 +67,9 @@ const SPEAKER_COLORS = [
 function speakerColorClass(speaker: string): string {
   const letter = speaker.replace('Speaker ', '').charCodeAt(0) - 'A'.charCodeAt(0);
   const index = Number.isNaN(letter) ? 0 : letter;
-  return SPEAKER_COLORS[((index % SPEAKER_COLORS.length) + SPEAKER_COLORS.length) % SPEAKER_COLORS.length];
+  return SPEAKER_COLORS[
+    ((index % SPEAKER_COLORS.length) + SPEAKER_COLORS.length) % SPEAKER_COLORS.length
+  ];
 }
 
 // Fase 13 (Vocal Emotion Detection) - superb/wav2vec2-base-superb-er's raw
@@ -369,7 +371,9 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 // Undefined for a video with no speaker data (diarization
                 // never ran, failed, or found nothing) - falls back to the
                 // original single-color look, same as before Fase 12.
-                const colorClass = seg.speaker ? speakerColorClass(seg.speaker) : 'text-signal-cyan';
+                const colorClass = seg.speaker
+                  ? speakerColorClass(seg.speaker)
+                  : 'text-signal-cyan';
                 const emoji = seg.emotion ? EMOTION_EMOJI[seg.emotion] : undefined;
                 const titleParts = [seg.speaker, seg.text].filter(Boolean);
                 return (

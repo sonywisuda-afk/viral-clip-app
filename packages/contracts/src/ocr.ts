@@ -69,7 +69,14 @@ export type OcrSample = z.infer<typeof ocrSampleSchema>;
 // (ocrFeaturesSchema further down is the aggregate; this is the per-
 // instance detail behind it).
 
-export const OCR_TEXT_CATEGORIES = ['subtitle', 'slide', 'caption', 'logo', 'price', 'name'] as const;
+export const OCR_TEXT_CATEGORIES = [
+  'subtitle',
+  'slide',
+  'caption',
+  'logo',
+  'price',
+  'name',
+] as const;
 export type OcrTextCategory = (typeof OCR_TEXT_CATEGORIES)[number];
 
 // Content-pattern evidence used by the rule-fusion classifier - a coarse,

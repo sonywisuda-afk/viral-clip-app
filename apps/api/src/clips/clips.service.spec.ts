@@ -271,19 +271,37 @@ describe('ClipsService', () => {
       highlightConfidence: 0.82,
       highlightReason: 'Strong hook and high energy throughout.',
       highlightBreakdown: [
-        { signal: 'audio', feature: 'averageRmsDb', rawValue: -18, normalizedValue: 0.7, weight: 0.35, weightedContribution: 0.245 },
+        {
+          signal: 'audio',
+          feature: 'averageRmsDb',
+          rawValue: -18,
+          normalizedValue: 0.7,
+          weight: 0.35,
+          weightedContribution: 0.245,
+        },
       ],
       highlightExplainability: {
         topFactors: [
-          { signal: 'audio', feature: 'averageRmsDb', weightedContribution: 0.245, description: 'Loud, energetic audio' },
+          {
+            signal: 'audio',
+            feature: 'averageRmsDb',
+            weightedContribution: 0.245,
+            description: 'Loud, energetic audio',
+          },
         ],
       },
-      highlightPrediction: { bucket: 'likely_high_performer', rationale: 'Score of 74 with 82% confidence suggests strong potential.' },
-      highlightRecommendation: { action: 'publish_as_is', message: 'This clip scores well - ready to publish as-is.' },
+      highlightPrediction: {
+        bucket: 'likely_high_performer',
+        rationale: 'Score of 74 with 82% confidence suggests strong potential.',
+      },
+      highlightRecommendation: {
+        action: 'publish_as_is',
+        message: 'This clip scores well - ready to publish as-is.',
+      },
       highlightRank: 1,
     };
 
-    it('returns a single v2 result mapped from the clip\'s Fusion Engine fields', async () => {
+    it("returns a single v2 result mapped from the clip's Fusion Engine fields", async () => {
       prisma.clip.findUnique.mockResolvedValue(clip);
 
       const result = await service.getExplainability('clip-1', 'user-1');

@@ -5,7 +5,10 @@ export const MIN_SAMPLES_FOR_CORRELATION = 20;
 // Pure Pearson correlation coefficient, pairwise-complete (skips indices
 // where either value is missing). Returns null when there's not enough
 // variance/data to compute a meaningful coefficient.
-export function pearsonCorrelation(xs: Array<number | null>, ys: Array<number | null>): number | null {
+export function pearsonCorrelation(
+  xs: Array<number | null>,
+  ys: Array<number | null>,
+): number | null {
   const pairs: Array<[number, number]> = [];
   for (let i = 0; i < xs.length; i++) {
     const x = xs[i];

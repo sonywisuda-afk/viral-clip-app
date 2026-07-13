@@ -18,7 +18,12 @@ describe('MockDatasetBuilder', () => {
     expect(samples).toHaveLength(2);
     expect(samples[0]).toEqual({
       sampleId: 'sample-a',
-      featureVector: { clipId: 'a', featureNames: ['audio'], values: [0.8], extractedAt: '2026-01-01T00:00:00.000Z' },
+      featureVector: {
+        clipId: 'a',
+        featureNames: ['audio'],
+        values: [0.8],
+        extractedAt: '2026-01-01T00:00:00.000Z',
+      },
       label: 0.8,
     });
   });

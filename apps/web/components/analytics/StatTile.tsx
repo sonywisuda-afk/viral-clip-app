@@ -17,9 +17,7 @@ export function StatTile({ label, value, caption }: StatTileProps) {
           {label}
         </p>
         <p className="mt-1 font-display text-3xl text-foreground">{value}</p>
-        {caption ? (
-          <p className="mt-1 font-body text-xs text-muted-foreground">{caption}</p>
-        ) : null}
+        {caption ? <p className="mt-1 font-body text-xs text-muted-foreground">{caption}</p> : null}
       </CardContent>
     </Card>
   );

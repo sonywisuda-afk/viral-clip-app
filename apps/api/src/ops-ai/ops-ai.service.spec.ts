@@ -24,8 +24,20 @@ describe('OpsAiService', () => {
 
     it('wraps the health summary as { results: [{ engine: "v2", ... }] }', async () => {
       prisma.clip.findMany.mockResolvedValue([
-        { highlightScore: 80, highlightConfidence: 0.9, highlightExplainability: { topFactors: [{ signal: 'audio', feature: 'f', weightedContribution: 1, description: 'Loud' }] } },
-        { highlightScore: 40, highlightConfidence: 0.3, highlightExplainability: { topFactors: [] } },
+        {
+          highlightScore: 80,
+          highlightConfidence: 0.9,
+          highlightExplainability: {
+            topFactors: [
+              { signal: 'audio', feature: 'f', weightedContribution: 1, description: 'Loud' },
+            ],
+          },
+        },
+        {
+          highlightScore: 40,
+          highlightConfidence: 0.3,
+          highlightExplainability: { topFactors: [] },
+        },
       ]);
 
       const result = await service.getHealth();
@@ -42,10 +54,24 @@ describe('OpsAiService', () => {
       prisma.clip.findMany.mockResolvedValue([
         {
           highlightBreakdown: [
-            { signal: 'audio', feature: 'f', rawValue: null, normalizedValue: 0.5, weight: 1, weightedContribution: 10 },
+            {
+              signal: 'audio',
+              feature: 'f',
+              rawValue: null,
+              normalizedValue: 0.5,
+              weight: 1,
+              weightedContribution: 10,
+            },
           ],
           highlightExplainability: {
-            topFactors: [{ signal: 'audio', feature: 'f', weightedContribution: 10, description: 'Loud audio' }],
+            topFactors: [
+              {
+                signal: 'audio',
+                feature: 'f',
+                weightedContribution: 10,
+                description: 'Loud audio',
+              },
+            ],
           },
         },
       ]);
@@ -55,7 +81,9 @@ describe('OpsAiService', () => {
       expect(result.results[0].signalContributions).toEqual([
         { signal: 'audio', averageContributionPct: 100, clipsWithSignal: 1 },
       ]);
-      expect(result.results[0].explainabilityReasons).toEqual([{ description: 'Loud audio', count: 1, pct: 100 }]);
+      expect(result.results[0].explainabilityReasons).toEqual([
+        { description: 'Loud audio', count: 1, pct: 100 },
+      ]);
     });
   });
 

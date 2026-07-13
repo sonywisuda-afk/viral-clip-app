@@ -9,13 +9,15 @@ const STEPS = [
     number: '02',
     timecode: 'T+00:41',
     title: 'Auto-Clip',
-    description: 'AI membaca transkrip, menandai momen paling menarik, dan memberi skor virality 0–100.',
+    description:
+      'AI membaca transkrip, menandai momen paling menarik, dan memberi skor virality 0–100.',
   },
   {
     number: '03',
     timecode: 'T+01:58',
     title: 'Render & Caption',
-    description: 'FFmpeg crop ke 9:16 mengikuti wajah, bakar caption otomatis — klip siap diunduh atau dipublish.',
+    description:
+      'FFmpeg crop ke 9:16 mengikuti wajah, bakar caption otomatis — klip siap diunduh atau dipublish.',
   },
 ];
 

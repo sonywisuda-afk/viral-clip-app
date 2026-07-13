@@ -76,7 +76,9 @@ describe('fetchTikTokVideoStats', () => {
 
     const url = new URL(String(fetchMock.mock.calls[0][0]));
     expect(url.origin + url.pathname).toBe('https://open.tiktokapis.com/v2/video/query/');
-    expect(url.searchParams.get('fields')).toBe('id,view_count,like_count,comment_count,share_count');
+    expect(url.searchParams.get('fields')).toBe(
+      'id,view_count,like_count,comment_count,share_count',
+    );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
       filters: { video_ids: ['123456789'] },
     });
@@ -91,7 +93,12 @@ describe('fetchTikTokVideoStats', () => {
 
     const stats = await fetchTikTokVideoStats('access-token', '123456789');
 
-    expect(stats).toEqual({ viewCount: null, likeCount: null, commentCount: null, shareCount: null });
+    expect(stats).toEqual({
+      viewCount: null,
+      likeCount: null,
+      commentCount: null,
+      shareCount: null,
+    });
   });
 
   it('throws when TikTok reports an error code', async () => {

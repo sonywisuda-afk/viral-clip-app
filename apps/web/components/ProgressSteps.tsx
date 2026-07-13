@@ -22,7 +22,9 @@ export const STEP_LABELS: Record<VideoStatus, string> = {
 
 export function ProgressSteps({ status }: { status: VideoStatus }) {
   if (status === VideoStatus.FAILED) {
-    return <p className="text-sm font-medium text-destructive">{STEP_LABELS[VideoStatus.FAILED]}</p>;
+    return (
+      <p className="text-sm font-medium text-destructive">{STEP_LABELS[VideoStatus.FAILED]}</p>
+    );
   }
   if (status === VideoStatus.IMPORTING) {
     return (
@@ -36,7 +38,11 @@ export function ProgressSteps({ status }: { status: VideoStatus }) {
     <ol className="flex flex-wrap items-center gap-2 font-body text-sm">
       {STEPS.map((step, index) => (
         <li key={step} className="flex items-center gap-2">
-          <span className={index <= currentIndex ? 'font-medium text-foreground' : 'text-muted-foreground'}>
+          <span
+            className={
+              index <= currentIndex ? 'font-medium text-foreground' : 'text-muted-foreground'
+            }
+          >
             {STEP_LABELS[step]}
           </span>
           {index < STEPS.length - 1 && (

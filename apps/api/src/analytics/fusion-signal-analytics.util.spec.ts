@@ -28,7 +28,14 @@ describe('computeScoreDistribution', () => {
 
 describe('computeSignalContributions', () => {
   function contribution(signal: string, weightedContribution: number): FusionBreakdown[number] {
-    return { signal: signal as never, feature: 'f', rawValue: null, normalizedValue: 0.5, weight: 1, weightedContribution };
+    return {
+      signal: signal as never,
+      feature: 'f',
+      rawValue: null,
+      normalizedValue: 0.5,
+      weight: 1,
+      weightedContribution,
+    };
   }
 
   it('normalizes each signal share of the total weightedContribution mass to a percent', () => {
@@ -48,7 +55,9 @@ describe('computeSignalContributions', () => {
   });
 
   it('reads ~0% for a weight-0 signal that still shows up (extracted but not weighted)', () => {
-    const breakdowns: FusionBreakdown[] = [[contribution('audio', 100), contribution('gesture', 0)]];
+    const breakdowns: FusionBreakdown[] = [
+      [contribution('audio', 100), contribution('gesture', 0)],
+    ];
 
     const result = computeSignalContributions(breakdowns);
 

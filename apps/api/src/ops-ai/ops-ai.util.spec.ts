@@ -45,7 +45,15 @@ describe('computeReadinessVerdict', () => {
       usableSamples: 500,
       drift: {
         insufficientData: false,
-        entries: [{ feature: 'audio.loudness', meanEarlier: 1, meanLater: 2, relativeDeltaPct: 100, drifted: true }],
+        entries: [
+          {
+            feature: 'audio.loudness',
+            meanEarlier: 1,
+            meanLater: 2,
+            relativeDeltaPct: 100,
+            drifted: true,
+          },
+        ],
       },
       featureCompleteness: [],
     });
@@ -58,7 +66,14 @@ describe('computeReadinessVerdict', () => {
     const result = computeReadinessVerdict({
       usableSamples: 500,
       drift: { insufficientData: true },
-      featureCompleteness: [{ feature: 'composition.ruleOfThirdsScore', presentCount: 10, missingCount: 490, missingRatePct: 98 }],
+      featureCompleteness: [
+        {
+          feature: 'composition.ruleOfThirdsScore',
+          presentCount: 10,
+          missingCount: 490,
+          missingRatePct: 98,
+        },
+      ],
     });
 
     expect(result.ready).toBe(false);
@@ -69,7 +84,9 @@ describe('computeReadinessVerdict', () => {
     const result = computeReadinessVerdict({
       usableSamples: 500,
       drift: { insufficientData: false, entries: [] },
-      featureCompleteness: [{ feature: 'audio.loudness', presentCount: 500, missingCount: 0, missingRatePct: 0 }],
+      featureCompleteness: [
+        { feature: 'audio.loudness', presentCount: 500, missingCount: 0, missingRatePct: 0 },
+      ],
     });
 
     expect(result.ready).toBe(true);

@@ -11,11 +11,19 @@ export interface ReadinessPanelProps {
 // Training)?" minSamplesRequired is a heuristic placeholder, deliberately
 // higher than Correlation's floor and unvalidated pending real ML training
 // experience.
-export function ReadinessPanel({ ready, usableSamples, minSamplesRequired, blockers }: ReadinessPanelProps) {
+export function ReadinessPanel({
+  ready,
+  usableSamples,
+  minSamplesRequired,
+  blockers,
+}: ReadinessPanelProps) {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <Badge variant={ready ? 'default' : 'outline'} className={ready ? 'bg-emerald-500/20 text-emerald-400' : ''}>
+        <Badge
+          variant={ready ? 'default' : 'outline'}
+          className={ready ? 'bg-emerald-500/20 text-emerald-400' : ''}
+        >
           {ready ? 'Ready' : 'Not Ready'}
         </Badge>
         <span className="font-mono text-xs text-muted-foreground">

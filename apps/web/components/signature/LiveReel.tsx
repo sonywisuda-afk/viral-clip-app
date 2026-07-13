@@ -55,7 +55,10 @@ function waveformHeight(index: number, count: number) {
 
 function SprocketRow({ className }: { className?: string }) {
   return (
-    <div className={cn('flex items-center justify-between gap-2 px-1', className)} aria-hidden="true">
+    <div
+      className={cn('flex items-center justify-between gap-2 px-1', className)}
+      aria-hidden="true"
+    >
       {Array.from({ length: 24 }).map((_, i) => (
         <span key={i} className="h-2 w-2 shrink-0 rounded-[1px] bg-chrome/20" />
       ))}
@@ -172,7 +175,8 @@ function RulerReel({
 }: Omit<RulerProps, 'variant'>) {
   const majorStepSeconds = durationSeconds > 120 ? 30 : durationSeconds > 30 ? 10 : 5;
   const majorTicks = Math.max(1, Math.floor(durationSeconds / majorStepSeconds));
-  const playheadPct = durationSeconds > 0 ? Math.min(100, (currentTime / durationSeconds) * 100) : 0;
+  const playheadPct =
+    durationSeconds > 0 ? Math.min(100, (currentTime / durationSeconds) * 100) : 0;
 
   function handleClick(e: React.MouseEvent<HTMLDivElement>) {
     if (!onSeek) return;
@@ -231,7 +235,9 @@ export function LiveReel(props: LiveReelProps) {
     case 'idle':
       return <IdleReel className={props.className} />;
     case 'progress':
-      return <ProgressReel progress={props.progress} label={props.label} className={props.className} />;
+      return (
+        <ProgressReel progress={props.progress} label={props.label} className={props.className} />
+      );
     case 'thumbnail-strip':
       return (
         <ThumbnailStripReel

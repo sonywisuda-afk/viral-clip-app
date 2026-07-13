@@ -2,7 +2,12 @@ import type { FeatureVector } from '@speedora/contracts';
 import { computeFeatureStats, normalizeFeatureVector } from './feature-normalization';
 
 function vector(values: number[]): FeatureVector {
-  return { clipId: 'c1', featureNames: values.map((_, i) => `f${i}`), values, extractedAt: '2026-01-01T00:00:00.000Z' };
+  return {
+    clipId: 'c1',
+    featureNames: values.map((_, i) => `f${i}`),
+    values,
+    extractedAt: '2026-01-01T00:00:00.000Z',
+  };
 }
 
 describe('normalizeFeatureVector', () => {

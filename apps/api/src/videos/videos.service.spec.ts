@@ -417,7 +417,9 @@ describe('VideosService', () => {
       const result = await service.findAll('user-1', { limit: 20 });
 
       expect(result.videos[0].thumbnailBlurDataUrl).toBe('data:image/webp;base64,dmlkZW8=');
-      expect(result.videos[0].clips[0].thumbnailBlurDataUrl).toBe('data:image/webp;base64,Y2xpcA==');
+      expect(result.videos[0].clips[0].thumbnailBlurDataUrl).toBe(
+        'data:image/webp;base64,Y2xpcA==',
+      );
     });
 
     it('paginates via cursor and reports nextCursor when there are more rows than the limit', async () => {

@@ -19,28 +19,53 @@ export function DriftTable({ insufficientData, entries }: DriftTableProps) {
     );
   }
   if (entries.length === 0) {
-    return <p className="font-body text-sm text-muted-foreground">Tidak ada fitur dengan cukup sampel di kedua paruh untuk dibandingkan.</p>;
+    return (
+      <p className="font-body text-sm text-muted-foreground">
+        Tidak ada fitur dengan cukup sampel di kedua paruh untuk dibandingkan.
+      </p>
+    );
   }
 
   return (
     <table className="w-full border-collapse font-body text-sm">
       <thead>
         <tr className="border-b border-border text-left">
-          <th className="p-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Feature</th>
-          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Mean (earlier)</th>
-          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Mean (later)</th>
-          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Delta %</th>
-          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">Drifted?</th>
+          <th className="p-2 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            Feature
+          </th>
+          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            Mean (earlier)
+          </th>
+          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            Mean (later)
+          </th>
+          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            Delta %
+          </th>
+          <th className="p-2 text-right font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
+            Drifted?
+          </th>
         </tr>
       </thead>
       <tbody>
         {entries.map((row) => (
           <tr key={row.feature} className="border-b border-border/50">
             <td className="p-2 font-mono text-xs text-foreground">{row.feature}</td>
-            <td className="p-2 text-right font-mono text-xs text-muted-foreground">{row.meanEarlier.toFixed(3)}</td>
-            <td className="p-2 text-right font-mono text-xs text-muted-foreground">{row.meanLater.toFixed(3)}</td>
-            <td className="p-2 text-right font-mono text-xs text-muted-foreground">{row.relativeDeltaPct}%</td>
-            <td className={cn('p-2 text-right font-mono text-xs', row.drifted ? 'text-rose-400' : 'text-emerald-400')}>
+            <td className="p-2 text-right font-mono text-xs text-muted-foreground">
+              {row.meanEarlier.toFixed(3)}
+            </td>
+            <td className="p-2 text-right font-mono text-xs text-muted-foreground">
+              {row.meanLater.toFixed(3)}
+            </td>
+            <td className="p-2 text-right font-mono text-xs text-muted-foreground">
+              {row.relativeDeltaPct}%
+            </td>
+            <td
+              className={cn(
+                'p-2 text-right font-mono text-xs',
+                row.drifted ? 'text-rose-400' : 'text-emerald-400',
+              )}
+            >
               {row.drifted ? 'Ya' : 'Tidak'}
             </td>
           </tr>

@@ -17,8 +17,20 @@ interface DemoClip {
 }
 
 const DEMO_CLIPS: DemoClip[] = [
-  { id: '1', duration: '0:42', score: 93, hook: '"Ini kesalahan terbesar yang saya buat"', tone: '#1a2233' },
-  { id: '2', duration: '0:35', score: 87, hook: 'Momen paling jujur dari sesi ini', tone: '#241a33' },
+  {
+    id: '1',
+    duration: '0:42',
+    score: 93,
+    hook: '"Ini kesalahan terbesar yang saya buat"',
+    tone: '#1a2233',
+  },
+  {
+    id: '2',
+    duration: '0:35',
+    score: 87,
+    hook: 'Momen paling jujur dari sesi ini',
+    tone: '#241a33',
+  },
   { id: '3', duration: '0:51', score: 90, hook: '3 pelajaran dalam 60 detik', tone: '#331a26' },
 ];
 
@@ -116,9 +128,9 @@ export function Hero() {
           Klip Siap Viral Keluar.
         </h1>
         <p className="mt-6 max-w-lg font-body text-lg text-muted-foreground">
-          Upload rekaman podcast, webinar, atau live stream kamu. Sistem transkrip
-          otomatis, temukan momen paling menarik, lalu render jadi klip vertikal dengan
-          caption terbakar-in — siap upload ke TikTok, Reels, atau Shorts.
+          Upload rekaman podcast, webinar, atau live stream kamu. Sistem transkrip otomatis, temukan
+          momen paling menarik, lalu render jadi klip vertikal dengan caption terbakar-in — siap
+          upload ke TikTok, Reels, atau Shorts.
         </p>
         <div className="mt-8 flex flex-wrap items-center gap-4">
           <Button size="lg" asChild>

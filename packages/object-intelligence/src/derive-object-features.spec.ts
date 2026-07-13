@@ -134,10 +134,7 @@ describe('deriveObjectFeatures', () => {
   describe('averageOcclusionScore', () => {
     it('averages occlusionScore across all tracks (never excluded, unlike motionSpeed)', () => {
       const result = deriveObjectFeatures(
-        [
-          track({ trackId: 0, occlusionScore: 0.8 }),
-          track({ trackId: 1, occlusionScore: 0.2 }),
-        ],
+        [track({ trackId: 0, occlusionScore: 0.8 }), track({ trackId: 1, occlusionScore: 0.2 })],
         10,
       );
       expect(result.averageOcclusionScore).toBeCloseTo(0.5);

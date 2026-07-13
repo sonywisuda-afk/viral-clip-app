@@ -30,11 +30,7 @@ describe('computeConfidenceDistribution', () => {
 
 describe('computeMostCommonSignals', () => {
   it('counts signal frequency across clips, sorted descending', () => {
-    const result = computeMostCommonSignals([
-      ['audio', 'scene'],
-      ['audio'],
-      ['facial'],
-    ]);
+    const result = computeMostCommonSignals([['audio', 'scene'], ['audio'], ['facial']]);
     expect(result).toEqual([
       { signal: 'audio', count: 2 },
       { signal: 'scene', count: 1 },
@@ -106,7 +102,13 @@ describe('bucketByPublishDate', () => {
 
   it('treats a null viewCount as 0, not skipping the record', () => {
     const result = bucketByPublishDate(
-      [{ publishedAt: new Date('2026-01-10T00:00:00.000Z'), viewCount: null, engagementScore: null }],
+      [
+        {
+          publishedAt: new Date('2026-01-10T00:00:00.000Z'),
+          viewCount: null,
+          engagementScore: null,
+        },
+      ],
       3,
       now,
     );

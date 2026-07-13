@@ -6,7 +6,12 @@ import { runEvaluation } from './evaluation-runner';
 function sample(clipId: string, label: number): TrainingSample {
   return {
     sampleId: `s-${clipId}`,
-    featureVector: { clipId, featureNames: ['audio', 'scene'], values: [0.5, 0.5], extractedAt: '2026-01-01T00:00:00.000Z' },
+    featureVector: {
+      clipId,
+      featureNames: ['audio', 'scene'],
+      values: [0.5, 0.5],
+      extractedAt: '2026-01-01T00:00:00.000Z',
+    },
     label,
   };
 }
