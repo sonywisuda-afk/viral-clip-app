@@ -24,7 +24,8 @@ export function recordToTrainingSample(record: DatasetRecord): TrainingSample | 
     if (dotIndex === -1) continue;
     const v2Signal = key.slice(0, dotIndex);
     const feature = key.slice(dotIndex + 1);
-    const v3Signal = FUSION_V2_TO_V3_SIGNAL_MAP[v2Signal as keyof typeof FUSION_V2_TO_V3_SIGNAL_MAP];
+    const v3Signal =
+      FUSION_V2_TO_V3_SIGNAL_MAP[v2Signal as keyof typeof FUSION_V2_TO_V3_SIGNAL_MAP];
     if (!v3Signal) continue;
     entries.push([`${v3Signal}.${feature}`, value]);
   }

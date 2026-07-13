@@ -207,9 +207,9 @@ describe('runGraph', () => {
           throw new Error('this should never happen');
         }),
       ];
-      await expect(
-        runGraph(nodes, { multiplier: 1 }, { onNodeComplete }),
-      ).rejects.toThrow('this should never happen');
+      await expect(runGraph(nodes, { multiplier: 1 }, { onNodeComplete })).rejects.toThrow(
+        'this should never happen',
+      );
 
       expect(onNodeComplete).toHaveBeenCalledTimes(1);
       const [event] = onNodeComplete.mock.calls[0];

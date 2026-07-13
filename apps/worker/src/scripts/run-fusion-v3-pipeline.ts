@@ -31,13 +31,16 @@ async function main() {
   const { prisma } = await import('../prisma');
   const { ProductionDatasetBuilder } = await import('../ml/production-dataset-builder');
 
-  const buildPredictor = (model: unknown) => new BaselineLinearPredictor(model as LinearRegressionModel);
+  const buildPredictor = (model: unknown) =>
+    new BaselineLinearPredictor(model as LinearRegressionModel);
 
   let datasetBuilder;
   let sampleIds: string[];
 
   if (useMock) {
-    console.log('[run-fusion-v3-pipeline] --mock: using MockDatasetBuilder + synthetic sample ids\n');
+    console.log(
+      '[run-fusion-v3-pipeline] --mock: using MockDatasetBuilder + synthetic sample ids\n',
+    );
     datasetBuilder = new MockDatasetBuilder();
     sampleIds = Array.from({ length: 30 }, (_, i) => `mock-clip-${i}`);
   } else {
@@ -47,7 +50,7 @@ async function main() {
 
     if (sampleIds.length === 0) {
       console.log(
-        '[run-fusion-v3-pipeline] 0 usable samples in production - matches M1/M1.5\'s prior findings. ' +
+        "[run-fusion-v3-pipeline] 0 usable samples in production - matches M1/M1.5's prior findings. " +
           'Not enough data yet to run a real pipeline. Re-run this script as production data ' +
           'accumulates, or run `pnpm --filter @speedora/fusion-ml test` (pipeline.spec.ts) to see the ' +
           'pipeline proven end-to-end today, or run this script with --mock for a full run against ' +

@@ -293,9 +293,7 @@ describe('extractAnimatedPreview', () => {
     });
 
     const [, args] = execFileMock.mock.calls[0];
-    expect(args).toEqual(
-      expect.arrayContaining(['-t', '3', '-vf', 'fps=12,scale=320:-1']),
-    );
+    expect(args).toEqual(expect.arrayContaining(['-t', '3', '-vf', 'fps=12,scale=320:-1']));
   });
 
   it('propagates the error when ffmpeg fails', async () => {

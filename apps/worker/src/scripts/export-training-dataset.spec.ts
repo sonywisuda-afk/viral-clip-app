@@ -9,7 +9,12 @@ describe('flattenClipFeatures', () => {
       highlightConfidence: 0.6,
       highlightBreakdown: [
         { signal: 'audio', feature: 'loudnessRms', normalizedValue: 0.4, weightedContribution: 0 },
-        { signal: 'composition', feature: 'ruleOfThirdsScore', normalizedValue: 0.9, weightedContribution: 0 },
+        {
+          signal: 'composition',
+          feature: 'ruleOfThirdsScore',
+          normalizedValue: 0.9,
+          weightedContribution: 0,
+        },
       ],
     });
 
@@ -33,7 +38,12 @@ describe('flattenClipFeatures', () => {
         // weight-0 signal: weightedContribution is 0 even though the raw
         // normalized signal isn't - this is the whole point of using
         // normalizedValue for correlation.
-        { signal: 'gesture', feature: 'handMovementRate', normalizedValue: 0.75, weightedContribution: 0 },
+        {
+          signal: 'gesture',
+          feature: 'handMovementRate',
+          normalizedValue: 0.75,
+          weightedContribution: 0,
+        },
       ],
     });
 

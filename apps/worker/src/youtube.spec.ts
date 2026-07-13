@@ -17,7 +17,7 @@ function createFakeChild() {
 }
 
 let lastChild: ReturnType<typeof createFakeChild>;
-const spawnMock = jest.fn((_file: string, _args: string[]) => {
+const spawnMock = jest.fn<ReturnType<typeof createFakeChild>, [string, string[]]>(() => {
   lastChild = createFakeChild();
   return lastChild;
 });
@@ -40,7 +40,8 @@ const execFileMockBehavior = execFileMock as unknown as jest.Mock;
 
 jest.mock('node:child_process', () => ({
   spawn: (...args: unknown[]) => (spawnMock as unknown as (...a: unknown[]) => unknown)(...args),
-  execFile: (...args: unknown[]) => (execFileMock as unknown as (...a: unknown[]) => unknown)(...args),
+  execFile: (...args: unknown[]) =>
+    (execFileMock as unknown as (...a: unknown[]) => unknown)(...args),
 }));
 
 import { downloadYoutubeVideo, getYoutubeVideoTitle } from './youtube';

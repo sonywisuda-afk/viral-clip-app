@@ -39,12 +39,20 @@ describe('recordToTrainingSample', () => {
   });
 
   it('returns null when engagementScore is not a number', () => {
-    const record: DatasetRecord = { clipId: 'clip-1', 'audio.averageRmsDb': 0.4, engagementScore: null };
+    const record: DatasetRecord = {
+      clipId: 'clip-1',
+      'audio.averageRmsDb': 0.4,
+      engagementScore: null,
+    };
     expect(recordToTrainingSample(record)).toBeNull();
   });
 
   it('returns an empty feature vector when nothing matches, not null', () => {
-    const record: DatasetRecord = { clipId: 'clip-1', 'llm.engagement.hookStrength': 0.9, engagementScore: 0.1 };
+    const record: DatasetRecord = {
+      clipId: 'clip-1',
+      'llm.engagement.hookStrength': 0.9,
+      engagementScore: 0.1,
+    };
     const sample = recordToTrainingSample(record);
     expect(sample).not.toBeNull();
     expect(sample!.featureVector.featureNames).toEqual([]);
@@ -76,7 +84,21 @@ describe('ProductionDatasetBuilder', () => {
         highlightScore: null,
         highlightConfidence: null,
         highlightBreakdown: [{ signal: 'audio', feature: 'averageRmsDb', normalizedValue: 0.5 }],
-        publishRecords: [{ statsSnapshots: [{ capturedAt: new Date('2026-01-01'), viewCount: 100, likeCount: 1, commentCount: 1, shareCount: 0, watchTimeSeconds: null, engagementScore: 0.3 }] }],
+        publishRecords: [
+          {
+            statsSnapshots: [
+              {
+                capturedAt: new Date('2026-01-01'),
+                viewCount: 100,
+                likeCount: 1,
+                commentCount: 1,
+                shareCount: 0,
+                watchTimeSeconds: null,
+                engagementScore: 0.3,
+              },
+            ],
+          },
+        ],
       },
       {
         id: 'clip-2',
@@ -84,7 +106,21 @@ describe('ProductionDatasetBuilder', () => {
         highlightScore: null,
         highlightConfidence: null,
         highlightBreakdown: [],
-        publishRecords: [{ statsSnapshots: [{ capturedAt: new Date('2026-01-01'), viewCount: 0, likeCount: null, commentCount: null, shareCount: null, watchTimeSeconds: null, engagementScore: null }] }],
+        publishRecords: [
+          {
+            statsSnapshots: [
+              {
+                capturedAt: new Date('2026-01-01'),
+                viewCount: 0,
+                likeCount: null,
+                commentCount: null,
+                shareCount: null,
+                watchTimeSeconds: null,
+                engagementScore: null,
+              },
+            ],
+          },
+        ],
       },
     ]);
 
@@ -102,7 +138,21 @@ describe('ProductionDatasetBuilder', () => {
         highlightScore: null,
         highlightConfidence: null,
         highlightBreakdown: [{ signal: 'audio', feature: 'averageRmsDb', normalizedValue: 0.5 }],
-        publishRecords: [{ statsSnapshots: [{ capturedAt: new Date('2026-01-01'), viewCount: 100, likeCount: 1, commentCount: 1, shareCount: 0, watchTimeSeconds: null, engagementScore: 0.3 }] }],
+        publishRecords: [
+          {
+            statsSnapshots: [
+              {
+                capturedAt: new Date('2026-01-01'),
+                viewCount: 100,
+                likeCount: 1,
+                commentCount: 1,
+                shareCount: 0,
+                watchTimeSeconds: null,
+                engagementScore: 0.3,
+              },
+            ],
+          },
+        ],
       },
     ]);
 

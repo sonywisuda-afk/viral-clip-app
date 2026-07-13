@@ -19,5 +19,6 @@ export const faceLandmarksDeps: DetectFaceLandmarksDeps = {
   pythonPath: process.env.PYTHON_PATH ?? 'python3',
   scriptPath: path.join(__dirname, '../scripts/detect_face_landmarks.py'),
   modelPath:
-    process.env.FACE_LANDMARKER_MODEL_PATH ?? path.join(__dirname, '../models/face_landmarker.task'),
+    process.env.FACE_LANDMARKER_MODEL_PATH ??
+    path.join(__dirname, '../models/face_landmarker.task'),
 };

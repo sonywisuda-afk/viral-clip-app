@@ -62,7 +62,9 @@ async function main() {
       .map((feature) => ({
         feature,
         correlation: pearsonCorrelation(
-          usableWithEngagement.map((r) => (typeof r[feature] === 'number' ? (r[feature] as number) : null)),
+          usableWithEngagement.map((r) =>
+            typeof r[feature] === 'number' ? (r[feature] as number) : null,
+          ),
           engagementScores,
         ),
       }))
@@ -102,7 +104,9 @@ interface Report {
   drift: ReturnType<typeof import('./dataset-quality').detectFeatureDrift>;
   hasEnoughForCorrelation: boolean;
   correlations: Array<{ feature: string; correlation: number }>;
-  weightSuggestions: ReturnType<typeof import('./dataset-quality').computeWeightCalibrationSuggestions>;
+  weightSuggestions: ReturnType<
+    typeof import('./dataset-quality').computeWeightCalibrationSuggestions
+  >;
 }
 
 function healthVerdict(r: Report): string {
@@ -116,7 +120,9 @@ function healthVerdict(r: Report): string {
       `${highMissing.length} feature(s) are missing in >80% of clips (${highMissing
         .slice(0, 5)
         .map((m) => m.feature)
-        .join(', ')}${highMissing.length > 5 ? ', ...' : ''}) - likely detectors with no caller yet or with a low success rate.`,
+        .join(
+          ', ',
+        )}${highMissing.length > 5 ? ', ...' : ''}) - likely detectors with no caller yet or with a low success rate.`,
     );
   }
   if (!r.drift.insufficientData && r.drift.entries.some((e) => e.drifted)) {
@@ -155,7 +161,9 @@ ${
   r.missingData.length === 0
     ? '_No clips yet._'
     : `| Feature | Present | Missing | Missing % |\n|---|---|---|---|\n${r.missingData
-        .map((m) => `| ${m.feature} | ${m.presentCount} | ${m.missingCount} | ${m.missingRatePct}% |`)
+        .map(
+          (m) => `| ${m.feature} | ${m.presentCount} | ${m.missingCount} | ${m.missingRatePct}% |`,
+        )
         .join('\n')}`
 }
 
@@ -203,7 +211,10 @@ ${
   !r.hasEnoughForCorrelation
     ? '_Depends on the Correlation Dashboard above - not enough data yet._'
     : `Heuristic suggestion only - review before touching packages/fusion-engine/src/weights.ts, do not auto-apply.\n\n| Signal | Current Weight | Suggested Weight | Feature Count |\n|---|---|---|---|\n${r.weightSuggestions
-        .map((w) => `| ${w.signal} | ${w.currentWeight} | ${w.suggestedWeight} | ${w.sampleFeatureCount} |`)
+        .map(
+          (w) =>
+            `| ${w.signal} | ${w.currentWeight} | ${w.suggestedWeight} | ${w.sampleFeatureCount} |`,
+        )
         .join('\n')}`
 }
 `;

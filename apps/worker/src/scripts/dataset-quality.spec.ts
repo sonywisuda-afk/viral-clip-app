@@ -21,7 +21,12 @@ describe('computeMissingDataReport', () => {
     const report = computeMissingDataReport(records, 3);
 
     expect(report).toEqual([
-      { feature: 'composition.ruleOfThirdsScore', presentCount: 1, missingCount: 2, missingRatePct: 66.7 },
+      {
+        feature: 'composition.ruleOfThirdsScore',
+        presentCount: 1,
+        missingCount: 2,
+        missingRatePct: 66.7,
+      },
       { feature: 'audio.loudness', presentCount: 2, missingCount: 1, missingRatePct: 33.3 },
     ]);
   });
@@ -105,7 +110,10 @@ describe('computeWeightCalibrationSuggestions', () => {
       { feature: 'composition.ruleOfThirdsScore', correlation: 0.2 },
     ];
 
-    const suggestions = computeWeightCalibrationSuggestions(correlations, { audio: 0.35, composition: 0 });
+    const suggestions = computeWeightCalibrationSuggestions(correlations, {
+      audio: 0.35,
+      composition: 0,
+    });
 
     const total = suggestions.reduce((sum, s) => sum + s.suggestedWeight, 0);
     expect(total).toBeCloseTo(1, 2);
