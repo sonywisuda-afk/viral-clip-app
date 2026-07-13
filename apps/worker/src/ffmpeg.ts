@@ -18,14 +18,25 @@ const FFPROBE_PATH = process.env.FFPROBE_PATH ?? 'ffprobe';
 // dir - see storage.ts's reserveScratchPath) is atomic, so nothing ever
 // observes a half-written file at the final path. The tmp file is cleaned up
 // on failure so a killed/timed-out run doesn't leak scratch space.
+//
+// The `.tmp` suffix means ffmpeg is writing to a path that doesn't end in
+// `.mp4` - on ffmpeg 8.1.2 this was observed to break muxer format inference
+// (GitHub issue #28) since ffmpeg picks the container format from the output
+// filename's extension by default. Fixed by passing `-f mp4` explicitly so
+// the format is stated, not guessed from a name ffmpeg never sees as ending
+// in `.mp4` - both call sites below only ever produce H.264/AAC MP4 output
+// (`-c:v libx264 -c:a aac`), so hardcoding it here instead of threading it
+// through `buildArgs` is correct, not a premature generalization.
 async function execFfmpegAtomically(
-  buildArgs: (tmpOutputPath: string) => string[],
+  buildArgs: () => string[],
   outputPath: string,
   timeoutMs: number,
 ): Promise<void> {
   const tmpOutputPath = `${outputPath}.tmp`;
   try {
-    await execFileAsync(FFMPEG_PATH, buildArgs(tmpOutputPath), { timeout: timeoutMs });
+    await execFileAsync(FFMPEG_PATH, [...buildArgs(), '-f', 'mp4', tmpOutputPath], {
+      timeout: timeoutMs,
+    });
     await rename(tmpOutputPath, outputPath);
   } catch (error) {
     await unlink(tmpOutputPath).catch(() => undefined);
@@ -443,11 +454,7 @@ export async function renderClip(options: {
 
   args.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
 
-  await execFfmpegAtomically(
-    (tmpOutputPath) => [...args, tmpOutputPath],
-    outputPath,
-    RENDER_TIMEOUT_MS,
-  );
+  await execFfmpegAtomically(() => args, outputPath, RENDER_TIMEOUT_MS);
 }
 
 // Fase 15 (Auto B-roll), pass 1 of 2 - trims a downloaded stock clip to
@@ -667,7 +674,7 @@ export async function trimCutRanges(
   }
 
   await execFfmpegAtomically(
-    (tmpOutputPath) => [
+    () => [
       '-y',
       '-i',
       inputPath,
@@ -681,7 +688,6 @@ export async function trimCutRanges(
       'aac',
       '-movflags',
       '+faststart',
-      tmpOutputPath,
     ],
     outputPath,
     TRIM_TIMEOUT_MS,

@@ -389,6 +389,26 @@ describe('renderClip', () => {
     expect(args).not.toContain('/tmp/output.mp4');
   });
 
+  it('forces -f mp4 explicitly rather than letting ffmpeg infer the format from the .tmp filename (issue #28)', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      subtitlesPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: null,
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    const formatFlagIndex = args.indexOf('-f');
+    expect(formatFlagIndex).toBeGreaterThanOrEqual(0);
+    expect(args[formatFlagIndex + 1]).toBe('mp4');
+    // -f mp4 has to come right before the (.tmp) output path, not just
+    // anywhere in the args, since ffmpeg applies -f to whichever output
+    // follows it.
+    expect(args[formatFlagIndex + 2]).toBe('/tmp/output.mp4.tmp');
+  });
+
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
     await renderClip({
       inputPath: '/tmp/source.mp4',
@@ -776,6 +796,16 @@ describe('trimCutRanges', () => {
       ]),
     );
     expect(args).not.toContain('/tmp/trimmed.mp4');
+  });
+
+  it('forces -f mp4 explicitly rather than letting ffmpeg infer the format from the .tmp filename (issue #28)', async () => {
+    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10);
+
+    const [, args] = execFileMock.mock.calls[0];
+    const formatFlagIndex = args.indexOf('-f');
+    expect(formatFlagIndex).toBeGreaterThanOrEqual(0);
+    expect(args[formatFlagIndex + 1]).toBe('mp4');
+    expect(args[formatFlagIndex + 2]).toBe('/tmp/trimmed.mp4.tmp');
   });
 
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
