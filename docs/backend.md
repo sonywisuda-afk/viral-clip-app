@@ -75,8 +75,10 @@ another user, so IDs can't be probed. CORS is enabled explicitly with `credentia
   (`.webp` vs. pre-Phase-2 `.jpg` rows, never backfilled) rather than hardcoded, and the response
   carries this app's first `Cache-Control` header, `private, max-age=86400` — private since still
   JwtAuthGuard'd, a day rather than `immutable` since a retry can re-extract and overwrite the same
-  key). Phase 3 adds `GET /videos/:id/animated-thumbnail` (same shape, for the looping WebP preview)
-  and `GET /videos/:id/storyboard/:index` (one endpoint per frame index rather than one bundling all
+  key). Phase 3 adds `GET /videos/:id/animated-thumbnail` (same shape, for the looping WebP preview),
+  `GET /videos/:id/hover-preview` (same shape again, for the longer/smoother preview the frontend
+  only fetches on-demand on hover/focus intent — see `frontend.md`'s `lib/useHoverPreview.ts`), and
+  `GET /videos/:id/storyboard/:index` (one endpoint per frame index rather than one bundling all
   frames, so each stays independently cacheable/lazy-loadable — `storyboardFrameUrls` in the DTO is
   already an array of these endpoint paths, not raw keys), `POST /videos`, `POST
   /videos/import-youtube`, `POST /videos/:id/retry`, `DELETE /videos/:id`.
@@ -87,8 +89,9 @@ another user, so IDs can't be probed. CORS is enabled explicitly with `credentia
   preview could never actually play), `GET /clips/:id/thumbnail` (Product Experience roadmap —
   same shape, same Phase 2 Content-Type/Cache-Control treatment, as the video thumbnail endpoint
   above, extracted from the RENDERED output by render-clip.worker.ts), `GET
-  /clips/:id/animated-thumbnail`, `GET /clips/:id/storyboard/:index` (Phase 3 — same shape/reasoning
-  as their video-level counterparts above), `GET /clips/:id/explainability` (Milestone 4 — a focused,
+  /clips/:id/animated-thumbnail`, `GET /clips/:id/hover-preview`, `GET /clips/:id/storyboard/:index`
+  (Phase 3 — same shape/reasoning as their video-level counterparts above), `GET
+  /clips/:id/explainability` (Milestone 4 — a focused,
   read-only view of a clip's Fusion Engine output: `highlightScore`/`highlightConfidence`/
   `highlightBreakdown`/`highlightExplainability`/`highlightReason`/`highlightPrediction`/
   `highlightRecommendation`/`highlightRank`, wrapped as `{ clipId, results: [{ engine: 'v2', ... }] }`

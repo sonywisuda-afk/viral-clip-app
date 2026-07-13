@@ -282,6 +282,18 @@ export function clipAnimatedThumbnailUrl(animatedThumbnailUrl: string): string {
   return `${API_URL}${animatedThumbnailUrl}`;
 }
 
+// Phase 3 (Hover Preview roadmap) - same "prepend API_URL to an
+// already-relative endpoint path" treatment as videoThumbnailUrl/
+// clipThumbnailUrl above. Callers should only fetch this on-demand (hover/
+// focus intent, see lib/useHoverPreview.ts), never eagerly.
+export function videoHoverPreviewUrl(hoverPreviewUrl: string): string {
+  return `${API_URL}${hoverPreviewUrl}`;
+}
+
+export function clipHoverPreviewUrl(hoverPreviewUrl: string): string {
+  return `${API_URL}${hoverPreviewUrl}`;
+}
+
 // Phase 3 (Storyboard roadmap) - same "prepend API_URL to an already-relative
 // endpoint path" treatment as videoThumbnailUrl/clipThumbnailUrl above, one
 // call per entry in Video.storyboardFrameUrls/Clip.storyboardFrameUrls.

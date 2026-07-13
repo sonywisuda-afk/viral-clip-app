@@ -132,6 +132,20 @@ export class ClipsService {
     return { animatedThumbnailUrl: clip.animatedThumbnailUrl };
   }
 
+  // Used by GET /clips/:id/hover-preview (Product Experience roadmap,
+  // Phase 3) - same shape/reasoning as findThumbnailOrThrow above, for the
+  // longer/smoother preview fetched on-demand only on hover.
+  async findHoverPreviewOrThrow(
+    id: string,
+    requesterId: string,
+  ): Promise<{ hoverPreviewUrl: string }> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+    if (!clip.hoverPreviewUrl) {
+      throw new NotFoundException(`Clip ${id} has no hover preview`);
+    }
+    return { hoverPreviewUrl: clip.hoverPreviewUrl };
+  }
+
   // Used by GET /clips/:id/storyboard/:index (Product Experience roadmap,
   // Phase 3) - same shape/reasoning as findThumbnailOrThrow above,
   // parameterized by frame index.
@@ -365,6 +379,7 @@ export class ClipsService {
     thumbnailUrl: string | null;
     thumbnailBlurDataUrl: string | null;
     animatedThumbnailUrl: string | null;
+    hoverPreviewUrl: string | null;
     storyboardFrameUrls: unknown;
     captionStyle: CaptionStyle;
     hookText: string | null;
@@ -431,6 +446,7 @@ export class ClipsService {
       animatedThumbnailUrl: clip.animatedThumbnailUrl
         ? `/clips/${clip.id}/animated-thumbnail`
         : null,
+      hoverPreviewUrl: clip.hoverPreviewUrl ? `/clips/${clip.id}/hover-preview` : null,
       storyboardFrameUrls: toSharedStoryboardFrameKeys(clip.storyboardFrameUrls).map(
         (_, i) => `/clips/${clip.id}/storyboard/${i}`,
       ),

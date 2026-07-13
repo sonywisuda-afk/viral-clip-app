@@ -125,6 +125,22 @@ export class ClipsController {
     stream.pipe(res);
   }
 
+  // Phase 3 (Hover Preview, "Clip Preview") - see VideosController's own
+  // hoverPreview endpoint for the reasoning.
+  @Get(':id/hover-preview')
+  async hoverPreview(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { hoverPreviewUrl } = await this.clipsService.findHoverPreviewOrThrow(id, user.id);
+    const stream = await getObjectStream(hoverPreviewUrl);
+
+    res.setHeader('Content-Type', thumbnailContentType(hoverPreviewUrl));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
   // Phase 3 (Storyboard) - see VideosController's own storyboardFrame
   // endpoint for the per-index-endpoint reasoning.
   @Get(':id/storyboard/:index')

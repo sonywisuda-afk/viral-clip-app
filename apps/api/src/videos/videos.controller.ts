@@ -184,6 +184,26 @@ export class VideosController {
     stream.pipe(res);
   }
 
+  // Phase 3 (Hover Preview) - same shape/reasoning as animatedThumbnail
+  // above, for the longer/smoother preview fetched on-demand only on hover
+  // (see lib/useHoverPreview.ts) rather than always shown.
+  @Get(':id/hover-preview')
+  async hoverPreview(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { hoverPreviewUrl } = await this.videosService.findHoverPreviewOrThrow(id, user.id);
+    if (!hoverPreviewUrl) {
+      throw new NotFoundException(`Video ${id} has no hover preview`);
+    }
+
+    const stream = await getObjectStream(hoverPreviewUrl);
+    res.setHeader('Content-Type', thumbnailContentType(hoverPreviewUrl));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
   // Phase 3 (Storyboard) - one endpoint per frame index rather than a single
   // endpoint returning all frames bundled, so each frame stays independently
   // cacheable/lazy-loadable (same reasoning as the per-resource Cache-Control

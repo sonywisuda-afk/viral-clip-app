@@ -886,6 +886,12 @@ export interface Video {
   // thumbnailUrl above). Null while extraction is still pending/failed, or
   // for pre-existing rows.
   animatedThumbnailUrl: string | null;
+  // Phase 3 (Hover Preview roadmap) - already a `/videos/:id/hover-preview`
+  // relative endpoint path (same treatment as animatedThumbnailUrl above),
+  // fetched by the frontend on-demand only on hover/focus (see
+  // lib/useHoverPreview.ts) rather than always shown. Null while extraction
+  // is still pending/failed, or for pre-existing rows.
+  hoverPreviewUrl: string | null;
   // Phase 3 (Storyboard roadmap) - already an array of `/videos/:id/storyboard/:index`
   // relative endpoint paths (see VideosService.mapVideoWithClips), one per
   // successfully extracted frame - never a fixed-N assumption, since each
@@ -938,6 +944,10 @@ export interface Clip {
   // Video.animatedThumbnailUrl above, extracted from the RENDERED output by
   // render-clip.worker.ts.
   animatedThumbnailUrl: string | null;
+  // Phase 3 (Hover Preview roadmap, "Clip Preview") - same treatment as
+  // Video.hoverPreviewUrl above, extracted from the RENDERED output by
+  // render-clip.worker.ts.
+  hoverPreviewUrl: string | null;
   // Phase 3 (Storyboard roadmap) - same "array of endpoint paths, one per
   // successfully extracted frame" treatment as Video.storyboardFrameUrls
   // above, extracted from the RENDERED output by render-clip.worker.ts.

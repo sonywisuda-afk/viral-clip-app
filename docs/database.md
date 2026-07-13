@@ -19,7 +19,10 @@ for client-usage conventions.
   frames, one per independently-best-effort extraction; a real, possibly-short array of whichever
   frames actually succeeded, never a fabricated fixed-N shape), `animatedThumbnailUrl` (Phase 3 —
   object storage key for a short, muted, looping WebP, same best-effort/never-exposed-as-raw-key
-  treatment as `thumbnailUrl`).
+  treatment as `thumbnailUrl`), `hoverPreviewUrl` (Phase 3 — same `extractAnimatedPreview()`
+  primitive as `animatedThumbnailUrl`, a longer/smoother config and a genuinely separate column
+  since it's fetched by the frontend on-demand only on hover/focus, not always shown - see
+  `frontend.md`'s `lib/useHoverPreview.ts`).
 - **`TranscriptSegment`** — per-video (not duplicated per-clip); a clip's transcript is derived by
   querying segments within its `startTime`/`endTime` range (`filterSegmentsForClip`, `packages/
   shared`). Carries `words` (word-level timestamps), `speaker` (Diarization label), `emotion`
@@ -27,8 +30,8 @@ for client-usage conventions.
   `ai/audio.md`.
 - **`Clip`** — one candidate/rendered clip. `startTime`/`endTime`/`outputUrl`/`captionStyle`/
   `hookText`/`hashtags`/`emojiSuggestions` from the MVP+early phases, `thumbnailUrl`/
-  `thumbnailBlurDataUrl`, `storyboardFrameUrls`, `animatedThumbnailUrl` (Product Experience
-  roadmap — same treatment as `Video`'s own columns above, but extracted from the RENDERED output
+  `thumbnailBlurDataUrl`, `storyboardFrameUrls`, `animatedThumbnailUrl`, `hoverPreviewUrl` (Product
+  Experience roadmap — same treatment as `Video`'s own columns above, but extracted from the RENDERED output
   by `render-clip.worker.ts` instead of the source), plus a large set of AI
   Intelligence columns (see below) and Fusion Engine output
   (`highlightScore`/`highlightConfidence`/`highlightBreakdown`/`highlightExplainability`/

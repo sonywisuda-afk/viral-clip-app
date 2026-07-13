@@ -426,6 +426,22 @@ export class VideosService {
     return { animatedThumbnailUrl: video.animatedThumbnailUrl };
   }
 
+  // Used by GET /videos/:id/hover-preview (Product Experience roadmap,
+  // Phase 3) - same shape/reasoning as findThumbnailOrThrow above, for the
+  // longer/smoother preview fetched on-demand only on hover.
+  async findHoverPreviewOrThrow(
+    id: string,
+    requesterId: string,
+  ): Promise<{ hoverPreviewUrl: string | null }> {
+    const video = await this.prisma.video.findUnique({ where: { id } });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+
+    return { hoverPreviewUrl: video.hoverPreviewUrl };
+  }
+
   // Used by GET /videos/:id/storyboard/:index (Product Experience roadmap,
   // Phase 3) - mirrors findThumbnailOrThrow's shape/reasoning, parameterized
   // by frame index. storyboardFrameUrls only ever needs to expose its COUNT
@@ -507,6 +523,7 @@ export class VideosService {
       diarizationFeatures,
       thumbnailUrl,
       animatedThumbnailUrl,
+      hoverPreviewUrl,
       storyboardFrameUrls,
       ...rest
     } = video;
@@ -519,6 +536,7 @@ export class VideosService {
       animatedThumbnailUrl: animatedThumbnailUrl
         ? `/videos/${video.id}/animated-thumbnail`
         : null,
+      hoverPreviewUrl: hoverPreviewUrl ? `/videos/${video.id}/hover-preview` : null,
       // Only the COUNT of extracted frames is needed here - each entry is an
       // endpoint path, not a raw key (see findStoryboardFrameOrThrow above).
       storyboardFrameUrls: toSharedStoryboardFrameKeys(storyboardFrameUrls).map(
@@ -536,6 +554,7 @@ export class VideosService {
           outputUrl,
           thumbnailUrl: clipThumbnailUrl,
           animatedThumbnailUrl: clipAnimatedThumbnailUrl,
+          hoverPreviewUrl: clipHoverPreviewUrl,
           storyboardFrameUrls: clipStoryboardFrameUrls,
           publishRecords,
           scores,
@@ -583,6 +602,7 @@ export class VideosService {
           animatedThumbnailUrl: clipAnimatedThumbnailUrl
             ? `/clips/${clip.id}/animated-thumbnail`
             : null,
+          hoverPreviewUrl: clipHoverPreviewUrl ? `/clips/${clip.id}/hover-preview` : null,
           storyboardFrameUrls: toSharedStoryboardFrameKeys(clipStoryboardFrameUrls).map(
             (_, i) => `/clips/${clip.id}/storyboard/${i}`,
           ),

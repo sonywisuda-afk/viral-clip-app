@@ -14,6 +14,7 @@ describe('ClipsController', () => {
     findRenderedOrThrow: jest.Mock;
     findThumbnailOrThrow: jest.Mock;
     findAnimatedThumbnailOrThrow: jest.Mock;
+    findHoverPreviewOrThrow: jest.Mock;
     findStoryboardFrameOrThrow: jest.Mock;
     getExplainability: jest.Mock;
     update: jest.Mock;
@@ -31,6 +32,7 @@ describe('ClipsController', () => {
       findRenderedOrThrow: jest.fn(),
       findThumbnailOrThrow: jest.fn(),
       findAnimatedThumbnailOrThrow: jest.fn(),
+      findHoverPreviewOrThrow: jest.fn(),
       findStoryboardFrameOrThrow: jest.fn(),
       getExplainability: jest.fn(),
       update: jest.fn(),
@@ -142,6 +144,35 @@ describe('ClipsController', () => {
 
     await expect(controller.animatedThumbnail(user, 'clip-1', res)).rejects.toThrow(
       'Clip clip-1 has no animated thumbnail',
+    );
+    expect(getObjectStream).not.toHaveBeenCalled();
+  });
+
+  it('streams a WebP hover preview as image/webp, with a private day-long cache header', async () => {
+    clipsService.findHoverPreviewOrThrow.mockResolvedValue({
+      hoverPreviewUrl: 'hover-previews/clip-1.webp',
+    });
+    const fakeStream = { pipe: jest.fn() };
+    (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+    const res = { setHeader: jest.fn() } as unknown as Response;
+
+    await controller.hoverPreview(user, 'clip-1', res);
+
+    expect(clipsService.findHoverPreviewOrThrow).toHaveBeenCalledWith('clip-1', 'user-1');
+    expect(getObjectStream).toHaveBeenCalledWith('hover-previews/clip-1.webp');
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+    expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
+    expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+  });
+
+  it('propagates the not-found error from the service without touching storage for a missing hover preview', async () => {
+    clipsService.findHoverPreviewOrThrow.mockRejectedValue(
+      new Error('Clip clip-1 has no hover preview'),
+    );
+    const res = { setHeader: jest.fn() } as unknown as Response;
+
+    await expect(controller.hoverPreview(user, 'clip-1', res)).rejects.toThrow(
+      'Clip clip-1 has no hover preview',
     );
     expect(getObjectStream).not.toHaveBeenCalled();
   });

@@ -169,6 +169,12 @@ const STORYBOARD_FRAME_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9];
 // still thumbnail/storyboard frames, for visual consistency across all three.
 const ANIMATED_THUMBNAIL_CONFIG = { durationSeconds: 1.5, fps: 6, width: 480 };
 
+// Phase 3 (Hover Preview roadmap) - longer/smoother than
+// ANIMATED_THUMBNAIL_CONFIG above, since this is the main content of a
+// deliberate hover interaction (fetched on-demand only), not background
+// decoration - see extractAnimatedPreview's own comment in ffmpeg.ts.
+const HOVER_PREVIEW_CONFIG = { durationSeconds: 3, fps: 12, width: 320 };
+
 const logger = forStage('transcribe');
 
 export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJobResult> {
@@ -220,6 +226,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
           let animatedThumbnailPath: string | null = null;
+          let hoverPreviewPath: string | null = null;
           const audioPaths: string[] = [];
           const storyboardPaths: string[] = [];
 
@@ -365,6 +372,27 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             } catch (error) {
               logger.warn(
                 'animated thumbnail extraction failed, continuing without one',
+                { videoId },
+                error,
+              );
+            }
+
+            // Phase 3 (Hover Preview roadmap) - a longer/smoother preview
+            // fetched on-demand only when a user hovers/focuses this video's
+            // card (see lib/useHoverPreview.ts) - same best-effort,
+            // independent-of-everything-else idiom as the blocks above.
+            try {
+              hoverPreviewPath = await reserveScratchPath('hover-preview', '.webp');
+              await extractAnimatedPreview(sourcePath, hoverPreviewPath, 1, HOVER_PREVIEW_CONFIG);
+              const hoverPreviewKey = `hover-previews/${videoId}.webp`;
+              await uploadObject(hoverPreviewKey, createReadStream(hoverPreviewPath), 'image/webp');
+              await prisma.video.update({
+                where: { id: videoId },
+                data: { hoverPreviewUrl: hoverPreviewKey },
+              });
+            } catch (error) {
+              logger.warn(
+                'hover preview extraction failed, continuing without one',
                 { videoId },
                 error,
               );
@@ -624,6 +652,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             if (thumbPath) await cleanupTempFile(thumbPath);
             if (blurPath) await cleanupTempFile(blurPath);
             if (animatedThumbnailPath) await cleanupTempFile(animatedThumbnailPath);
+            if (hoverPreviewPath) await cleanupTempFile(hoverPreviewPath);
             for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const audioPath of audioPaths) await cleanupTempFile(audioPath);
           }

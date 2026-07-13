@@ -15,6 +15,7 @@ describe('VideosController', () => {
     findSourceOrThrow: jest.Mock;
     findThumbnailOrThrow: jest.Mock;
     findAnimatedThumbnailOrThrow: jest.Mock;
+    findHoverPreviewOrThrow: jest.Mock;
     findStoryboardFrameOrThrow: jest.Mock;
     upload: jest.Mock;
     importFromYoutube: jest.Mock;
@@ -27,6 +28,7 @@ describe('VideosController', () => {
       findSourceOrThrow: jest.fn(),
       findThumbnailOrThrow: jest.fn(),
       findAnimatedThumbnailOrThrow: jest.fn(),
+      findHoverPreviewOrThrow: jest.fn(),
       findStoryboardFrameOrThrow: jest.fn(),
       upload: jest.fn(),
       importFromYoutube: jest.fn(),
@@ -242,6 +244,43 @@ describe('VideosController', () => {
       await expect(controller.animatedThumbnail(user, 'missing', res)).rejects.toThrow(
         'not found',
       );
+      expect(getObjectStream).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('hoverPreview', () => {
+    it('streams a WebP hover preview as image/webp, with a private day-long cache header', async () => {
+      videosService.findHoverPreviewOrThrow.mockResolvedValue({
+        hoverPreviewUrl: 'hover-previews/video-1.webp',
+      });
+      const fakeStream = { pipe: jest.fn() };
+      (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await controller.hoverPreview(user, 'video-1', res);
+
+      expect(videosService.findHoverPreviewOrThrow).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(getObjectStream).toHaveBeenCalledWith('hover-previews/video-1.webp');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
+      expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+    });
+
+    it('404s without touching storage when no hover preview has been extracted yet', async () => {
+      videosService.findHoverPreviewOrThrow.mockResolvedValue({ hoverPreviewUrl: null });
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await expect(controller.hoverPreview(user, 'video-1', res)).rejects.toThrow(
+        'Video video-1 has no hover preview',
+      );
+      expect(getObjectStream).not.toHaveBeenCalled();
+    });
+
+    it('propagates the not-found error from the service without touching storage', async () => {
+      videosService.findHoverPreviewOrThrow.mockRejectedValue(new Error('not found'));
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await expect(controller.hoverPreview(user, 'missing', res)).rejects.toThrow('not found');
       expect(getObjectStream).not.toHaveBeenCalled();
     });
   });

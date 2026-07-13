@@ -85,6 +85,21 @@ though it had fully rendered. Phase 3 (Animated Thumbnail) prefers `video.animat
 `src` when set, falling back to the static `thumbnailUrl` - a browser renders/loops a WebP the same
 way it renders a static one, so no separate code path was needed.
 
+Phase 3 (Hover Preview) adds a second, absolutely-positioned `<img>` overlay on top of whichever
+default is showing, only rendered into the DOM while `lib/useHoverPreview.ts`'s shared hook reports
+`active` - the hook (used by both this card and `ClipCard.tsx`'s Clip Preview) centralizes every
+concern that interaction needs to get right: a 200ms debounced "intent" (not every mouse
+pass-through triggers a fetch), cancellation via `clearTimeout` if the pointer leaves before the
+debounce fires, `onFocus`/`onBlur` mirroring `onMouseEnter`/`onMouseLeave` for keyboard parity, and
+gating the whole feature behind `matchMedia('(hover: hover) and (pointer: fine)')` so touch devices
+(no stable hover concept) just get the default asset with no confusing preview-then-navigate flash.
+The overlay `<img>` only exists in the tree while `active` is true, so leaving/blurring drops an
+in-flight decode rather than letting it finish unseen - real Chromium testing (debounce timing,
+cancellation, rapid enter/leave, keyboard focus parity, touch-device emulation) confirmed each of
+these behaves correctly, and that ffmpeg 8.1.2's own `ffprobe`/`ffplay` can't read back multi-frame
+animated WebP at all (a tooling limitation, not a sign of a broken file) - real verification for
+this asset type has to go through an actual `<img>` in a real browser instead.
+
 Clip preview `<video>` uses `clipStreamUrl(clip.id)` → `GET /clips/:id/stream` (Range-enabled
 inline stream), not `clipDownloadUrl` (attachment header, can't play in a `<video>` element). Video
 and clip delete are both **optimistic** — the row disappears immediately on click; on a failed
@@ -190,7 +205,13 @@ replacing it (the user's own framing: "mulai menghubungkan analytics dengan expl
   elements. `ClipCard.tsx`'s `LiveReel` (`thumbnail-strip` variant) picks the richest asset
   available, in order: Phase 3 Storyboard frames (`clip.storyboardFrameUrls`, the real filmstrip
   this variant was built for) → Phase 3 Animated Thumbnail (`clip.animatedThumbnailUrl`, a single
-  looping preview) → the static `thumbnailUrl` → the honest placeholder frames.
+  looping preview) → the static `thumbnailUrl` → the honest placeholder frames. Phase 3 (Hover
+  Preview, "Clip Preview") wraps that `LiveReel` in a `relative` div and overlays
+  `clip.hoverPreviewUrl` on top - same `lib/useHoverPreview.ts` hook and on-demand-only `<img>`
+  pattern as `RecentProjectsGrid.tsx`'s own Hover Preview, with handlers spread onto the card's own
+  `Link` (its focusable root) so keyboard tabbing gets the same behavior as mouse hover. Per the
+  confirmed product decision, Clip Preview always overlays on hover/focus intent regardless of
+  which of the three defaults above is currently showing.
 - `EngagementTrendChart.tsx` — extends `UploadTrendChart.tsx`'s bar-per-day technique: `totalViews`
   is the bar height (the primary series), `publishCount`/`averageEngagementScore` ride along in the
   hover tooltip rather than competing for their own bar height in the same strip.

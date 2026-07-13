@@ -304,6 +304,7 @@ describe('VideosService', () => {
           downloadUrl: '/clips/clip-1/download',
           thumbnailUrl: null,
           animatedThumbnailUrl: null,
+          hoverPreviewUrl: null,
           storyboardFrameUrls: [],
           scores: null,
           facialEmotions: null,
@@ -350,6 +351,7 @@ describe('VideosService', () => {
           downloadUrl: null,
           thumbnailUrl: null,
           animatedThumbnailUrl: null,
+          hoverPreviewUrl: null,
           storyboardFrameUrls: [],
           scores: null,
           facialEmotions: null,
@@ -569,6 +571,44 @@ describe('VideosService', () => {
       });
 
       await expect(service.findAnimatedThumbnailOrThrow('video-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('findHoverPreviewOrThrow', () => {
+    it('returns just the hoverPreviewUrl when the video belongs to the requester', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        hoverPreviewUrl: 'hover-previews/video-1.webp',
+      });
+
+      const result = await service.findHoverPreviewOrThrow('video-1', 'user-1');
+
+      expect(result).toEqual({ hoverPreviewUrl: 'hover-previews/video-1.webp' });
+    });
+
+    it('returns a null hoverPreviewUrl (not a throw) when extraction has not produced one yet', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        hoverPreviewUrl: null,
+      });
+
+      const result = await service.findHoverPreviewOrThrow('video-1', 'user-1');
+
+      expect(result).toEqual({ hoverPreviewUrl: null });
+    });
+
+    it('throws NotFoundException when the video belongs to a different user', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'someone-else',
+        hoverPreviewUrl: 'hover-previews/video-1.webp',
+      });
+
+      await expect(service.findHoverPreviewOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
     });

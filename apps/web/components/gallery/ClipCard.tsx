@@ -1,10 +1,18 @@
+'use client';
+
 import Link from 'next/link';
 import type { Clip } from '@speedora/shared';
 
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { LiveReel, type LiveReelThumbnail } from '@/components/signature/LiveReel';
 import { Badge } from '@/components/ui/badge';
-import { clipAnimatedThumbnailUrl, clipStoryboardFrameUrl, clipThumbnailUrl } from '@/lib/api';
+import {
+  clipAnimatedThumbnailUrl,
+  clipHoverPreviewUrl,
+  clipStoryboardFrameUrl,
+  clipThumbnailUrl,
+} from '@/lib/api';
+import { useHoverPreview } from '@/lib/useHoverPreview';
 import { cn } from '@/lib/utils';
 
 const TOP_SCORE_THRESHOLD = 90;
@@ -33,6 +41,14 @@ function formatDuration(seconds: number): string {
 
 export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
   const isTopScore = clip.viralityScore >= TOP_SCORE_THRESHOLD;
+  // Phase 3 (Hover Preview roadmap, "Clip Preview") - handlers go on this
+  // card's own Link (its focusable root), so keyboard tabbing gets the same
+  // behavior as mouse hover (see lib/useHoverPreview.ts's own comment on
+  // why). Per the confirmed design, Clip Preview always overlays on
+  // hover/focus intent regardless of what the filmstrip below is currently
+  // showing (storyboard/animated thumbnail/static/placeholder).
+  const { active: hoverActive, handlers: hoverHandlers } = useHoverPreview();
+  const showClipPreview = hoverActive && Boolean(clip.hoverPreviewUrl);
   // Real storyboard frames (Phase 3) when extraction has produced any -
   // this is the actual "filmstrip" the thumbnail-strip variant was designed
   // for, not a single frame repeated. Falls back to the single real
@@ -73,17 +89,33 @@ export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
         'motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02]',
         'hover:border-signal-pink/50 hover:shadow-[0_0_28px_-8px_rgba(255,59,127,0.4)]',
       )}
+      {...hoverHandlers}
     >
       {/* content-visibility:auto (Phase 2, image optimization roadmap) - the
           closest real "lazy loading" equivalent for a CSS background-image
           div (no native `loading` attribute exists for non-<img> elements,
           unlike RecentProjectsGrid.tsx's plain <img>) - defers offscreen
           render/paint cost. */}
-      <LiveReel
-        variant="thumbnail-strip"
-        thumbnails={thumbnails}
-        className="[content-visibility:auto]"
-      />
+      <div className="relative">
+        <LiveReel
+          variant="thumbnail-strip"
+          thumbnails={thumbnails}
+          className="[content-visibility:auto]"
+        />
+        {/* Phase 3 (Hover Preview roadmap, "Clip Preview") - overlays on top
+            of whatever the filmstrip above is currently showing while
+            hover/focus intent is active, per lib/useHoverPreview.ts.
+            Unmounted (not just hidden) on leave so its decode is dropped
+            rather than finishing unseen. */}
+        {showClipPreview && (
+          <img
+            src={clipHoverPreviewUrl(clip.hoverPreviewUrl as string)}
+            crossOrigin="use-credentials"
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+      </div>
 
       <div className="p-4">
         <div className="flex items-center justify-between gap-3">

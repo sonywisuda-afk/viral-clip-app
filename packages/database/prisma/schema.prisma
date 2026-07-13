@@ -211,6 +211,17 @@ model Video {
   // "/videos/:id/animated-thumbnail" endpoint-path treatment as thumbnailUrl.
   // Null while extraction is still pending/failed, or for pre-existing rows.
   animatedThumbnailUrl  String?
+  // Phase 3 (Hover Preview roadmap) - object storage key for a longer,
+  // smoother looping WebP than animatedThumbnailUrl above (same
+  // extractAnimatedPreview() primitive, a longer/smoother config since this
+  // is the main content of a hover interaction, not background decoration -
+  // see ffmpeg.ts's own comment). A genuinely separate asset/column, not a
+  // re-purposed animatedThumbnailUrl, because it's fetched on-demand only
+  // (only on hover, never eagerly with the card) rather than always-shown.
+  // Never exposed to the client as a raw key - same
+  // "/videos/:id/hover-preview" endpoint-path treatment as thumbnailUrl.
+  // Null while extraction is still pending/failed, or for pre-existing rows.
+  hoverPreviewUrl       String?
   // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
   // downloads the source - same "never fabricated" convention as
   // transcribeProgress below, and deliberately a separate column rather
@@ -387,6 +398,10 @@ model Clip {
   // render-clip.worker.ts (same reasoning as thumbnailUrl - matches exactly
   // what the viewer sees).
   animatedThumbnailUrl    String?
+  // Phase 3 (Hover Preview roadmap, "Clip Preview" on a clip card) - same
+  // treatment as Video.hoverPreviewUrl above, extracted from the RENDERED
+  // output by render-clip.worker.ts.
+  hoverPreviewUrl         String?
   captionStyle            CaptionStyle @default(DEFAULT)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -

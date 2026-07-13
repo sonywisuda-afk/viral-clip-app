@@ -24,11 +24,14 @@ adapter pattern every AI module here follows.
   (`extractBlurPlaceholder()`, 16px wide) whose output is base64-inlined into
   `Video.thumbnailBlurDataUrl` for a blur-up loading effect — its own independent best-effort
   block, so a failed blur extraction never undoes an otherwise-successful thumbnail. Phase 3 adds
-  two more independent best-effort blocks off the same source frame: a **Storyboard** (5 evenly-
+  three more independent best-effort blocks off the same source frame: a **Storyboard** (5 evenly-
   spaced `extractThumbnail()` calls, each its own try/catch, into `Video.storyboardFrameUrls` — a
-  real, possibly-short array of the keys that actually succeeded, never a fabricated fixed-5) and
-  an **Animated Thumbnail** (`ffmpeg.ts`'s `extractAnimatedPreview()` — a short, muted, looping
-  WebP, into `Video.animatedThumbnailUrl`).
+  real, possibly-short array of the keys that actually succeeded, never a fabricated fixed-5), an
+  **Animated Thumbnail** (`ffmpeg.ts`'s `extractAnimatedPreview()` — a short, muted, looping
+  WebP, into `Video.animatedThumbnailUrl`), and a **Hover Preview** (same `extractAnimatedPreview()`
+  primitive, a longer/smoother config since it's the main content of a deliberate hover interaction
+  rather than background decoration, into `Video.hoverPreviewUrl` — fetched by the frontend
+  on-demand only on hover/focus intent, see `frontend.md`'s `lib/useHoverPreview.ts`).
 - **`detect-clips`** — one LLM call (`packages/clip-scoring`) over the full transcript selects 1–3
   candidate clips with `ClipScores`, `hookText`, `hashtags`, emoji suggestions (see `ai/llm.md`).
   Self-chains one `render-clip` per candidate.
@@ -87,9 +90,10 @@ adapter pattern every AI module here follows.
     above. Sets `Clip.thumbnailUrl` alongside `outputUrl`/`outputSizeBytes` in the same update as
     step 11. A second, independent best-effort extraction (Phase 2) generates a tiny base64 blur
     placeholder into `Clip.thumbnailBlurDataUrl` the same way `transcribe.worker.ts` does for
-    `Video`. Phase 3 adds the same Storyboard (`Clip.storyboardFrameUrls`) and Animated Thumbnail
-    (`Clip.animatedThumbnailUrl`) extractions as `transcribe.worker.ts`, here from the RENDERED
-    output instead of the raw source.
+    `Video`. Phase 3 adds the same Storyboard (`Clip.storyboardFrameUrls`), Animated Thumbnail
+    (`Clip.animatedThumbnailUrl`), and Hover Preview (`Clip.hoverPreviewUrl`, "Clip Preview" on a
+    clip card) extractions as `transcribe.worker.ts`, here from the RENDERED output instead of the
+    raw source.
 11. **Upload + persist** — one `prisma.clip.update()` writes every raw/derived field from every
     step above.
 11. **Ranking** — once every sibling clip in the video has finished rendering (`allRendered`),

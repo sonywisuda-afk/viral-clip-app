@@ -620,9 +620,9 @@ describe('render-clip worker', () => {
       },
     });
     // source + captions + output + thumbnail + 5 storyboard frames + animated
-    // thumbnail (reserved even though this default beforeEach makes
-    // extraction fail) - no reframe-cmds file (no face detected).
-    expect(cleanupTempFileMock).toHaveBeenCalledTimes(10);
+    // thumbnail + hover preview (reserved even though this default beforeEach
+    // makes extraction fail) - no reframe-cmds file (no face detected).
+    expect(cleanupTempFileMock).toHaveBeenCalledTimes(11);
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
   });
 
@@ -773,9 +773,9 @@ describe('render-clip worker', () => {
     expect(reserveScratchPathMock).not.toHaveBeenCalledWith('captions', '.ass');
     expect(writeFileMock).not.toHaveBeenCalled();
     expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ subtitlesPath: null }));
-    // source + output + thumbnail + 5 storyboard frames + animated thumbnail,
-    // no captions, no reframe-cmds.
-    expect(cleanupTempFileMock).toHaveBeenCalledTimes(9);
+    // source + output + thumbnail + 5 storyboard frames + animated thumbnail
+    // + hover preview, no captions, no reframe-cmds.
+    expect(cleanupTempFileMock).toHaveBeenCalledTimes(10);
   });
 
   describe('silence/filler cut pass (Fase 8 follow-up)', () => {
@@ -1124,6 +1124,59 @@ describe('render-clip worker', () => {
     });
   });
 
+  describe('hover preview extraction (Phase 3, Hover Preview roadmap, "Clip Preview")', () => {
+    it('extracts a longer/smoother looping WebP from the RENDERED output midpoint and records the key', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      extractAnimatedPreviewMock.mockResolvedValue(undefined);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      // baseJobData is startTime: 10, endTime: 20 - midpoint is 5s into the
+      // rendered (already-trimmed-to-clip-length) output.
+      expect(extractAnimatedPreviewMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('hover-preview'),
+        5,
+        { durationSeconds: 3, fps: 12, width: 320 },
+      );
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'hover-previews/clip-1.webp',
+        expect.objectContaining({ fakeStream: expect.stringContaining('hover-preview') }),
+        'image/webp',
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ hoverPreviewUrl: 'hover-previews/clip-1.webp' }),
+        }),
+      );
+    });
+
+    it('never fails the render job when hover preview extraction fails, and never writes the field', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      extractAnimatedPreviewMock.mockRejectedValue(new Error('ffmpeg exited with code 1'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(uploadObjectMock).not.toHaveBeenCalledWith(
+        'hover-previews/clip-1.webp',
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(clipUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ hoverPreviewUrl: expect.anything() }),
+        }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
   describe('smart reframe', () => {
     it('falls back to a static center-crop when no face is detected anywhere in the clip', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -1189,8 +1242,8 @@ describe('render-clip worker', () => {
         }),
       );
       // source + output + reframe-cmds + thumbnail + 5 storyboard frames +
-      // animated thumbnail (no captions this time).
-      expect(cleanupTempFileMock).toHaveBeenCalledTimes(10);
+      // animated thumbnail + hover preview (no captions this time).
+      expect(cleanupTempFileMock).toHaveBeenCalledTimes(11);
     });
 
     it('falls back to a static center-crop without failing the job when face detection itself throws', async () => {

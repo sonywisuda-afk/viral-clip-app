@@ -350,6 +350,10 @@ const STORYBOARD_FRAME_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9];
 // own animated thumbnail (see its own comment for the reasoning).
 const ANIMATED_THUMBNAIL_CONFIG = { durationSeconds: 1.5, fps: 6, width: 480 };
 
+// Phase 3 (Hover Preview roadmap, "Clip Preview" on a clip card) - same
+// config as transcribe.worker.ts's own hover preview.
+const HOVER_PREVIEW_CONFIG = { durationSeconds: 3, fps: 12, width: 320 };
+
 export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJobResult> {
   return new Worker<RenderClipJobData, RenderClipJobResult>(
     QueueName.RENDER_CLIP,
@@ -408,6 +412,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
           let animatedThumbnailPath: string | null = null;
+          let hoverPreviewPath: string | null = null;
           const storyboardPaths: string[] = [];
 
           try {
@@ -638,6 +643,28 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               );
             }
 
+            // Phase 3 (Hover Preview roadmap, "Clip Preview") - same
+            // best-effort idiom as animatedThumbnailKey above.
+            let hoverPreviewKey: string | null = null;
+            try {
+              hoverPreviewPath = await reserveScratchPath('hover-preview', '.webp');
+              await extractAnimatedPreview(
+                renderedPath,
+                hoverPreviewPath,
+                (endTime - startTime) / 2,
+                HOVER_PREVIEW_CONFIG,
+              );
+              hoverPreviewKey = `hover-previews/${clipId}.webp`;
+              await uploadObject(hoverPreviewKey, createReadStream(hoverPreviewPath), 'image/webp');
+            } catch (error) {
+              hoverPreviewKey = null;
+              logger.warn(
+                'hover preview extraction failed, continuing without one',
+                { clipId },
+                error,
+              );
+            }
+
             // toClipUpdateData() replaces this call's former hand-written object literal the same way
             // toFusionInput() replaced computeHighlightScore's - see render-graph/sinks.ts's
             // CLIP_UPDATE_MAP for the per-node Prisma.JsonNull/plain-array/always-present rules, and
@@ -674,6 +701,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,
                     ...(animatedThumbnailKey ? { animatedThumbnailUrl: animatedThumbnailKey } : {}),
+                    ...(hoverPreviewKey ? { hoverPreviewUrl: hoverPreviewKey } : {}),
                     llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
                     highlightScore: highlight.highlightScore,
                     highlightBreakdown: highlight.contributions,
@@ -781,6 +809,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             if (thumbPath) await cleanupTempFile(thumbPath);
             if (blurPath) await cleanupTempFile(blurPath);
             if (animatedThumbnailPath) await cleanupTempFile(animatedThumbnailPath);
+            if (hoverPreviewPath) await cleanupTempFile(hoverPreviewPath);
             for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
           }

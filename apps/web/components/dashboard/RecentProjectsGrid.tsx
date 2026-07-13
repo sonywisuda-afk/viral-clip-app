@@ -9,7 +9,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { videoStatusBadge } from '@/lib/analytics';
 import { formatDuration } from '@/lib/dashboard';
-import { videoAnimatedThumbnailUrl, videoThumbnailUrl } from '@/lib/api';
+import { videoAnimatedThumbnailUrl, videoHoverPreviewUrl, videoThumbnailUrl } from '@/lib/api';
+import { useHoverPreview } from '@/lib/useHoverPreview';
 import { cn } from '@/lib/utils';
 
 export interface RecentProjectsGridProps {
@@ -39,8 +40,19 @@ const ROW_HEIGHT_PX = 168;
 // when there's no blur data yet (extraction pending/failed) but a real
 // thumbnail is on the way. Still the honest gradient+Film placeholder when
 // there's no thumbnailUrl at all - never a broken-image icon.
-const ThumbnailImage = memo(function ThumbnailImage({ video }: { video: VideoWithClips }) {
+const ThumbnailImage = memo(function ThumbnailImage({
+  video,
+  hoverActive,
+}: {
+  video: VideoWithClips;
+  hoverActive: boolean;
+}) {
   const [loaded, setLoaded] = useState(false);
+  // Phase 3 (Hover Preview roadmap) - only true once hover/focus intent is
+  // confirmed AND a preview actually exists; the <img> below only exists in
+  // the tree while this is true, so the on-demand fetch (and its decode)
+  // starts on hover and is dropped on leave, not eagerly with the card.
+  const showHoverPreview = hoverActive && Boolean(video.hoverPreviewUrl);
 
   if (!video.thumbnailUrl && !video.animatedThumbnailUrl) {
     return (
@@ -95,6 +107,19 @@ const ThumbnailImage = memo(function ThumbnailImage({ video }: { video: VideoWit
           loaded ? 'opacity-100' : 'opacity-0',
         )}
       />
+      {/* Phase 3 (Hover Preview roadmap) - overlays on top of whatever's
+          already showing (storyboard/animated thumbnail/static image)
+          while hover/focus intent is active, per lib/useHoverPreview.ts.
+          Unmounted (not just hidden) on leave so its decode is dropped
+          rather than finishing unseen. */}
+      {showHoverPreview && (
+        <img
+          src={videoHoverPreviewUrl(video.hoverPreviewUrl as string)}
+          crossOrigin="use-credentials"
+          alt=""
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
     </div>
   );
 });
@@ -106,10 +131,14 @@ const ThumbnailImage = memo(function ThumbnailImage({ video }: { video: VideoWit
 // publish/schedule/delete state machine that already lives there.
 const ProjectCard = memo(function ProjectCard({ video }: { video: VideoWithClips }) {
   const badge = videoStatusBadge(video.status);
+  // Phase 3 (Hover Preview roadmap) - handlers go on this <a>, the card's
+  // own focusable root, so keyboard tabbing gets the same behavior as
+  // mouse hover (see lib/useHoverPreview.ts's own comment on why).
+  const { active: hoverActive, handlers: hoverHandlers } = useHoverPreview();
   return (
-    <a href={`#video-${video.id}`} className="block">
+    <a href={`#video-${video.id}`} className="block" {...hoverHandlers}>
       <Card className="transition-colors hover:border-signal-pink/60">
-        <ThumbnailImage video={video} />
+        <ThumbnailImage video={video} hoverActive={hoverActive} />
         <CardContent className="space-y-1.5 p-4">
           <p className="truncate font-body text-sm text-foreground">
             {video.title ?? 'Video Tanpa Judul'}

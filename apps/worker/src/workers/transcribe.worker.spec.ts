@@ -213,16 +213,16 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenCalledTimes(2);
     expect(extractAudioMock).toHaveBeenCalledWith(
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-9.mp3',
+      '/scratch/transcribe-audio-10.mp3',
       undefined,
     );
     expect(extractAudioMock).toHaveBeenCalledWith(
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/diarize-audio-10.mp3',
+      '/scratch/diarize-audio-11.mp3',
     );
-    expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-10.mp3');
+    expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-11.mp3');
     expect(groqTranscriptionsCreateMock).toHaveBeenCalledWith({
-      file: { readStreamFor: '/scratch/transcribe-audio-9.mp3' },
+      file: { readStreamFor: '/scratch/transcribe-audio-10.mp3' },
       model: 'whisper-large-v3-turbo',
       response_format: 'verbose_json',
       timestamp_granularities: ['word', 'segment'],
@@ -230,8 +230,8 @@ describe('transcribe worker', () => {
     expect(openaiTranscriptionsCreateMock).not.toHaveBeenCalled();
     // All scratch files are cleaned up regardless of outcome.
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-src-0.mp4');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-9.mp3');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-10.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-10.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-11.mp3');
 
     const segments = [
       {
@@ -522,6 +522,86 @@ describe('transcribe worker', () => {
     });
   });
 
+  describe('hover preview extraction (Phase 3, Hover Preview roadmap)', () => {
+    it('extracts a longer/smoother looping WebP and records the key', async () => {
+      getObjectStreamMock.mockResolvedValue({});
+      groqTranscriptionsCreateMock.mockResolvedValue({
+        segments: [{ start: 0, end: 2, text: 'hi' }],
+        words: [{ start: 0, end: 0.8, word: 'hi' }],
+      });
+      getMediaDurationSecondsMock.mockResolvedValue(100);
+
+      const processor = getProcessor();
+      await processor({
+        data: {
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          provider: TranscriptionProvider.GROQ,
+        },
+      });
+
+      expect(extractAnimatedPreviewMock).toHaveBeenCalledWith(
+        '/scratch/transcribe-src-0.mp4',
+        '/scratch/hover-preview-9.webp',
+        1,
+        { durationSeconds: 3, fps: 12, width: 320 },
+      );
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'hover-previews/video-1.webp',
+        { readStreamFor: '/scratch/hover-preview-9.webp' },
+        'image/webp',
+      );
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { hoverPreviewUrl: 'hover-previews/video-1.webp' },
+      });
+      expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/hover-preview-9.webp');
+    });
+
+    it('never fails the transcribe job when hover preview extraction fails, and never writes the field', async () => {
+      getObjectStreamMock.mockResolvedValue({});
+      groqTranscriptionsCreateMock.mockResolvedValue({
+        segments: [{ start: 0, end: 2, text: 'hi' }],
+        words: [{ start: 0, end: 0.8, word: 'hi' }],
+      });
+      getMediaDurationSecondsMock.mockResolvedValue(100);
+      // Fails only the hover-preview call, not the animated-thumbnail one
+      // that runs right before it (same distinguish-by-output-path
+      // technique as the storyboard tests, since both share one mock).
+      extractAnimatedPreviewMock.mockImplementation(async (_input, output: string) => {
+        if (output.includes('hover-preview')) {
+          throw new Error('ffmpeg exited with code 1');
+        }
+      });
+
+      const processor = getProcessor();
+      await processor({
+        data: {
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          provider: TranscriptionProvider.GROQ,
+        },
+      });
+
+      expect(uploadObjectMock).not.toHaveBeenCalledWith(
+        'hover-previews/video-1.webp',
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ hoverPreviewUrl: expect.anything() }),
+        }),
+      );
+      // Still transitions to TRANSCRIBED - a hover-preview failure is invisible to the job's own outcome.
+      expect(videoUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ status: VideoStatus.TRANSCRIBED }),
+        }),
+      );
+    });
+  });
+
   it('never fails the transcribe job when thumbnail extraction fails', async () => {
     getObjectStreamMock.mockResolvedValue({});
     groqTranscriptionsCreateMock.mockResolvedValue({
@@ -717,7 +797,7 @@ describe('transcribe worker', () => {
     expect(detectClipsQueueAdd).not.toHaveBeenCalled();
     // Scratch files still cleaned up on the failure path.
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-src-0.mp4');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-9.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-10.mp3');
   });
 
   it('reports the failure to Sentry tagged with videoId only (no transcript content)', async () => {
@@ -810,7 +890,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       1,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-9.mp3',
+      '/scratch/transcribe-audio-10.mp3',
       {
         startSeconds: 0,
         durationSeconds: 3015,
@@ -819,7 +899,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       2,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-10.mp3',
+      '/scratch/transcribe-audio-11.mp3',
       {
         startSeconds: 2985,
         durationSeconds: 3030,
@@ -828,7 +908,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       3,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-11.mp3',
+      '/scratch/transcribe-audio-12.mp3',
       {
         startSeconds: 5985,
         durationSeconds: 1015,
@@ -837,7 +917,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       4,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/diarize-audio-12.mp3',
+      '/scratch/diarize-audio-13.mp3',
     );
     expect(groqTranscriptionsCreateMock).toHaveBeenCalledTimes(3);
 
@@ -879,10 +959,10 @@ describe('transcribe worker', () => {
     // Source, all three chunk audio files, and the diarization audio file
     // are all cleaned up.
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-src-0.mp4');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-9.mp3');
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-10.mp3');
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-11.mp3');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-12.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-12.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-13.mp3');
   });
 
   it('uses the OpenAI Whisper client/model when provider is OPENAI (premium tier)', async () => {
@@ -902,7 +982,7 @@ describe('transcribe worker', () => {
     });
 
     expect(openaiTranscriptionsCreateMock).toHaveBeenCalledWith({
-      file: { readStreamFor: '/scratch/transcribe-audio-9.mp3' },
+      file: { readStreamFor: '/scratch/transcribe-audio-10.mp3' },
       model: 'whisper-1',
       response_format: 'verbose_json',
       timestamp_granularities: ['word', 'segment'],
@@ -1020,7 +1100,7 @@ describe('transcribe worker', () => {
         },
       });
 
-      expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-10.mp3');
+      expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-11.mp3');
       expect(assignSpeakerLabelsMock).toHaveBeenCalledWith(
         [
           { start: 0, end: 2, text: 'hi' },
@@ -1117,7 +1197,7 @@ describe('transcribe worker', () => {
 
       // Same diarize-audio-2.mp3 file diarization itself uses - no second
       // full-track extraction for emotion detection.
-      expect(detectVocalEmotionsMock).toHaveBeenCalledWith('/scratch/diarize-audio-10.mp3', [
+      expect(detectVocalEmotionsMock).toHaveBeenCalledWith('/scratch/diarize-audio-11.mp3', [
         { start: 0, end: 2, text: 'hi' },
         { start: 2, end: 4, text: 'there' },
       ]);
@@ -1213,7 +1293,7 @@ describe('transcribe worker', () => {
       // use - no third full-track extraction just for loudness.
       expect(analyzeAudioLoudnessMock).toHaveBeenCalledWith(
         {
-          audioPath: '/scratch/diarize-audio-10.mp3',
+          audioPath: '/scratch/diarize-audio-11.mp3',
           segments: [
             { start: 0, end: 2, text: 'hi' },
             { start: 2, end: 4, text: 'there' },

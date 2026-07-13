@@ -175,6 +175,44 @@ describe('ClipsService', () => {
     });
   });
 
+  describe('findHoverPreviewOrThrow', () => {
+    it('returns the hoverPreviewUrl when the clip belongs to the requester and has one', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        hoverPreviewUrl: 'hover-previews/clip-1.webp',
+        video: { ownerId: 'user-1' },
+      });
+
+      const result = await service.findHoverPreviewOrThrow('clip-1', 'user-1');
+
+      expect(result).toEqual({ hoverPreviewUrl: 'hover-previews/clip-1.webp' });
+    });
+
+    it('throws NotFoundException when no hover preview has been extracted yet', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        hoverPreviewUrl: null,
+        video: { ownerId: 'user-1' },
+      });
+
+      await expect(service.findHoverPreviewOrThrow('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the clip belongs to a different user', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        hoverPreviewUrl: 'hover-previews/clip-1.webp',
+        video: { ownerId: 'someone-else' },
+      });
+
+      await expect(service.findHoverPreviewOrThrow('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('findStoryboardFrameOrThrow', () => {
     it('returns the raw key at the requested index', async () => {
       prisma.clip.findUnique.mockResolvedValue({
@@ -364,6 +402,7 @@ describe('ClipsService', () => {
         downloadUrl: '/clips/clip-1/download',
         thumbnailUrl: null,
         animatedThumbnailUrl: null,
+        hoverPreviewUrl: null,
         storyboardFrameUrls: [],
         captionStyle: 'DEFAULT',
         hookText: 'Wait for it...',
@@ -576,6 +615,7 @@ describe('ClipsService', () => {
         downloadUrl: null,
         thumbnailUrl: null,
         animatedThumbnailUrl: null,
+        hoverPreviewUrl: null,
         storyboardFrameUrls: [],
         captionStyle: CaptionStyle.KARAOKE,
         hookText: 'Wait for it...',
