@@ -2,9 +2,11 @@
 
 import type { ClipEngineExplainability } from '@speedora/shared';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ExplainabilityDetailPanel } from '../../../../components/explainability/ExplainabilityDetailPanel';
 import { ExplainabilityTimeline } from '../../../../components/explainability/ExplainabilityTimeline';
+import { ThumbnailSelectionPanel } from '../../../../components/explainability/ThumbnailSelectionPanel';
 import { Nav } from '../../../../components/Nav';
 import { getClipExplainability, getVideo, type VideoWithClipsDto } from '../../../../lib/api';
 import { useAuth } from '../../../../lib/useAuth';
@@ -24,6 +26,11 @@ export default function ExplainabilityPage({ params }: { params: { id: string } 
   const [results, setResults] = useState<ClipEngineExplainability[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // Set by a specific clip's own "AI Explainability" link (e.g. the
+  // dashboard's per-clip list, or a future ClipCard link) so opening this
+  // page from a particular clip lands on that clip, not always the
+  // top-scored one - same `?clip=` convention as /videos/:id/edit.
+  const requestedClipId = useSearchParams().get('clip');
 
   useEffect(() => {
     if (!user) return;
@@ -33,6 +40,10 @@ export default function ExplainabilityPage({ params }: { params: { id: string } 
       .then((v) => {
         if (cancelled) return;
         setVideo(v);
+        if (requestedClipId && v.clips.some((c) => c.id === requestedClipId)) {
+          setSelectedClipId(requestedClipId);
+          return;
+        }
         // Default to the first scored clip, if any - otherwise just the
         // first clip (so the detail panel has something to try loading and
         // can report "not scored" honestly rather than showing nothing).
@@ -46,7 +57,7 @@ export default function ExplainabilityPage({ params }: { params: { id: string } 
     return () => {
       cancelled = true;
     };
-  }, [user, params.id]);
+  }, [user, params.id, requestedClipId]);
 
   useEffect(() => {
     if (!selectedClipId) return;
@@ -107,6 +118,14 @@ export default function ExplainabilityPage({ params }: { params: { id: string } 
                   loading={detailLoading}
                   error={detailError}
                 />
+                {/* Phase 4 of the thumbnail roadmap (AI Thumbnail Selection) -
+                    a separate Level 2 decision from highlightScore above (see
+                    ThumbnailSelectionPanel's own comment) - already inline on
+                    the selected clip, no extra round trip needed. */}
+                {(() => {
+                  const selectedClip = video.clips.find((c) => c.id === selectedClipId);
+                  return selectedClip ? <ThumbnailSelectionPanel clip={selectedClip} /> : null;
+                })()}
               </div>
             ) : null}
           </>

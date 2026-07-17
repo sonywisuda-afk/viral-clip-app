@@ -601,6 +601,26 @@ export function DashboardClient({
                                   )}
                                 </div>
                                 <div className="flex items-center gap-2">
+                                  {/* Per-clip (not per-video) - the video-level "Edit
+                                      Timeline"/"AI Explainability" links above default
+                                      to clip[0]/the top-scored clip regardless of which
+                                      clip row this is, so this row needs its own
+                                      `?clip=` deep links, same convention as
+                                      ClipCard.tsx's own per-clip edit link. */}
+                                  <Button size="sm" variant="outline" asChild>
+                                    <Link href={`/videos/${video.id}/edit?clip=${clip.id}`}>
+                                      Edit
+                                    </Link>
+                                  </Button>
+                                  {clip.highlightScore !== null && (
+                                    <Button size="sm" variant="outline" asChild>
+                                      <Link
+                                        href={`/videos/${video.id}/explainability?clip=${clip.id}`}
+                                      >
+                                        AI Explainability
+                                      </Link>
+                                    </Button>
+                                  )}
                                   {clip.downloadUrl ? (
                                     <Button size="sm" variant="outline" asChild>
                                       <a href={clipDownloadUrl(clip.downloadUrl)}>Unduh</a>
