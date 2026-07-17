@@ -165,6 +165,7 @@ const clipFindUniqueMock = jest.fn();
 const videoUpdateMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
 const activityEventCreateMock = jest.fn();
+const notificationCreateMock = jest.fn();
 // $transaction now has two call shapes to support in this file: the
 // array form (still used by updateVideoStatus() on the FAILED path, see
 // video-status.ts) and the new interactive callback form the render-clip
@@ -200,6 +201,9 @@ jest.mock('../prisma', () => ({
     // the CLIP_GENERATED event, called against the plain `prisma` import
     // (not `tx`), same as videoStatusEvent above.
     activityEvent: { create: (...args: unknown[]) => activityEventCreateMock(...args) },
+    // Notification Center Sprint 4A - recordNotification()'s write for the
+    // CLIP_READY notification, same shape as activityEvent above.
+    notification: { create: (...args: unknown[]) => notificationCreateMock(...args) },
     $transaction: (...args: [Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)]) =>
       transactionMock(...args),
   },
@@ -485,11 +489,16 @@ describe('render-clip worker', () => {
     // Clip exists and isn't rendered yet by default - individual tests
     // override this to exercise the orphaned-job (deleted-clip) and
     // already-rendered (idempotency) skip paths. video.ownerId (Sprint 1-2,
-    // Dashboard Redesign) feeds the CLIP_GENERATED activity event.
-    clipFindUniqueMock.mockResolvedValue({ outputUrl: null, video: { ownerId: 'user-1' } });
+    // Dashboard Redesign) feeds the CLIP_GENERATED activity event; video.title
+    // (Notification Center Sprint 4A) feeds the CLIP_READY notification.
+    clipFindUniqueMock.mockResolvedValue({
+      outputUrl: null,
+      video: { ownerId: 'user-1', title: 'My Video' },
+    });
     videoUpdateMock.mockResolvedValue({});
     videoStatusEventCreateMock.mockResolvedValue({});
     activityEventCreateMock.mockResolvedValue({});
+    notificationCreateMock.mockResolvedValue({});
     // Sprint 1-2 (Dashboard Redesign) - Clip.outputSizeBytes.
     statMock.mockResolvedValue({ size: 654321 });
     cleanupTempFileMock.mockResolvedValue(undefined);
@@ -623,6 +632,18 @@ describe('render-clip worker', () => {
         metadata: undefined,
       },
     });
+    // Notification Center Sprint 4A - Clip Ready.
+    expect(notificationCreateMock).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        type: 'CLIP_READY',
+        title: 'Klip siap!',
+        body: 'Klip dari video "My Video" sudah siap ditonton.',
+        videoId: 'video-1',
+        clipId: 'clip-1',
+        metadata: undefined,
+      },
+    });
     // source + captions + output + thumbnail + 5 storyboard frames + animated
     // thumbnail + hover preview (reserved even though this default beforeEach
     // makes extraction fail) - no reframe-cmds file (no face detected).
@@ -691,6 +712,7 @@ describe('render-clip worker', () => {
     // - only the winning execution (whose update actually matched) records
     // CLIP_GENERATED.
     expect(activityEventCreateMock).not.toHaveBeenCalled();
+    expect(notificationCreateMock).not.toHaveBeenCalled();
   });
 
   // computeFileMd5Hex streams renderedPath through node:crypto's real

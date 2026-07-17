@@ -82,4 +82,62 @@ describe('updateVideoStatus', () => {
       data: { videoId: 'video-1', toStatus: 'FAILED', errorMessage: 'openai is down' },
     });
   });
+
+  it('records a RENDER_FAILED notification for the video owner on a FAILED transition', async () => {
+    const notificationCreate = jest.fn().mockResolvedValue({});
+    const prisma = {
+      video: { update: jest.fn().mockReturnValue('video-update-promise') },
+      videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+      notification: { create: notificationCreate },
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+    };
+
+    await updateVideoStatus(prisma as never, 'video-1', 'FAILED' as never, {
+      errorMessage: 'openai is down',
+    });
+
+    expect(notificationCreate).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        type: 'RENDER_FAILED',
+        title: 'Proses video gagal',
+        body: 'Video "My Video" gagal diproses. Silakan coba lagi.',
+        videoId: 'video-1',
+        clipId: null,
+        metadata: { errorMessage: 'openai is down' },
+      },
+    });
+  });
+
+  it('does not record a notification for a non-FAILED transition', async () => {
+    const notificationCreate = jest.fn().mockResolvedValue({});
+    const prisma = {
+      video: { update: jest.fn().mockReturnValue('video-update-promise') },
+      videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+      notification: { create: notificationCreate },
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+    };
+
+    await updateVideoStatus(prisma as never, 'video-1', 'TRANSCRIBED' as never);
+
+    expect(notificationCreate).not.toHaveBeenCalled();
+  });
+
+  it('still resolves on a FAILED transition when the mocked prisma has no notification property', async () => {
+    const prisma = {
+      video: { update: jest.fn().mockReturnValue('video-update-promise') },
+      videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+    };
+
+    await expect(
+      updateVideoStatus(prisma as never, 'video-1', 'FAILED' as never),
+    ).resolves.toBeUndefined();
+  });
 });

@@ -5,6 +5,7 @@ export * from './types/dashboard';
 export * from './types/job';
 export * from './types/export';
 export * from './types/brand-kit';
+export * from './types/notification';
 export * from './types/social';
 export * from './types/payment';
 export * from './types/user';

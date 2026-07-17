@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { IBM_Plex_Mono, Manrope, Oswald } from 'next/font/google';
+import { Toaster } from '@/components/ui/toaster';
 import './globals.css';
 
 const oswald = Oswald({
@@ -39,6 +40,7 @@ export default function RootLayout({
         className={`${oswald.variable} ${manrope.variable} ${ibmPlexMono.variable} font-body antialiased`}
       >
         {children}
+        <Toaster />
       </body>
     </html>
   );

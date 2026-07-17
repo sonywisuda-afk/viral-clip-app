@@ -1,4 +1,5 @@
-import type { Prisma, PrismaClient, VideoStatus } from './generated/prisma/client';
+import { VideoStatus, type Prisma, type PrismaClient } from './generated/prisma/client';
+import { recordNotification } from './notification';
 
 // Inserts one VideoStatusEvent row - the audit-trail write half of a status
 // change. Takes any Prisma client-shaped object (a real PrismaClient, or the
@@ -30,10 +31,41 @@ export async function updateVideoStatus(
   status: VideoStatus,
   options: { errorMessage?: string; data?: Omit<Prisma.VideoUpdateInput, 'status'> } = {},
 ): Promise<void> {
-  await prisma.$transaction([
+  const [video] = await prisma.$transaction([
     prisma.video.update({ where: { id: videoId }, data: { ...options.data, status } }),
     prisma.videoStatusEvent.create({
       data: { videoId, toStatus: status, errorMessage: options.errorMessage ?? null },
     }),
   ]);
+
+  // Notification Center Sprint 4A - Render Failed's single hook point. Every
+  // FAILED transition in the pipeline (4 stage workers, see their own
+  // updateVideoStatus() call sites) goes through this function, so this is
+  // the one place that can fire the notification without duplicating the
+  // call 4 times - and the only place with a zero-extra-query path to
+  // ownerId/title, since `video` above is already the full updated row.
+  // Fired AFTER the atomic status write commits (not inside the
+  // $transaction) and best-effort (never rethrown) - same "a secondary
+  // write must never break the primary action" posture as every
+  // recordActivityEvent call site. errorMessage goes into metadata only,
+  // never into the user-facing body text, to avoid leaking internal error
+  // details.
+  if (status === VideoStatus.FAILED) {
+    await recordNotification(prisma, {
+      userId: video.ownerId,
+      type: 'RENDER_FAILED',
+      title: 'Proses video gagal',
+      body: video.title
+        ? `Video "${video.title}" gagal diproses. Silakan coba lagi.`
+        : 'Video gagal diproses. Silakan coba lagi.',
+      videoId,
+      metadata: options.errorMessage ? { errorMessage: options.errorMessage } : undefined,
+    }).catch((error) => {
+      console.warn(
+        '[updateVideoStatus] failed to record RENDER_FAILED notification',
+        videoId,
+        error,
+      );
+    });
+  }
 }

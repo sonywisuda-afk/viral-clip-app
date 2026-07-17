@@ -19,6 +19,7 @@ describe('VideosService', () => {
     };
     videoStatusEvent: { create: jest.Mock; findMany: jest.Mock };
     activityEvent: { create: jest.Mock };
+    notification: { create: jest.Mock };
     $transaction: jest.Mock;
   };
   let storage: { saveVideo: jest.Mock; deleteObjects: jest.Mock };
@@ -42,6 +43,7 @@ describe('VideosService', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       activityEvent: { create: jest.fn().mockResolvedValue({}) },
+      notification: { create: jest.fn().mockResolvedValue({}) },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
       // id before writing its first VideoStatusEvent) and the array form
@@ -114,6 +116,18 @@ describe('VideosService', () => {
           videoId: 'video-1',
           clipId: null,
           metadata: { title: 'my-video.mp4' },
+        },
+      });
+      // Notification Center Sprint 4A - Upload Complete.
+      expect(prisma.notification.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          type: 'UPLOAD_COMPLETE',
+          title: 'Upload selesai',
+          body: 'Video "my-video.mp4" berhasil diunggah dan sedang diproses.',
+          videoId: 'video-1',
+          clipId: null,
+          metadata: undefined,
         },
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
@@ -213,6 +227,18 @@ describe('VideosService', () => {
         data: {
           userId: 'user-1',
           type: 'VIDEO_UPLOADED',
+          videoId: 'video-1',
+          clipId: null,
+          metadata: undefined,
+        },
+      });
+      // Notification Center Sprint 4A - Upload Complete (YouTube import path).
+      expect(prisma.notification.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          type: 'UPLOAD_COMPLETE',
+          title: 'Import YouTube dimulai',
+          body: 'Video dari YouTube Anda sedang diunduh dan diproses.',
           videoId: 'video-1',
           clipId: null,
           metadata: undefined,

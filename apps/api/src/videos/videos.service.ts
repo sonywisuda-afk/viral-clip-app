@@ -1,7 +1,8 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   recordActivityEvent,
+  recordNotification,
   recordVideoStatusEvent,
   updateVideoStatus,
   VideoStatus,
@@ -90,6 +91,8 @@ type VideoWithClips = Prisma.VideoGetPayload<{
 
 @Injectable()
 export class VideosService {
+  private readonly logger = new Logger(VideosService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -173,6 +176,17 @@ export class VideosService {
       metadata: { title: video.title },
     });
 
+    // Notification Center Sprint 4A - Upload Complete.
+    await recordNotification(this.prisma, {
+      userId: ownerId,
+      type: 'UPLOAD_COMPLETE',
+      title: 'Upload selesai',
+      body: `Video "${video.title}" berhasil diunggah dan sedang diproses.`,
+      videoId: video.id,
+    }).catch((error) =>
+      this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`),
+    );
+
     return video;
   }
 
@@ -227,6 +241,19 @@ export class VideosService {
       type: 'VIDEO_UPLOADED',
       videoId: video.id,
     });
+
+    // Notification Center Sprint 4A - Upload Complete. Title isn't known yet
+    // at this point (see recordActivityEvent's own comment above) - the
+    // notification just confirms the import started.
+    await recordNotification(this.prisma, {
+      userId: ownerId,
+      type: 'UPLOAD_COMPLETE',
+      title: 'Import YouTube dimulai',
+      body: 'Video dari YouTube Anda sedang diunduh dan diproses.',
+      videoId: video.id,
+    }).catch((error) =>
+      this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`),
+    );
 
     return video;
   }

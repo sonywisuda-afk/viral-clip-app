@@ -143,10 +143,12 @@ model User {
 
   videos         Video[]
   socialAccounts SocialAccount[]
-  premiumCredits PremiumCredit[]
-  activityEvents ActivityEvent[]
-  sentInvites    PendingInvite[]
-  exportJobs     ExportJob[]
+  premiumCredits           PremiumCredit[]
+  activityEvents           ActivityEvent[]
+  sentInvites              PendingInvite[]
+  exportJobs               ExportJob[]
+  notifications            Notification[]
+  notificationPreferences  NotificationPreference[]
 }
 
 model Video {
@@ -948,6 +950,78 @@ model ActivityEvent {
   createdAt DateTime          @default(now())
 
   @@index([userId, createdAt])
+}
+
+// Notification Center Sprint 4A (Product Experience track) - in-app-only
+// delivery. Deliberately a SEPARATE model from ActivityEvent, not a
+// rename/extension of it: ActivityEvent stays a passive "what happened" feed
+// (Dashboard's Activity Timeline); Notification is "what was actually
+// delivered to a channel" and carries read-state (readAt), which
+// ActivityEvent has never needed. Only 4 values for now, one per shipped
+// trigger - Storage Warning/Credit Warning turned out to need real new
+// threshold-detection logic that doesn't exist anywhere today (no
+// bytes-used-vs-quota check, no low-balance check), so they're deferred to a
+// future Alert Engine sprint rather than forced into this one; the
+// Collaboration-blocked events (Review Request/Comment/Approval/Member
+// Invitation accepted) are unscheduled. Added when their own milestones
+// actually ship, same incremental-enum discipline as ActivityEventType/
+// ExportType.
+enum NotificationType {
+  UPLOAD_COMPLETE
+  CLIP_READY
+  EXPORT_READY
+  RENDER_FAILED
+}
+
+// Only IN_APP for Sprint 4A - EMAIL/SLACK/DISCORD/TELEGRAM/WEBHOOK get added
+// once each is actually wired in a later sprint, same incremental-enum
+// discipline as ExportType.
+enum NotificationChannel {
+  IN_APP
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  videoId   String?
+  clipId    String?
+  // Same "free-form display context, JSON not a live relation" reasoning as
+  // ActivityEvent.metadata - e.g. { errorMessage } for RENDER_FAILED, kept
+  // out of `body` itself so raw internal error text is never rendered
+  // verbatim to the end user.
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  // Serves the unread-count endpoint's count({ where: { userId, readAt:
+  // null } }) query.
+  @@index([userId, readAt])
+}
+
+// Schema-only in Sprint 4A - no call site reads or writes this yet. A
+// mute-toggle for a single channel that defaults to "on" has ~zero user
+// value until a second channel exists to actually choose between (deferred
+// to the email-channel sprint). A genuine per-(user, type, channel) matrix,
+// not a JSON blob on User - different shape from Brand Kit's few singleton
+// columns (see this file's own comment on User.brandLogoUrl for why THAT
+// stayed flat).
+model NotificationPreference {
+  id        String              @id @default(cuid())
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  channel   NotificationChannel
+  enabled   Boolean             @default(true)
+  config    Json?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@unique([userId, type, channel])
 }
 
 // Sprint 1-2's Invite Member quick action. Deliberately minimal per explicit

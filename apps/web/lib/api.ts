@@ -11,6 +11,8 @@ import type {
   ExportJobDto,
   ExportJobListDto,
   ExportType,
+  NotificationListDto,
+  NotificationUnreadCountDto,
   OpsAiCalibrationDto,
   OpsAiCorrelationDto,
   OpsAiDistributionDto,
@@ -610,6 +612,27 @@ export async function listExportJobs(videoId: string): Promise<ExportJobListDto>
 // status is READY.
 export function exportJobDownloadUrl(id: string): string {
   return `${API_URL}/export/${id}/download`;
+}
+
+// Notification Center Sprint 4A.
+export async function getNotifications(limit?: number): Promise<NotificationListDto> {
+  const res = await apiFetch(`/notifications${toQueryString({ limit })}`);
+  return parseJsonOrThrow<NotificationListDto>(res);
+}
+
+export async function getUnreadNotificationCount(): Promise<NotificationUnreadCountDto> {
+  const res = await apiFetch('/notifications/unread-count');
+  return parseJsonOrThrow<NotificationUnreadCountDto>(res);
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const res = await apiFetch(`/notifications/${id}/read`, { method: 'PATCH' });
+  await parseJsonOrThrow<void>(res);
+}
+
+export async function markAllNotificationsRead(): Promise<{ count: number }> {
+  const res = await apiFetch('/notifications/read-all', { method: 'PATCH' });
+  return parseJsonOrThrow<{ count: number }>(res);
 }
 
 // Brand Kit (03d) - Brand Report's minimal logo + color settings.

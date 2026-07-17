@@ -13,6 +13,7 @@ const exportJobUpdateMock = jest.fn();
 const videoFindUniqueOrThrowMock = jest.fn();
 const videoStatusEventFindManyMock = jest.fn();
 const userFindUniqueOrThrowMock = jest.fn();
+const notificationCreateMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     exportJob: {
@@ -27,6 +28,11 @@ jest.mock('../prisma', () => ({
     },
     user: {
       findUniqueOrThrow: (...args: unknown[]) => userFindUniqueOrThrowMock(...args),
+    },
+    // Notification Center Sprint 4A - recordNotification()'s write for the
+    // EXPORT_READY notification.
+    notification: {
+      create: (...args: unknown[]) => notificationCreateMock(...args),
     },
   },
 }));
@@ -108,6 +114,7 @@ describe('export-generate worker', () => {
     buildVideoReportWorkbookMock.mockReturnValue({ xlsx: { writeBuffer: writeBufferMock } });
     renderToBufferMock.mockResolvedValue(Buffer.from('%PDF-fake'));
     uploadObjectMock.mockResolvedValue('etag');
+    notificationCreateMock.mockResolvedValue({});
   });
 
   it('PDF: marks PROCESSING, renders the document, uploads it, and marks READY', async () => {
@@ -133,6 +140,18 @@ describe('export-generate worker', () => {
     expect(exportJobUpdateMock).toHaveBeenNthCalledWith(2, {
       where: { id: 'job-1' },
       data: { status: 'READY', resultUrl: 'exports/job-1.pdf' },
+    });
+    // Notification Center Sprint 4A - Export Ready.
+    expect(notificationCreateMock).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        type: 'EXPORT_READY',
+        title: 'Export siap diunduh',
+        body: 'Laporan export untuk video "My video" sudah siap diunduh.',
+        videoId: 'video-1',
+        clipId: null,
+        metadata: { exportJobId: 'job-1', exportType: 'PDF' },
+      },
     });
     expect(result).toEqual({ exportJobId: 'job-1', resultUrl: 'exports/job-1.pdf' });
   });

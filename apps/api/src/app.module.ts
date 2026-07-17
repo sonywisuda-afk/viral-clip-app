@@ -12,6 +12,7 @@ import { ExportModule } from './export/export.module';
 import { HealthModule } from './health/health.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { RequestMetricsMiddleware } from './monitoring/request-metrics.middleware';
+import { NotificationsModule } from './notifications/notifications.module';
 import { OpsAiModule } from './ops-ai/ops-ai.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -46,6 +47,7 @@ import { VideosModule } from './videos/videos.module';
     TeamModule,
     ExportModule,
     BrandKitModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

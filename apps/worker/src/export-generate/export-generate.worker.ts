@@ -1,5 +1,5 @@
 import * as Sentry from '@sentry/node';
-import { ExportJobStatus, ExportType } from '@speedora/database';
+import { ExportJobStatus, ExportType, recordNotification } from '@speedora/database';
 import { buildVideoReportData } from '@speedora/report-builder';
 import type { VideoReportData } from '@speedora/contracts';
 import {
@@ -125,6 +125,19 @@ export function createExportGenerateWorker(): Worker<
         await prisma.exportJob.update({
           where: { id: exportJobId },
           data: { status: ExportJobStatus.READY, resultUrl },
+        });
+
+        // Notification Center Sprint 4A - Export Ready. video/exportJob are
+        // already in scope from the fetches above, zero extra query.
+        await recordNotification(prisma, {
+          userId: exportJob.userId,
+          type: 'EXPORT_READY',
+          title: 'Export siap diunduh',
+          body: `Laporan export untuk video "${video.title}" sudah siap diunduh.`,
+          videoId: exportJob.videoId,
+          metadata: { exportJobId, exportType: exportJob.type },
+        }).catch((error) => {
+          logger.warn('failed to record EXPORT_READY notification', { exportJobId }, error);
         });
 
         logger.info('export generated', {

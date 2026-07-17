@@ -12,7 +12,13 @@ import {
   totalCutSeconds,
   type CutRange,
 } from '@speedora/cutlist';
-import { Prisma, recordActivityEvent, updateVideoStatus, VideoStatus } from '@speedora/database';
+import {
+  Prisma,
+  recordActivityEvent,
+  recordNotification,
+  updateVideoStatus,
+  VideoStatus,
+} from '@speedora/database';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import {
   QueueName,
@@ -383,7 +389,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // video.ownerId (Sprint 1-2, Dashboard Redesign) - needed for the
             // CLIP_GENERATED activity event below; fetched here rather than a
             // second round-trip later since this query already runs first.
-            select: { outputUrl: true, video: { select: { ownerId: true } } },
+            // video.title (Notification Center Sprint 4A) - needed for the
+            // CLIP_READY notification below, same reasoning.
+            select: { outputUrl: true, video: { select: { ownerId: true, title: true } } },
           });
           if (!existingClip) {
             logger.info('clip was deleted - skipping orphaned job', { clipId, videoId });
@@ -760,6 +768,20 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               clipId,
             }).catch((error) => {
               logger.warn('failed to record CLIP_GENERATED activity event', { clipId }, error);
+            });
+
+            // Notification Center Sprint 4A - Clip Ready.
+            await recordNotification(prisma, {
+              userId: existingClip.video.ownerId,
+              type: 'CLIP_READY',
+              title: 'Klip siap!',
+              body: existingClip.video.title
+                ? `Klip dari video "${existingClip.video.title}" sudah siap ditonton.`
+                : 'Klip Anda sudah siap ditonton.',
+              videoId,
+              clipId,
+            }).catch((error) => {
+              logger.warn('failed to record CLIP_READY notification', { clipId }, error);
             });
 
             if (allRendered) {
