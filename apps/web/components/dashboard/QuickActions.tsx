@@ -26,18 +26,21 @@ const InviteMemberDialog = dynamic(
 // "Create Project" is deliberately an alias for the same upload flow as
 // "Upload Video" - there is no Project grouping entity in this schema
 // (videos are the top-level unit), so this button exists for
-// discoverability/Opus-Clip-familiarity, not a new backend concept.
+// discoverability/Opus-Clip-familiarity, not a new backend concept. Both
+// link to /upload (the actual authenticated upload flow), not / (the public
+// marketing landing page) - linking to / from inside the dashboard used to
+// eject the user out of their own session's context entirely.
 export function QuickActions() {
   return (
     <div className="flex flex-wrap gap-2">
       <Button asChild>
-        <Link href="/">
+        <Link href="/upload">
           <UploadCloud className="mr-2 h-4 w-4" aria-hidden="true" />
           Upload Video
         </Link>
       </Button>
       <Button variant="outline" asChild>
-        <Link href="/">
+        <Link href="/upload">
           <FolderPlus className="mr-2 h-4 w-4" aria-hidden="true" />
           Create Project
         </Link>
