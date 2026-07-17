@@ -1,17 +1,5 @@
 import type { AnalyticsOverviewDto, AnalyticsPerformanceDto } from '@speedora/shared';
-
-// RFC 4180-ish escaping - only quotes a field when it actually contains a
-// comma/quote/newline, same "don't over-engineer" posture as every other
-// small pure helper in this codebase (no csv library exists anywhere in the
-// monorepo - see docs/frontend.md's Export Report scope note).
-function csvEscape(value: string | number): string {
-  const str = String(value);
-  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
-}
-
-function toCsvRow(fields: Array<string | number>): string {
-  return fields.map(csvEscape).join(',');
-}
+import { toCsvRow } from '../common/csv.util';
 
 // Sprint 1-2 (Dashboard Redesign) - the Export Report quick action. Reuses
 // AnalyticsService's already-computed Overview + 30-day Performance data

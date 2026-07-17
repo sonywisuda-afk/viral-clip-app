@@ -22,6 +22,17 @@ export class StorageService {
     return { sourceUrl: key };
   }
 
+  // Sprint 03d (Export Center roadmap, Brand Kit) - same shape as saveVideo
+  // above, just a different key prefix. Returns the raw storage key, same
+  // "caller decides what to do with it" contract as saveVideo.
+  async saveBrandLogo(file: Express.Multer.File): Promise<string> {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const key = `brand-logos/${randomUUID()}${ext}`;
+    await uploadObject(key, file.buffer, file.mimetype);
+
+    return key;
+  }
+
   // Best-effort cleanup used when a video (or a whole account) is deleted -
   // the DB row is the source of truth and has already been removed by the
   // time this runs, so a storage object that's already gone (or a transient

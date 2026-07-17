@@ -55,6 +55,7 @@ async function main() {
     createSyncPublishStatsWorker,
     scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
   } = await import('./workers/sync-publish-stats.worker');
+  const { createExportGenerateWorker } = await import('./export-generate/export-generate.worker');
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
   const logger = forStage('main');
@@ -73,6 +74,7 @@ async function main() {
     createPublishClipWorker(),
     createSchedulePublishClipWorker(),
     createSyncPublishStatsWorker(),
+    createExportGenerateWorker(),
   ];
 
   logger.info('worker started', { queueCount: workers.length });

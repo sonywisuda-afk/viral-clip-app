@@ -8,6 +8,8 @@ import {
   type Prisma,
   type Video,
 } from '@speedora/database';
+import { buildClipMetadataReport, buildVideoReportData } from '@speedora/report-builder';
+import type { ClipMetadataOutput, TimelineEvent, VideoReportData } from '@speedora/contracts';
 import {
   filterSegmentsForClip,
   QueueName,
@@ -23,6 +25,9 @@ import { PaymentsService } from '../payments/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
+import { buildClipMetadataCsv, toClipMetadataInput } from './clip-metadata.util';
+import { buildSrtCaptions, buildTranscriptTxt, buildVttCaptions } from './transcript-export.util';
+import { buildVideoReportCsv, buildVideoReportInput } from './video-report.util';
 import {
   toSharedActiveSpeakerSamples,
   toSharedAudioFeatures,
@@ -515,6 +520,64 @@ export class VideosService {
       text: segment.text,
       speaker: segment.speaker ?? undefined,
       emotion: segment.emotion ?? undefined,
+    }));
+  }
+
+  // Sprint 03b (Export Center) - the video report's JSON format. Reuses
+  // findOne/findTranscriptOrThrow rather than a new Prisma query, same
+  // "extend, don't rebuild" posture as every other adapter in this
+  // codebase - the small cost is a second DB round trip for the transcript,
+  // traded for reusing two already-tested, already-ownership-checked
+  // methods instead of duplicating their query shape.
+  async getVideoReportJson(id: string, requesterId: string): Promise<VideoReportData> {
+    const [video, segments, statusEvents] = await Promise.all([
+      this.findOne(id, requesterId),
+      this.findTranscriptOrThrow(id, requesterId),
+      this.getStatusEvents(id),
+    ]);
+    return buildVideoReportData(buildVideoReportInput(video, segments, statusEvents));
+  }
+
+  async getVideoReportCsv(id: string, requesterId: string): Promise<string> {
+    return buildVideoReportCsv(await this.getVideoReportJson(id, requesterId));
+  }
+
+  async getClipMetadataJson(id: string, requesterId: string): Promise<ClipMetadataOutput> {
+    const video = await this.findOne(id, requesterId);
+    return buildClipMetadataReport(toClipMetadataInput(video.clips));
+  }
+
+  async getClipMetadataCsv(id: string, requesterId: string): Promise<string> {
+    return buildClipMetadataCsv(await this.getClipMetadataJson(id, requesterId));
+  }
+
+  async exportTranscriptTxt(id: string, requesterId: string): Promise<string> {
+    return buildTranscriptTxt(await this.findTranscriptOrThrow(id, requesterId));
+  }
+
+  async exportCaptionsSrt(id: string, requesterId: string): Promise<string> {
+    return buildSrtCaptions(await this.findTranscriptOrThrow(id, requesterId));
+  }
+
+  async exportCaptionsVtt(id: string, requesterId: string): Promise<string> {
+    return buildVttCaptions(await this.findTranscriptOrThrow(id, requesterId));
+  }
+
+  // The Timeline section's data source - VideoStatusEvent has no shared TS
+  // type and no other API exposure anywhere in apps/api (confirmed while
+  // planning 03a/03b); this is the first read of it. No ownership check of
+  // its own - every call site already went through findOne/
+  // findTranscriptOrThrow first, which already 404s for a missing/unowned
+  // video.
+  private async getStatusEvents(videoId: string): Promise<TimelineEvent[]> {
+    const events = await this.prisma.videoStatusEvent.findMany({
+      where: { videoId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return events.map((event) => ({
+      toStatus: event.toStatus,
+      occurredAt: event.createdAt.toISOString(),
+      errorMessage: event.errorMessage,
     }));
   }
 

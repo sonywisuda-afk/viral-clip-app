@@ -1,14 +1,31 @@
 'use client';
 
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { Button } from '../../../../components/ui/button';
 import { Nav } from '../../../../components/Nav';
 import { TimelineEditor } from '../../../../components/TimelineEditor';
 import { VideoAnalysisDashboard } from '../../../../components/editor/VideoAnalysisDashboard';
 import { getVideo, getVideoTranscript } from '../../../../lib/api';
 import { useTimelineStore } from '../../../../lib/timelineStore';
 import { useAuth } from '../../../../lib/useAuth';
+
+// Code-split (same reasoning as QuickActions.tsx's InviteMemberDialog) -
+// the Export Center's Dialog/Tabs/SWR-polling machinery is only needed
+// once a user actually clicks "Export", not on every editor page load.
+const ExportCenterDialog = dynamic(
+  () => import('../../../../components/export/ExportCenterDialog').then((mod) => mod.ExportCenterDialog),
+  {
+    ssr: false,
+    loading: () => (
+      <Button variant="outline" disabled>
+        Export
+      </Button>
+    ),
+  },
+);
 
 export default function EditVideoPage({ params }: { params: { id: string } }) {
   const { user, checkingAuth, logout } = useAuth();
@@ -78,6 +95,9 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
 
             {!error && loaded && (
               <div className="mt-3">
+                <div className="mb-3 flex justify-end">
+                  <ExportCenterDialog videoId={params.id} />
+                </div>
                 <VideoAnalysisDashboard />
                 <TimelineEditor videoId={params.id} />
               </div>

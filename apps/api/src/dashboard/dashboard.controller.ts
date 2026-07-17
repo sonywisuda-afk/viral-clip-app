@@ -2,6 +2,7 @@ import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { withUtf8Bom } from '../common/csv.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DashboardService } from './dashboard.service';
 
@@ -39,8 +40,8 @@ export class DashboardController {
   @Get('export.csv')
   async exportCsv(@CurrentUser() user: SafeUser, @Res() res: Response) {
     const csv = await this.dashboardService.exportCsv(user.id);
-    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="speedora-report.csv"');
-    res.send(csv);
+    res.send(withUtf8Bom(csv));
   }
 }

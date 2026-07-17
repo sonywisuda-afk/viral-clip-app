@@ -17,7 +17,7 @@ describe('VideosService', () => {
       update: jest.Mock;
       delete: jest.Mock;
     };
-    videoStatusEvent: { create: jest.Mock };
+    videoStatusEvent: { create: jest.Mock; findMany: jest.Mock };
     activityEvent: { create: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -37,7 +37,10 @@ describe('VideosService', () => {
         update: jest.fn().mockResolvedValue({}),
         delete: jest.fn().mockResolvedValue({}),
       },
-      videoStatusEvent: { create: jest.fn().mockResolvedValue({}) },
+      videoStatusEvent: {
+        create: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       activityEvent: { create: jest.fn().mockResolvedValue({}) },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
@@ -709,6 +712,165 @@ describe('VideosService', () => {
       await expect(service.findTranscriptOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  // Sprint 03b (Export Center). These reuse findOne/findTranscriptOrThrow
+  // for ownership+data (already covered above), so tests here only verify
+  // orchestration (right narrowed input assembled, right Prisma calls made)
+  // rather than re-verifying report-builder's own section math - that's
+  // already covered by its own 29 tests, per ARCHITECTURE.md's "adapter
+  // tests mock the module, don't re-test its logic" guidance.
+  describe('getVideoReportJson', () => {
+    const videoRow = {
+      id: 'video-1',
+      ownerId: 'user-1',
+      title: 'My video',
+      durationSeconds: 30,
+      transcriptSegments: [{ start: 0, end: 5, text: 'hi', speaker: null, emotion: 'hap' }],
+      clips: [
+        {
+          id: 'clip-1',
+          startTime: 0,
+          endTime: 5,
+          outputUrl: null,
+          hookText: 'Hook',
+          keywords: [],
+          hashtags: [],
+          topics: [],
+          intent: null,
+          ctaText: null,
+          scores: null,
+          highlightScore: 80,
+          highlightConfidence: 0.7,
+          highlightReason: 'Strong hook',
+          highlightRank: 1,
+          publishRecords: [],
+        },
+      ],
+    };
+
+    it('assembles cover/summary/highlight/timeline from findOne + transcript + status events', async () => {
+      prisma.video.findUnique.mockResolvedValue(videoRow);
+      prisma.videoStatusEvent.findMany.mockResolvedValue([
+        {
+          toStatus: 'RENDERED',
+          errorMessage: null,
+          createdAt: new Date('2026-07-17T03:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.getVideoReportJson('video-1', 'user-1');
+
+      expect(prisma.videoStatusEvent.findMany).toHaveBeenCalledWith({
+        where: { videoId: 'video-1' },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(result.cover.videoTitle).toBe('My video');
+      expect(result.videoSummary).toEqual({
+        durationSeconds: 30,
+        clipCount: 1,
+        averageHighlightScore: 80,
+      });
+      expect(result.timeline.events).toEqual([
+        { toStatus: 'RENDERED', occurredAt: '2026-07-17T03:00:00.000Z', errorMessage: null },
+      ]);
+      expect(result.highlight.entries[0]).toMatchObject({ clipId: 'clip-1', highlightScore: 80 });
+      expect(result.speechAnalysis.entries[0].vocalEmotion).toEqual({
+        dominantEmotion: 'hap',
+        counts: { hap: 1 },
+      });
+    });
+
+    it('throws NotFoundException when the video belongs to a different user', async () => {
+      prisma.video.findUnique.mockResolvedValue({ ...videoRow, ownerId: 'someone-else' });
+
+      await expect(service.getVideoReportJson('video-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('getVideoReportCsv', () => {
+    it('renders the JSON report as CSV', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        title: 'My video',
+        durationSeconds: 30,
+        transcriptSegments: [],
+        clips: [],
+      });
+
+      const csv = await service.getVideoReportCsv('video-1', 'user-1');
+
+      expect(csv).toContain('Cover,,Video Title,My video');
+    });
+  });
+
+  describe('getClipMetadataJson', () => {
+    it('builds clip metadata from findOne', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        clips: [
+          {
+            id: 'clip-1',
+            startTime: 0,
+            endTime: 5,
+            outputUrl: null,
+            hookText: 'Hook',
+            keywords: [],
+            hashtags: [],
+            topics: [],
+            intent: null,
+            ctaText: null,
+            scores: null,
+            highlightScore: 80,
+            highlightRank: 1,
+            publishRecords: [],
+          },
+        ],
+      });
+
+      const result = await service.getClipMetadataJson('video-1', 'user-1');
+
+      expect(result.clips[0]).toMatchObject({ clipId: 'clip-1', highlightScore: 80 });
+    });
+  });
+
+  describe('getClipMetadataCsv', () => {
+    it('renders the clip metadata as CSV with a header row', async () => {
+      prisma.video.findUnique.mockResolvedValue({ id: 'video-1', ownerId: 'user-1', clips: [] });
+
+      const csv = await service.getClipMetadataCsv('video-1', 'user-1');
+
+      expect(csv).toContain('ClipId,StartTime,EndTime');
+    });
+  });
+
+  describe('exportTranscriptTxt / exportCaptionsSrt / exportCaptionsVtt', () => {
+    const videoRow = {
+      id: 'video-1',
+      ownerId: 'user-1',
+      transcriptSegments: [{ start: 0, end: 2, text: 'Hello.', speaker: null, emotion: null }],
+    };
+
+    it('exportTranscriptTxt renders plain text', async () => {
+      prisma.video.findUnique.mockResolvedValue(videoRow);
+      expect(await service.exportTranscriptTxt('video-1', 'user-1')).toBe('Hello.\n');
+    });
+
+    it('exportCaptionsSrt renders SRT-formatted cues', async () => {
+      prisma.video.findUnique.mockResolvedValue(videoRow);
+      const srt = await service.exportCaptionsSrt('video-1', 'user-1');
+      expect(srt).toContain('00:00:00,000 --> 00:00:02,000');
+    });
+
+    it('exportCaptionsVtt renders a WEBVTT document', async () => {
+      prisma.video.findUnique.mockResolvedValue(videoRow);
+      const vtt = await service.exportCaptionsVtt('video-1', 'user-1');
+      expect(vtt.startsWith('WEBVTT\n\n')).toBe(true);
     });
   });
 

@@ -41,4 +41,17 @@ describe('StorageService', () => {
 
     expect(result.sourceUrl.endsWith('.mov')).toBe(true);
   });
+
+  it('uploads a brand logo under a brand-logos/<uuid><ext> key and returns the raw key', async () => {
+    const file = {
+      originalname: 'logo.PNG',
+      buffer: Buffer.from('logo-bytes'),
+      mimetype: 'image/png',
+    } as Express.Multer.File;
+
+    const key = await service.saveBrandLogo(file);
+
+    expect(uploadObject).toHaveBeenCalledWith(key, file.buffer, 'image/png');
+    expect(key).toMatch(/^brand-logos\/[0-9a-f-]{36}\.png$/);
+  });
 });

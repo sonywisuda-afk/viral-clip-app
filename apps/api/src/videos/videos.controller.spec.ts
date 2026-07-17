@@ -20,6 +20,13 @@ describe('VideosController', () => {
     upload: jest.Mock;
     importFromYoutube: jest.Mock;
     findAll: jest.Mock;
+    getVideoReportJson: jest.Mock;
+    getVideoReportCsv: jest.Mock;
+    getClipMetadataJson: jest.Mock;
+    getClipMetadataCsv: jest.Mock;
+    exportTranscriptTxt: jest.Mock;
+    exportCaptionsSrt: jest.Mock;
+    exportCaptionsVtt: jest.Mock;
   };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
@@ -33,6 +40,13 @@ describe('VideosController', () => {
       upload: jest.fn(),
       importFromYoutube: jest.fn(),
       findAll: jest.fn(),
+      getVideoReportJson: jest.fn(),
+      getVideoReportCsv: jest.fn(),
+      getClipMetadataJson: jest.fn(),
+      getClipMetadataCsv: jest.fn(),
+      exportTranscriptTxt: jest.fn(),
+      exportCaptionsSrt: jest.fn(),
+      exportCaptionsVtt: jest.fn(),
     };
     controller = new VideosController(videosService as unknown as VideosService);
     jest.clearAllMocks();
@@ -316,6 +330,107 @@ describe('VideosController', () => {
         'not found',
       );
       expect(getObjectStream).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('export', () => {
+    it('report.json sends the JSON report as an attachment', async () => {
+      videosService.getVideoReportJson.mockResolvedValue({ cover: { videoTitle: 'My video' } });
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportReportJson(user, 'video-1', res);
+
+      expect(videosService.getVideoReportJson).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/json; charset=utf-8');
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        'attachment; filename="video-video-1-report.json"',
+      );
+      expect(res.send).toHaveBeenCalledWith(
+        JSON.stringify({ cover: { videoTitle: 'My video' } }, null, 2),
+      );
+    });
+
+    it('report.csv sends the CSV report as text/csv with a UTF-8 BOM (for Excel)', async () => {
+      videosService.getVideoReportCsv.mockResolvedValue('Section,ClipId,Field,Value\n');
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportReportCsv(user, 'video-1', res);
+
+      expect(videosService.getVideoReportCsv).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+      const sent = (res.send as jest.Mock).mock.calls[0][0] as string;
+      expect(sent.charCodeAt(0)).toBe(0xfeff);
+      expect(sent.slice(1)).toBe('Section,ClipId,Field,Value\n');
+    });
+
+    it('clip-metadata.json sends the clip metadata as an attachment', async () => {
+      videosService.getClipMetadataJson.mockResolvedValue({ clips: [] });
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportClipMetadataJson(user, 'video-1', res);
+
+      expect(videosService.getClipMetadataJson).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        'attachment; filename="video-video-1-clip-metadata.json"',
+      );
+    });
+
+    it('clip-metadata.csv sends the clip metadata CSV with a UTF-8 BOM', async () => {
+      videosService.getClipMetadataCsv.mockResolvedValue('ClipId\n');
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportClipMetadataCsv(user, 'video-1', res);
+
+      expect(videosService.getClipMetadataCsv).toHaveBeenCalledWith('video-1', 'user-1');
+      const sent = (res.send as jest.Mock).mock.calls[0][0] as string;
+      expect(sent.charCodeAt(0)).toBe(0xfeff);
+      expect(sent.slice(1)).toBe('ClipId\n');
+    });
+
+    it('transcript.txt sends plain text', async () => {
+      videosService.exportTranscriptTxt.mockResolvedValue('Hello.\n');
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportTranscriptTxt(user, 'video-1', res);
+
+      expect(videosService.exportTranscriptTxt).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/plain; charset=utf-8');
+      expect(res.send).toHaveBeenCalledWith('Hello.\n');
+    });
+
+    it('captions.srt sends SRT with the subrip content type', async () => {
+      videosService.exportCaptionsSrt.mockResolvedValue('1\n00:00:00,000 --> 00:00:01,000\nHi\n');
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportCaptionsSrt(user, 'video-1', res);
+
+      expect(videosService.exportCaptionsSrt).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Type',
+        'application/x-subrip; charset=utf-8',
+      );
+    });
+
+    it('captions.vtt sends VTT with the text/vtt content type', async () => {
+      videosService.exportCaptionsVtt.mockResolvedValue(
+        'WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nHi\n',
+      );
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportCaptionsVtt(user, 'video-1', res);
+
+      expect(videosService.exportCaptionsVtt).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/vtt; charset=utf-8');
+    });
+
+    it('propagates the not-found error from the service without touching the response', async () => {
+      videosService.getVideoReportJson.mockRejectedValue(new Error('not found'));
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await expect(controller.exportReportJson(user, 'missing', res)).rejects.toThrow('not found');
+      expect(res.send).not.toHaveBeenCalled();
     });
   });
 });

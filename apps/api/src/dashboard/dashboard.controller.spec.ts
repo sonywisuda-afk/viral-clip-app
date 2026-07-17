@@ -54,12 +54,16 @@ describe('DashboardController', () => {
       await controller.exportCsv(user, res);
 
       expect(dashboardService.exportCsv).toHaveBeenCalledWith('user-1');
-      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
       expect(res.setHeader).toHaveBeenCalledWith(
         'Content-Disposition',
         'attachment; filename="speedora-report.csv"',
       );
-      expect(res.send).toHaveBeenCalledWith('Section,Metric,Value\n');
+      // UTF-8 BOM-prefixed so Excel (which ignores the Content-Type charset
+      // for CSV) doesn't mis-decode non-ASCII text.
+      const sent = (res.send as jest.Mock).mock.calls[0][0] as string;
+      expect(sent.charCodeAt(0)).toBe(0xfeff);
+      expect(sent.slice(1)).toBe('Section,Metric,Value\n');
     });
   });
 });

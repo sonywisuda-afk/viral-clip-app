@@ -34,6 +34,11 @@ const schedulePublishClipQueue = BullModule.registerQueue({
   name: QueueName.SCHEDULE_PUBLISH_CLIP,
 });
 const syncPublishStatsQueue = BullModule.registerQueue({ name: QueueName.SYNC_PUBLISH_STATS });
+// Sprint 03c (Export Center roadmap) - apps/api is the sole producer (POST
+// /export), apps/worker's export-generate.worker.ts the sole consumer -
+// same shape as importYoutubeQueue above, not the "registered read-only for
+// monitoring" case schedulePublishClipQueue/syncPublishStatsQueue are.
+const exportGenerateQueue = BullModule.registerQueue({ name: QueueName.EXPORT_GENERATE });
 
 @Module({
   imports: [
@@ -51,6 +56,7 @@ const syncPublishStatsQueue = BullModule.registerQueue({ name: QueueName.SYNC_PU
     publishClipQueue,
     schedulePublishClipQueue,
     syncPublishStatsQueue,
+    exportGenerateQueue,
   ],
   exports: [
     importYoutubeQueue,
@@ -60,6 +66,7 @@ const syncPublishStatsQueue = BullModule.registerQueue({ name: QueueName.SYNC_PU
     publishClipQueue,
     schedulePublishClipQueue,
     syncPublishStatsQueue,
+    exportGenerateQueue,
   ],
 })
 export class QueueModule {}

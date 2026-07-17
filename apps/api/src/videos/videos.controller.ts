@@ -23,6 +23,7 @@ import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { SafeUser } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { withUtf8Bom } from '../common/csv.util';
 import { ImportYoutubeDto } from './dto/import-youtube.dto';
 import { UploadVideoDto } from './dto/upload-video.dto';
 import { VideosService } from './videos.service';
@@ -232,5 +233,97 @@ export class VideosController {
   @Get(':id/transcript')
   transcript(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.findTranscriptOrThrow(id, user.id);
+  }
+
+  // Sprint 03b (Export Center) - sync download formats only (no queue, no
+  // ExportJob model - see the roadmap's 03c for PDF/Excel/async formats).
+  // Every route below follows DashboardController.exportCsv's shape: a
+  // buffered string (never streamed - these are small, one-video reports,
+  // not the multi-GB files ClipsController.download streams),
+  // Content-Disposition: attachment to force a real download rather than
+  // inline rendering.
+
+  @Get(':id/export/report.json')
+  async exportReportJson(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const report = await this.videosService.getVideoReportJson(id, user.id);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-report.json"`);
+    res.send(JSON.stringify(report, null, 2));
+  }
+
+  @Get(':id/export/report.csv')
+  async exportReportCsv(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const csv = await this.videosService.getVideoReportCsv(id, user.id);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-report.csv"`);
+    res.send(withUtf8Bom(csv));
+  }
+
+  @Get(':id/export/clip-metadata.json')
+  async exportClipMetadataJson(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const metadata = await this.videosService.getClipMetadataJson(id, user.id);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-clip-metadata.json"`);
+    res.send(JSON.stringify(metadata, null, 2));
+  }
+
+  @Get(':id/export/clip-metadata.csv')
+  async exportClipMetadataCsv(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const csv = await this.videosService.getClipMetadataCsv(id, user.id);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-clip-metadata.csv"`);
+    res.send(withUtf8Bom(csv));
+  }
+
+  @Get(':id/export/transcript.txt')
+  async exportTranscriptTxt(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const txt = await this.videosService.exportTranscriptTxt(id, user.id);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-transcript.txt"`);
+    res.send(txt);
+  }
+
+  @Get(':id/export/captions.srt')
+  async exportCaptionsSrt(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const srt = await this.videosService.exportCaptionsSrt(id, user.id);
+    res.setHeader('Content-Type', 'application/x-subrip; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-captions.srt"`);
+    res.send(srt);
+  }
+
+  @Get(':id/export/captions.vtt')
+  async exportCaptionsVtt(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const vtt = await this.videosService.exportCaptionsVtt(id, user.id);
+    res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-captions.vtt"`);
+    res.send(vtt);
   }
 }

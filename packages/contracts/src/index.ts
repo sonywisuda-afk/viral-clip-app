@@ -6,6 +6,7 @@ export * from './conversation-intelligence';
 export * from './cutlist';
 export * from './editing-rhythm';
 export * from './emoji-suggestions';
+export * from './export-center';
 export * from './face-landmarks';
 export * from './face-tracking-quality';
 export * from './facial-intelligence';

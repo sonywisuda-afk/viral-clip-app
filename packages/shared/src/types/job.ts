@@ -22,6 +22,10 @@ export enum QueueName {
   // view/like/comment counts for PUBLISHED PublishRecords; see
   // apps/worker/src/workers/sync-publish-stats.worker.ts.
   SYNC_PUBLISH_STATS = 'sync-publish-stats',
+  // Sprint 03c (Export Center roadmap) - produced exclusively by apps/api's
+  // POST /export (never self-enqueued by apps/worker, unlike every queue
+  // above), consumed by apps/worker/src/export-generate/export-generate.worker.ts.
+  EXPORT_GENERATE = 'export-generate',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by
@@ -105,6 +109,23 @@ export interface PublishClipJobData {
 export interface PublishClipJobResult {
   publishRecordId: string;
   platformPostId: string;
+}
+
+// export-generate enqueues by exportJobId only, not video/type details - the
+// ExportJob row (created synchronously by ExportService.create() before
+// enqueueing, so it exists immediately for the client to poll) is the single
+// source of truth, same "id-only, DB row is truth" convention as
+// PublishClipJobData above. Deliberately no equivalent to
+// PUBLISH_RETRY_OPTIONS - a failed export just marks the row FAILED; the
+// user re-triggers via a new POST /export, matching every pipeline job
+// except publish-clip.
+export interface ExportGenerateJobData {
+  exportJobId: string;
+}
+
+export interface ExportGenerateJobResult {
+  exportJobId: string;
+  resultUrl: string;
 }
 
 // Shared by every enqueuer of publish-clip - apps/api's ClipsService.publish()

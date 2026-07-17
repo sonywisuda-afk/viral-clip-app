@@ -3,10 +3,14 @@ import type {
   AnalyticsPerformanceClipsDto,
   AnalyticsPerformanceDto,
   AnalyticsPerformanceVideosDto,
+  BrandKitDto,
   Clip,
   ClipExplainabilityDto,
   DashboardActivityDto,
   DashboardStatsDto,
+  ExportJobDto,
+  ExportJobListDto,
+  ExportType,
   OpsAiCalibrationDto,
   OpsAiCorrelationDto,
   OpsAiDistributionDto,
@@ -558,6 +562,86 @@ export async function search(query: string): Promise<SearchResultsDto> {
 export async function listTeamInvites(): Promise<{ invites: PendingInviteDto[] }> {
   const res = await apiFetch('/team/invites');
   return parseJsonOrThrow<{ invites: PendingInviteDto[] }>(res);
+}
+
+// Export Center (Sprint 03e). Sync formats (03b) - not fetched, used
+// directly as an <a href> target, same convention as clipDownloadUrl/
+// dashboardExportCsvUrl above.
+export type VideoExportFormat =
+  | 'report.json'
+  | 'report.csv'
+  | 'clip-metadata.json'
+  | 'clip-metadata.csv'
+  | 'transcript.txt'
+  | 'captions.srt'
+  | 'captions.vtt';
+
+export function videoExportUrl(videoId: string, format: VideoExportFormat): string {
+  return `${API_URL}/videos/${videoId}/export/${format}`;
+}
+
+// Async formats (03c/03d) - create the job, poll it (see ExportTypeRow's
+// useSWR usage), then hit the download URL once status is READY.
+export async function createExportJob(videoId: string, type: ExportType): Promise<ExportJobDto> {
+  const res = await apiFetch('/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoId, type }),
+  });
+  return parseJsonOrThrow<ExportJobDto>(res);
+}
+
+export async function getExportJob(id: string): Promise<ExportJobDto> {
+  const res = await apiFetch(`/export/${id}`);
+  return parseJsonOrThrow<ExportJobDto>(res);
+}
+
+// Recent Exports / Persistent Export History - the 10 most recent jobs for
+// this video, newest first. Fetched once when ExportCenterDialog opens, so
+// each ExportTypeRow can seed its state from the server instead of always
+// starting blank (see that component's own comment on why this matters).
+export async function listExportJobs(videoId: string): Promise<ExportJobListDto> {
+  const res = await apiFetch(`/export${toQueryString({ videoId })}`);
+  return parseJsonOrThrow<ExportJobListDto>(res);
+}
+
+// Not fetched - same "<a href> target, browser handles the download"
+// convention as videoExportUrl above. Only meaningful once the polled job's
+// status is READY.
+export function exportJobDownloadUrl(id: string): string {
+  return `${API_URL}/export/${id}/download`;
+}
+
+// Brand Kit (03d) - Brand Report's minimal logo + color settings.
+export async function getBrandKit(): Promise<BrandKitDto> {
+  const res = await apiFetch('/brand-kit');
+  return parseJsonOrThrow<BrandKitDto>(res);
+}
+
+export async function updateBrandKit(input: {
+  primaryColor?: string;
+  secondaryColor?: string;
+}): Promise<BrandKitDto> {
+  const res = await apiFetch('/brand-kit', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<BrandKitDto>(res);
+}
+
+// multipart/form-data - no Content-Type header set explicitly, the browser
+// fills in the correct boundary itself (setting it manually here would
+// break the multipart parse on the server side).
+export async function uploadBrandLogo(file: File): Promise<BrandKitDto> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch('/brand-kit/logo', { method: 'POST', body: formData });
+  return parseJsonOrThrow<BrandKitDto>(res);
+}
+
+export function brandKitLogoUrl(): string {
+  return `${API_URL}/brand-kit/logo`;
 }
 
 export { API_URL };

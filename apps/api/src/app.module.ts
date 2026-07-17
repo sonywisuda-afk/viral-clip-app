@@ -4,9 +4,11 @@ import { AnalyticsModule } from './analytics/analytics.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
+import { BrandKitModule } from './brand-kit/brand-kit.module';
 import { ClipsModule } from './clips/clips.module';
 import { validateEnv } from './config/env.validation';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { ExportModule } from './export/export.module';
 import { HealthModule } from './health/health.module';
 import { MonitoringModule } from './monitoring/monitoring.module';
 import { RequestMetricsMiddleware } from './monitoring/request-metrics.middleware';
@@ -42,6 +44,8 @@ import { VideosModule } from './videos/videos.module';
     DashboardModule,
     SearchModule,
     TeamModule,
+    ExportModule,
+    BrandKitModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -126,6 +126,18 @@ model User {
   // any earlier unused request - only the most recent one is ever honored.
   resetPasswordTokenHash      String?   @unique
   resetPasswordTokenExpiresAt DateTime?
+  // Sprint 03d (Export Center roadmap) - Brand Report's minimal Brand Kit.
+  // No new settings system - these live directly on User, same "smallest
+  // viable" posture the roadmap called for. brandLogoUrl is a raw storage
+  // key, never exposed as-is (same "never the raw key" convention as every
+  // other resource) - GET /brand-kit/logo resolves it. All three null until
+  // the user sets them; Brand Report falls back to default (unbranded)
+  // styling when unset rather than blocking creation - same graceful-
+  // degradation posture as a missing SMTP_HOST just logging a warning
+  // elsewhere in this codebase.
+  brandLogoUrl                String?
+  brandPrimaryColor           String?
+  brandSecondaryColor         String?
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -134,6 +146,7 @@ model User {
   premiumCredits PremiumCredit[]
   activityEvents ActivityEvent[]
   sentInvites    PendingInvite[]
+  exportJobs     ExportJob[]
 }
 
 model Video {
@@ -298,6 +311,7 @@ model Video {
   clips              Clip[]
   premiumCredit      PremiumCredit?
   statusEvents       VideoStatusEvent[]
+  exportJobs         ExportJob[]
 
   @@index([ownerId])
 }
@@ -957,4 +971,58 @@ model PendingInvite {
   createdAt DateTime          @default(now())
 
   @@index([inviterId, createdAt])
+}
+
+// Sprint 03c (Export Center roadmap) - tracks one async report-generation
+// job (currently only PDF; EXCEL/etc. join this enum in Sprint 03d without
+// a schema change to ExportJob itself). A concrete videoId relation, not a
+// generic Json "scope" blob (the original 03a-era sketch) - now that this
+// model actually exists, scope is always exactly one video, and a real FK
+// avoids the TS2742 declaration-emit trap this codebase has hit repeatedly
+// with untyped Json columns (see ARCHITECTURE.md). No retry-count/backoff
+// tracking here - unlike PublishRecord, ExportJob jobs don't get automatic
+// BullMQ retry (same "fails once, user re-triggers" convention as every
+// pipeline job except publish-clip); a failed row is simply terminal.
+// Sprint 03d - EXCEL/HIGHLIGHT_REPORT/BRAND_REPORT all reuse the exact same
+// video-scoped data pipeline PDF already uses (buildVideoReportInputFromPrisma
+// -> buildVideoReportData) - only the rendering differs. ANALYTICS_REPORT is
+// deliberately NOT here yet: it's account-wide (AnalyticsService.getOverview/
+// getPerformance are userId-scoped across every video, never one videoId),
+// which would need ExportJob.videoId to become nullable - a bigger, separate
+// change, not made in this pass.
+enum ExportType {
+  PDF
+  EXCEL
+  HIGHLIGHT_REPORT
+  BRAND_REPORT
+}
+
+enum ExportJobStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+model ExportJob {
+  id         String          @id @default(cuid())
+  userId     String
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId    String
+  video      Video           @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  type       ExportType      @default(PDF)
+  status     ExportJobStatus @default(PENDING)
+  // Object storage key, set only once status reaches READY - never exposed
+  // to the client as this raw key, same "endpoint path instead" treatment
+  // as every other resource in this codebase (see ExportJobDto.resultUrl).
+  resultUrl  String?
+  failReason String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([userId, createdAt])
+  // Recent Exports / Persistent Export History - backs GET /export?videoId=
+  // (ExportService.listRecent's `WHERE videoId = ? ORDER BY createdAt DESC
+  // LIMIT 10`), a real repeated query this feature introduces.
+  @@index([videoId, createdAt])
 }
