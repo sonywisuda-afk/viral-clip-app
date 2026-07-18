@@ -66,3 +66,14 @@ export const alertEngineQueue = new Queue(QueueName.ALERT_ENGINE, {
   connection: createRedisConnection(),
   defaultJobOptions,
 });
+
+// Milestone 04d - produced by recordNotification()'s deps.enqueueDelivery
+// (both apps/api and apps/worker call sites, via notificationDeliveryEnqueuer.ts
+// on this side), consumed by notification-delivery.worker.ts. Same
+// "apps/api is sole producer, apps/worker sole consumer" shape as
+// exportGenerateQueue - apps/worker still needs this Queue instance itself
+// though, since 4 of the 6 recordNotification() call sites live here.
+export const notificationDeliveryQueue = new Queue(QueueName.NOTIFICATION_DELIVERY, {
+  connection: createRedisConnection(),
+  defaultJobOptions,
+});

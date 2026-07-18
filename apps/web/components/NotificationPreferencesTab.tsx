@@ -1,8 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import useSWR from 'swr';
-import { NotificationType, type NotificationPreferenceDto } from '@speedora/shared';
-import { getNotificationPreferences, updateNotificationPreference } from '@/lib/api';
+import { NotificationChannel, NotificationType, type NotificationPreferenceDto } from '@speedora/shared';
+import {
+  deleteNotificationWebhook,
+  getNotificationPreferences,
+  getNotificationWebhooks,
+  updateNotificationPreference,
+  upsertNotificationWebhook,
+} from '@/lib/api';
+import { Button } from '@/components/ui/button';
 import { NOTIFICATION_TYPE_LABELS } from '@/lib/notification-definitions';
 import { cn } from '@/lib/utils';
 
@@ -45,56 +53,222 @@ function Switch({
   );
 }
 
-// Fixed grid of 4 known types x 2 toggles (Inbox/IN_APP, Toast) - immediate-
-// effect PATCH on each click, no Save button, same posture ExportTypeRow's
-// per-row actions already use.
+const OUTBOUND_CHANNELS: Array<{ channel: NotificationChannel; label: string }> = [
+  { channel: NotificationChannel.SLACK, label: 'Slack' },
+  { channel: NotificationChannel.DISCORD, label: 'Discord' },
+  { channel: NotificationChannel.WEBHOOK, label: 'Webhook Generik' },
+];
+
+// Milestone 04d - one row per outbound channel, a URL input + Save + a
+// configured/not-configured status + Remove. Unlike the Inbox/Toast
+// switches (immediate-effect, no Save), a webhook destination needs an
+// explicit Save since it's free-text input, not a toggle.
+function DestinationRow({
+  channel,
+  label,
+  configured,
+  onSaved,
+}: {
+  channel: NotificationChannel;
+  label: string;
+  configured: boolean;
+  onSaved: () => void;
+}) {
+  const [url, setUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave() {
+    setError(null);
+    setSaving(true);
+    try {
+      await upsertNotificationWebhook(channel, url);
+      setUrl('');
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan webhook');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    setSaving(true);
+    try {
+      await deleteNotificationWebhook(channel);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2.5">
+      <span className="w-28 shrink-0 font-body text-sm text-foreground">{label}</span>
+      <span
+        className={cn(
+          'shrink-0 font-mono text-[10px] uppercase tracking-wide',
+          configured ? 'text-emerald-400' : 'text-muted-foreground',
+        )}
+      >
+        {configured ? 'Terhubung' : 'Belum diatur'}
+      </span>
+      <input
+        type="url"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder={configured ? 'Ganti URL webhook...' : 'https://...'}
+        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-body text-sm text-foreground"
+      />
+      {error && <span className="font-body text-xs text-destructive">{error}</span>}
+      <Button size="sm" variant="outline" disabled={saving || !url} onClick={handleSave}>
+        Simpan
+      </Button>
+      {configured && (
+        <Button size="sm" variant="ghost" disabled={saving} onClick={handleRemove}>
+          Hapus
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// Fixed grid of every NotificationType x Inbox/Toast toggles (Sprint 4B),
+// plus one toggle column per configured outbound channel (Milestone 04d) -
+// immediate-effect PATCH on each click, no Save button, same posture
+// ExportTypeRow's per-row actions already use. Webhook destinations
+// themselves (above the grid) DO need a Save button, since they're
+// free-text URL input, not a toggle.
 export function NotificationPreferencesTab() {
-  const { data, mutate } = useSWR('notification-preferences', getNotificationPreferences);
+  const { data, mutate } = useSWR('notification-preferences', () => getNotificationPreferences());
+  const { data: webhooksData, mutate: mutateWebhooks } = useSWR(
+    'notification-webhooks',
+    getNotificationWebhooks,
+  );
   const preferences = data?.preferences ?? [];
+  const webhooks = webhooksData?.webhooks ?? [];
+
+  // Fixed, known set of 3 outbound channels - not a dynamic list, so 3
+  // explicit useSWR calls (each null-keyed until its destination is
+  // configured) rather than looping useSWR, which hooks can't do.
+  const slack = useSWR(
+    webhooks.find((w) => w.channel === NotificationChannel.SLACK)?.configured
+      ? ['notification-preferences', NotificationChannel.SLACK]
+      : null,
+    () => getNotificationPreferences(NotificationChannel.SLACK),
+  );
+  const discord = useSWR(
+    webhooks.find((w) => w.channel === NotificationChannel.DISCORD)?.configured
+      ? ['notification-preferences', NotificationChannel.DISCORD]
+      : null,
+    () => getNotificationPreferences(NotificationChannel.DISCORD),
+  );
+  const webhook = useSWR(
+    webhooks.find((w) => w.channel === NotificationChannel.WEBHOOK)?.configured
+      ? ['notification-preferences', NotificationChannel.WEBHOOK]
+      : null,
+    () => getNotificationPreferences(NotificationChannel.WEBHOOK),
+  );
+
+  const channelColumns = [
+    { channel: NotificationChannel.SLACK, label: 'Slack', swr: slack },
+    { channel: NotificationChannel.DISCORD, label: 'Discord', swr: discord },
+    { channel: NotificationChannel.WEBHOOK, label: 'Webhook', swr: webhook },
+  ].filter((c) => webhooks.find((w) => w.channel === c.channel)?.configured);
 
   async function toggle(type: NotificationType, field: 'enabled' | 'toast', value: boolean) {
     await updateNotificationPreference(type, { [field]: value });
     mutate();
   }
 
+  async function toggleChannel(
+    type: NotificationType,
+    channel: NotificationChannel,
+    value: boolean,
+    columnMutate: () => void,
+  ) {
+    await updateNotificationPreference(type, { enabled: value, channel });
+    columnMutate();
+  }
+
   function rowFor(type: NotificationType): NotificationPreferenceDto {
     return preferences.find((p) => p.type === type) ?? { type, enabled: true, toast: true };
   }
 
+  function channelRowFor(
+    type: NotificationType,
+    columnData: NotificationPreferenceDto[] | undefined,
+  ): NotificationPreferenceDto {
+    return columnData?.find((p) => p.type === type) ?? { type, enabled: true, toast: true };
+  }
+
   return (
-    <div className="space-y-2">
-      {Object.values(NotificationType).map((type) => {
-        const row = rowFor(type);
-        return (
-          <div
-            key={type}
-            className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5"
-          >
-            <span className="font-body text-sm text-foreground">
-              {NOTIFICATION_TYPE_LABELS[type]}
-            </span>
-            <div className="flex items-center gap-4">
-              <label className="flex items-center gap-2 font-body text-xs text-muted-foreground">
-                Inbox
-                <Switch
-                  checked={row.enabled}
-                  onChange={(value) => toggle(type, 'enabled', value)}
-                  label={`Tampilkan ${NOTIFICATION_TYPE_LABELS[type]} di Inbox`}
-                />
-              </label>
-              <label className="flex items-center gap-2 font-body text-xs text-muted-foreground">
-                Toast
-                <Switch
-                  checked={row.enabled && row.toast}
-                  disabled={!row.enabled}
-                  onChange={(value) => toggle(type, 'toast', value)}
-                  label={`Tampilkan Toast untuk ${NOTIFICATION_TYPE_LABELS[type]}`}
-                />
-              </label>
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <h3 className="font-display text-xs uppercase tracking-wide text-muted-foreground">
+          Tujuan Notifikasi Keluar
+        </h3>
+        {OUTBOUND_CHANNELS.map(({ channel, label }) => (
+          <DestinationRow
+            key={channel}
+            channel={channel}
+            label={label}
+            configured={webhooks.find((w) => w.channel === channel)?.configured ?? false}
+            onSaved={() => mutateWebhooks()}
+          />
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        {Object.values(NotificationType).map((type) => {
+          const row = rowFor(type);
+          return (
+            <div
+              key={type}
+              className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2.5"
+            >
+              <span className="font-body text-sm text-foreground">
+                {NOTIFICATION_TYPE_LABELS[type]}
+              </span>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 font-body text-xs text-muted-foreground">
+                  Inbox
+                  <Switch
+                    checked={row.enabled}
+                    onChange={(value) => toggle(type, 'enabled', value)}
+                    label={`Tampilkan ${NOTIFICATION_TYPE_LABELS[type]} di Inbox`}
+                  />
+                </label>
+                <label className="flex items-center gap-2 font-body text-xs text-muted-foreground">
+                  Toast
+                  <Switch
+                    checked={row.enabled && row.toast}
+                    disabled={!row.enabled}
+                    onChange={(value) => toggle(type, 'toast', value)}
+                    label={`Tampilkan Toast untuk ${NOTIFICATION_TYPE_LABELS[type]}`}
+                  />
+                </label>
+                {channelColumns.map(({ channel, label, swr }) => {
+                  const channelRow = channelRowFor(type, swr.data?.preferences);
+                  return (
+                    <label
+                      key={channel}
+                      className="flex items-center gap-2 font-body text-xs text-muted-foreground"
+                    >
+                      {label}
+                      <Switch
+                        checked={channelRow.enabled}
+                        onChange={(value) => toggleChannel(type, channel, value, () => swr.mutate())}
+                        label={`Kirim ${NOTIFICATION_TYPE_LABELS[type]} ke ${label}`}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

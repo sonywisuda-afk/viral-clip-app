@@ -175,6 +175,13 @@ const publishNotificationMock = jest.fn();
 jest.mock('../notificationPublisher', () => ({
   publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
 }));
+// Milestone 04d - same reasoning as notificationPublisher above: mocking
+// this worker-local adapter avoids constructing a real BullMQ Queue (this
+// file doesn't otherwise touch ../queues at all).
+const enqueueNotificationDeliveryMock = jest.fn();
+jest.mock('../notificationDeliveryEnqueuer', () => ({
+  enqueueNotificationDelivery: (...args: unknown[]) => enqueueNotificationDeliveryMock(...args),
+}));
 // $transaction now has two call shapes to support in this file: the
 // array form (still used by updateVideoStatus() on the FAILED path, see
 // video-status.ts) and the new interactive callback form the render-clip

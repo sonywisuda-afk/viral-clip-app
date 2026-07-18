@@ -37,6 +37,7 @@ async function main() {
   const {
     alertEngineQueue,
     detectClipsQueue,
+    notificationDeliveryQueue,
     publishClipQueue,
     renderClipQueue,
     schedulePublishClipQueue,
@@ -59,6 +60,8 @@ async function main() {
   const { createExportGenerateWorker } = await import('./export-generate/export-generate.worker');
   const { createAlertEngineWorker, scheduleRepeatingTrigger: scheduleAlertEngineTrigger } =
     await import('./workers/alert-engine.worker');
+  const { createNotificationDeliveryWorker } =
+    await import('./workers/notification-delivery.worker');
   const { closeNotificationPublisher } = await import('./notificationPublisher');
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
@@ -81,6 +84,7 @@ async function main() {
     createSyncPublishStatsWorker(),
     createExportGenerateWorker(),
     createAlertEngineWorker(),
+    createNotificationDeliveryWorker(),
   ];
 
   logger.info('worker started', { queueCount: workers.length });
@@ -119,6 +123,7 @@ async function main() {
         schedulePublishClipQueue.close(),
         syncPublishStatsQueue.close(),
         alertEngineQueue.close(),
+        notificationDeliveryQueue.close(),
       ]);
       // Milestone 04c - the shared publish-only Redis connection, closed
       // after every worker is done touching it (each worker's own

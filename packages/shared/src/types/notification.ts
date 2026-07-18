@@ -14,6 +14,19 @@ export enum NotificationType {
   CREDIT_WARNING = 'CREDIT_WARNING',
 }
 
+// Mirrors NotificationChannel in packages/database's Prisma schema, same
+// nominally-distinct-shared-runtime-values convention as NotificationType
+// above. IN_APP has existed since Sprint 4A; Milestone 04d wired
+// SLACK/DISCORD/WEBHOOK as outbound delivery surfaces, each independently
+// toggleable per NotificationType (see NotificationPreferenceDto) and
+// backed by one account-level destination (see NotificationWebhookDto).
+export enum NotificationChannel {
+  IN_APP = 'IN_APP',
+  SLACK = 'SLACK',
+  DISCORD = 'DISCORD',
+  WEBHOOK = 'WEBHOOK',
+}
+
 // Registry keyed by NotificationType - a single source of truth for
 // severity, so consumers (apps/web's toast tone today; a future email
 // template's styling, or Sprint 4C's Alert Engine entries) read from one
@@ -79,9 +92,31 @@ export interface NotificationPreferenceListDto {
   preferences: NotificationPreferenceDto[];
 }
 
-// Both optional - a single toggle click sends only the field that changed;
-// the server reads current row state for the other.
+// enabled/toast both optional - a single toggle click sends only the field
+// that changed; the server reads current row state for the other. Milestone
+// 04d - channel optional, defaults to IN_APP server-side; toast stays
+// meaningful only for IN_APP.
 export interface UpdateNotificationPreferenceDto {
   enabled?: boolean;
   toast?: boolean;
+  channel?: NotificationChannel;
+}
+
+// Milestone 04d - one account-level outbound destination per channel (SLACK/
+// DISCORD/WEBHOOK only, IN_APP has none). `configured` is the only signal
+// about the secret ever sent to a client - the encrypted URL itself is
+// write-only, same "secrets are for writing not reading back" posture a
+// password field would use (see NotificationWebhook.url's own schema
+// comment).
+export interface NotificationWebhookDto {
+  channel: NotificationChannel;
+  configured: boolean;
+}
+
+export interface NotificationWebhookListDto {
+  webhooks: NotificationWebhookDto[];
+}
+
+export interface UpsertNotificationWebhookDto {
+  url: string;
 }

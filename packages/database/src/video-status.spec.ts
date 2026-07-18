@@ -140,6 +140,30 @@ describe('updateVideoStatus', () => {
     });
   });
 
+  it('forwards deps.enqueueDelivery into recordNotification on a FAILED transition (Milestone 04d)', async () => {
+    const notificationCreate = jest.fn().mockResolvedValue({ id: 'notif-1' });
+    const enqueueDelivery = jest.fn().mockResolvedValue(undefined);
+    const prisma = {
+      video: { update: jest.fn().mockReturnValue('video-update-promise') },
+      videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+      notification: { create: notificationCreate },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+    };
+
+    await updateVideoStatus(
+      prisma as never,
+      'video-1',
+      'FAILED' as never,
+      { errorMessage: 'openai is down' },
+      { enqueueDelivery },
+    );
+
+    expect(enqueueDelivery).toHaveBeenCalledWith({ notificationId: 'notif-1' });
+  });
+
   it('does not touch deps.publish on a non-FAILED transition', async () => {
     const publish = jest.fn();
     const prisma = {

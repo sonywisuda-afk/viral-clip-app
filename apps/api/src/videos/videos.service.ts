@@ -24,6 +24,7 @@ import {
 import { Queue } from 'bullmq';
 import { PaymentsService } from '../payments/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
 import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
@@ -99,6 +100,7 @@ export class VideosService {
     private readonly storage: StorageService,
     private readonly payments: PaymentsService,
     private readonly notificationPublisher: NotificationPublisherService,
+    private readonly notificationDeliveryProducer: NotificationDeliveryProducer,
     @InjectQueue(QueueName.IMPORT_YOUTUBE)
     private readonly importYoutubeQueue: Queue<ImportYoutubeJobData>,
     @InjectQueue(QueueName.TRANSCRIBE) private readonly transcribeQueue: Queue<TranscribeJobData>,
@@ -189,7 +191,10 @@ export class VideosService {
         body: `Video "${video.title}" berhasil diunggah dan sedang diproses.`,
         videoId: video.id,
       },
-      { publish: (event) => this.notificationPublisher.publish(event) },
+      {
+        publish: (event) => this.notificationPublisher.publish(event),
+        enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+      },
     ).catch((error) => this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`));
 
     return video;
@@ -260,7 +265,10 @@ export class VideosService {
         body: 'Video dari YouTube Anda sedang diunduh dan diproses.',
         videoId: video.id,
       },
-      { publish: (event) => this.notificationPublisher.publish(event) },
+      {
+        publish: (event) => this.notificationPublisher.publish(event),
+        enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+      },
     ).catch((error) => this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`));
 
     return video;

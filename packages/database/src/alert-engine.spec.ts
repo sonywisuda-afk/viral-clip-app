@@ -168,6 +168,20 @@ describe('runAlertRules', () => {
       type: 'STORAGE_WARNING',
     });
   });
+
+  it('passes deps.enqueueDelivery through to recordNotification (Milestone 04d)', async () => {
+    const prisma = makePrisma();
+    prisma.alertState.findUnique.mockResolvedValue(null);
+    prisma.alertState.create.mockResolvedValue({});
+    const enqueueDelivery = jest.fn().mockResolvedValue(undefined);
+    const testRule = rule([
+      { dedupeKey: 'storage-warning', breached: true, recipientUserIds: ['user-1'], notification },
+    ]);
+
+    await runAlertRules(prisma as never, [testRule], { enqueueDelivery });
+
+    expect(enqueueDelivery).toHaveBeenCalledWith({ notificationId: 'notif-1' });
+  });
 });
 
 describe('findUsersByRoles', () => {

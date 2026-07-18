@@ -19,6 +19,15 @@ export interface NotificationPublishEvent {
 
 export type PublishNotificationFn = (event: NotificationPublishEvent) => void | Promise<void>;
 
+// Milestone 04d - the outbound-delivery counterpart to PublishNotificationFn.
+// Deliberately id-only (same "DB row is truth" convention as every other
+// job payload in this codebase) rather than carrying channel/preference
+// details - the notification-delivery worker resolves "which channels are
+// actually enabled + configured for this user/type" itself at process time,
+// keeping this function's own contract (and every existing call site) fully
+// unaware of SLACK/DISCORD/WEBHOOK specifics.
+export type EnqueueDeliveryFn = (event: { notificationId: string }) => void | Promise<void>;
+
 // Inserts one Notification row - see schema.prisma's own comment on why this
 // is a separate model from ActivityEvent. Same shape/posture as
 // recordActivityEvent: takes any Prisma client-shaped object (a real
@@ -55,7 +64,7 @@ export async function recordNotification(
     clipId?: string;
     metadata?: Prisma.InputJsonValue;
   },
-  deps: { publish?: PublishNotificationFn } = {},
+  deps: { publish?: PublishNotificationFn; enqueueDelivery?: EnqueueDeliveryFn } = {},
 ): Promise<void> {
   const preference = await prisma.notificationPreference.findUnique({
     where: {
@@ -85,6 +94,20 @@ export async function recordNotification(
       await deps.publish({ userId: params.userId, notificationId: created.id, type: params.type });
     } catch (error) {
       console.warn('[recordNotification] publish failed', error);
+    }
+  }
+
+  // Milestone 04d - kept as a SEPARATE try/catch from deps.publish above, not
+  // merged, so an SSE publish failure can never skip enqueueing outbound
+  // delivery (or vice versa). Deliberately does not look up SLACK/DISCORD/
+  // WEBHOOK preference rows itself - unconditionally enqueues whenever wired,
+  // same "let the consumer resolve applicability" posture as deps.publish
+  // (which always fires regardless of who's actually subscribed over SSE).
+  if (deps.enqueueDelivery) {
+    try {
+      await deps.enqueueDelivery({ notificationId: created.id });
+    } catch (error) {
+      console.warn('[recordNotification] enqueueDelivery failed', error);
     }
   }
 }

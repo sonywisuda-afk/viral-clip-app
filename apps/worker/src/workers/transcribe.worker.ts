@@ -38,6 +38,7 @@ import {
 import { groq, GROQ_WHISPER_MODEL } from '../groq';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { openai, OPENAI_WHISPER_MODEL } from '../openai';
 import { prisma } from '../prisma';
@@ -647,7 +648,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
               videoId,
               VideoStatus.FAILED,
               { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification },
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
             );
             throw error;
           } finally {

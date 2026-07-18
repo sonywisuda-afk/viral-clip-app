@@ -1,14 +1,18 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
+  Put,
   Query,
   Sse,
   UseGuards,
   type MessageEvent,
 } from '@nestjs/common';
+import { NotificationChannel } from '@speedora/shared';
 import { filter, interval, map, merge, type Observable } from 'rxjs';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -16,6 +20,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NotificationSubscriberService } from '../redis-pubsub/notification-subscriber.service';
 import { matchesUser, toMessageEvent } from '../redis-pubsub/notification-realtime.util';
 import { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
+import { UpsertNotificationWebhookDto } from './dto/upsert-notification-webhook.dto';
 import { NotificationsService } from './notifications.service';
 
 const MIN_LIMIT = 1;
@@ -82,9 +87,14 @@ export class NotificationsController {
   // Sprint 4B. Declared before the dynamic @Patch(':id/read') below - same
   // "specific literal routes before dynamic-param routes" convention
   // ExportController.list() follows relative to its own @Get(':id').
+  // Milestone 04d - optional ?channel= query param, defaults to IN_APP
+  // (existing callers keep working unchanged). Invalid values fall back to
+  // IN_APP too, same "manually-parsed query param degrades to a default
+  // rather than throwing" posture as parseLimit above, since this is a read.
   @Get('preferences')
-  getPreferences(@CurrentUser() user: SafeUser) {
-    return this.notificationsService.getPreferences(user.id);
+  getPreferences(@CurrentUser() user: SafeUser, @Query('channel') channel?: string) {
+    const resolvedChannel = this.resolveChannel(channel) ?? NotificationChannel.IN_APP;
+    return this.notificationsService.getPreferences(user.id, resolvedChannel);
   }
 
   @Patch('preferences/:type')
@@ -96,8 +106,52 @@ export class NotificationsController {
     return this.notificationsService.updatePreference(user.id, type, dto);
   }
 
+  // Milestone 04d - Slack/Discord/generic-webhook destinations. Declared
+  // before @Patch(':id/read') for the same specific-before-dynamic reason
+  // as preferences above.
+  @Get('webhooks')
+  getWebhooks(@CurrentUser() user: SafeUser) {
+    return this.notificationsService.getWebhooks(user.id);
+  }
+
+  @Put('webhooks/:channel')
+  upsertWebhook(
+    @CurrentUser() user: SafeUser,
+    @Param('channel') channel: string,
+    @Body() dto: UpsertNotificationWebhookDto,
+  ) {
+    return this.notificationsService.upsertWebhook(user.id, this.requireChannel(channel), dto.url);
+  }
+
+  @Delete('webhooks/:channel')
+  deleteWebhook(@CurrentUser() user: SafeUser, @Param('channel') channel: string) {
+    return this.notificationsService.deleteWebhook(user.id, this.requireChannel(channel));
+  }
+
   @Patch(':id/read')
   markRead(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.notificationsService.markRead(id, user.id);
+  }
+
+  private resolveChannel(raw: string | undefined): NotificationChannel | undefined {
+    if (raw && Object.values(NotificationChannel).includes(raw as NotificationChannel)) {
+      return raw as NotificationChannel;
+    }
+    return undefined;
+  }
+
+  // Unlike resolveChannel (a read, degrades to a default), a webhook
+  // channel path param feeds a write (PUT/DELETE) - an unrecognized value
+  // here must throw a clean 400 rather than reach Prisma's enum column as
+  // an opaque 500 (same service-level-enum-validation convention this
+  // codebase uses elsewhere, just enforced at the controller since this is
+  // a path param, not a body field a DTO's @IsEnum could validate).
+  // NotificationsService.upsertWebhook/deleteWebhook separately reject
+  // IN_APP specifically once a syntactically valid channel reaches them.
+  private requireChannel(raw: string): NotificationChannel {
+    if (!Object.values(NotificationChannel).includes(raw as NotificationChannel)) {
+      throw new BadRequestException(`Invalid notification channel: ${raw}`);
+    }
+    return raw as NotificationChannel;
   }
 }

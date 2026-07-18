@@ -14,6 +14,7 @@ import { uploadObject } from '@speedora/storage';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { Worker, type Job } from 'bullmq';
 import { forStage } from '../logger';
+import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
@@ -177,7 +178,7 @@ export function createExportGenerateWorker(): Worker<
             ...(exportJob.videoId ? { videoId: exportJob.videoId } : {}),
             metadata: { exportJobId, exportType: exportJob.type },
           },
-          { publish: publishNotification },
+          { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
         ).catch((error) => {
           logger.warn('failed to record EXPORT_READY notification', { exportJobId }, error);
         });

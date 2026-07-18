@@ -68,6 +68,7 @@ import {
 } from '../ffmpeg';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
@@ -785,7 +786,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                 videoId,
                 clipId,
               },
-              { publish: publishNotification },
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
             ).catch((error) => {
               logger.warn('failed to record CLIP_READY notification', { clipId }, error);
             });
@@ -867,7 +868,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               videoId,
               VideoStatus.FAILED,
               { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification },
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
             );
             throw error;
           } finally {

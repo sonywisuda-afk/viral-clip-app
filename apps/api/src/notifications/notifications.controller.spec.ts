@@ -13,6 +13,9 @@ describe('NotificationsController', () => {
     markAllRead: jest.Mock;
     getPreferences: jest.Mock;
     updatePreference: jest.Mock;
+    getWebhooks: jest.Mock;
+    upsertWebhook: jest.Mock;
+    deleteWebhook: jest.Mock;
   };
   let subject: Subject<NotificationPublishEvent>;
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
@@ -25,6 +28,9 @@ describe('NotificationsController', () => {
       markAllRead: jest.fn(),
       getPreferences: jest.fn(),
       updatePreference: jest.fn(),
+      getWebhooks: jest.fn(),
+      upsertWebhook: jest.fn(),
+      deleteWebhook: jest.fn(),
     };
     subject = new Subject<NotificationPublishEvent>();
     controller = new NotificationsController(
@@ -119,13 +125,29 @@ describe('NotificationsController', () => {
   });
 
   describe('getPreferences', () => {
-    it('forwards the requester id', async () => {
+    it('forwards the requester id, defaulting channel to IN_APP', async () => {
       notificationsService.getPreferences.mockResolvedValue({ preferences: [] });
 
       const result = await controller.getPreferences(user);
 
-      expect(notificationsService.getPreferences).toHaveBeenCalledWith('user-1');
+      expect(notificationsService.getPreferences).toHaveBeenCalledWith('user-1', 'IN_APP');
       expect(result).toEqual({ preferences: [] });
+    });
+
+    it('forwards an explicit ?channel= query param (Milestone 04d)', async () => {
+      notificationsService.getPreferences.mockResolvedValue({ preferences: [] });
+
+      await controller.getPreferences(user, 'SLACK');
+
+      expect(notificationsService.getPreferences).toHaveBeenCalledWith('user-1', 'SLACK');
+    });
+
+    it('falls back to IN_APP for an invalid ?channel= value rather than throwing', async () => {
+      notificationsService.getPreferences.mockResolvedValue({ preferences: [] });
+
+      await controller.getPreferences(user, 'NOT_A_REAL_CHANNEL');
+
+      expect(notificationsService.getPreferences).toHaveBeenCalledWith('user-1', 'IN_APP');
     });
   });
 
@@ -154,6 +176,56 @@ describe('NotificationsController', () => {
       await expect(
         controller.updatePreference(user, 'NOT_A_REAL_TYPE', { enabled: false }),
       ).rejects.toThrow('bad type');
+    });
+  });
+
+  describe('getWebhooks', () => {
+    it('forwards the requester id', async () => {
+      notificationsService.getWebhooks.mockResolvedValue({ webhooks: [] });
+
+      const result = await controller.getWebhooks(user);
+
+      expect(notificationsService.getWebhooks).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual({ webhooks: [] });
+    });
+  });
+
+  describe('upsertWebhook', () => {
+    it('forwards the requester id, channel, and url', async () => {
+      notificationsService.upsertWebhook.mockResolvedValue({ channel: 'SLACK', configured: true });
+
+      await controller.upsertWebhook(user, 'SLACK', { url: 'https://hooks.slack.com/services/x' });
+
+      expect(notificationsService.upsertWebhook).toHaveBeenCalledWith(
+        'user-1',
+        'SLACK',
+        'https://hooks.slack.com/services/x',
+      );
+    });
+
+    it('throws BadRequestException for an unrecognized channel path param', () => {
+      // requireChannel throws synchronously (not via a rejected Promise) -
+      // upsertWebhook/deleteWebhook aren't declared async, so the throw
+      // happens on the call itself, before the service is ever reached.
+      expect(() =>
+        controller.upsertWebhook(user, 'NOT_A_REAL_CHANNEL', { url: 'https://example.com/hook' }),
+      ).toThrow('Invalid notification channel: NOT_A_REAL_CHANNEL');
+      expect(notificationsService.upsertWebhook).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteWebhook', () => {
+    it('forwards the requester id and channel', async () => {
+      await controller.deleteWebhook(user, 'DISCORD');
+
+      expect(notificationsService.deleteWebhook).toHaveBeenCalledWith('user-1', 'DISCORD');
+    });
+
+    it('throws BadRequestException for an unrecognized channel path param', () => {
+      expect(() => controller.deleteWebhook(user, 'NOT_A_REAL_CHANNEL')).toThrow(
+        'Invalid notification channel: NOT_A_REAL_CHANNEL',
+      );
+      expect(notificationsService.deleteWebhook).not.toHaveBeenCalled();
     });
   });
 });

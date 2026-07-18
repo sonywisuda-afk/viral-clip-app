@@ -11,11 +11,14 @@ import type {
   ExportJobDto,
   ExportJobListDto,
   ExportType,
+  NotificationChannel,
   NotificationListDto,
   NotificationPreferenceDto,
   NotificationPreferenceListDto,
   NotificationType,
   NotificationUnreadCountDto,
+  NotificationWebhookDto,
+  NotificationWebhookListDto,
   OpsAiCalibrationDto,
   OpsAiCorrelationDto,
   OpsAiDistributionDto,
@@ -649,9 +652,12 @@ export async function markAllNotificationsRead(): Promise<{ count: number }> {
   return parseJsonOrThrow<{ count: number }>(res);
 }
 
-// Sprint 4B (Notification Preferences).
-export async function getNotificationPreferences(): Promise<NotificationPreferenceListDto> {
-  const res = await apiFetch('/notifications/preferences');
+// Sprint 4B (Notification Preferences). Milestone 04d - optional channel,
+// defaults server-side to IN_APP (existing callers unchanged).
+export async function getNotificationPreferences(
+  channel?: NotificationChannel,
+): Promise<NotificationPreferenceListDto> {
+  const res = await apiFetch(`/notifications/preferences${toQueryString({ channel })}`);
   return parseJsonOrThrow<NotificationPreferenceListDto>(res);
 }
 
@@ -665,6 +671,30 @@ export async function updateNotificationPreference(
     body: JSON.stringify(dto),
   });
   return parseJsonOrThrow<NotificationPreferenceDto>(res);
+}
+
+// Milestone 04d - Slack/Discord/generic-webhook destinations. Never fetches
+// the decrypted url back - `configured: boolean` is the only signal about
+// the secret this API ever exposes to a client.
+export async function getNotificationWebhooks(): Promise<NotificationWebhookListDto> {
+  const res = await apiFetch('/notifications/webhooks');
+  return parseJsonOrThrow<NotificationWebhookListDto>(res);
+}
+
+export async function upsertNotificationWebhook(
+  channel: NotificationChannel,
+  url: string,
+): Promise<NotificationWebhookDto> {
+  const res = await apiFetch(`/notifications/webhooks/${channel}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+  return parseJsonOrThrow<NotificationWebhookDto>(res);
+}
+
+export async function deleteNotificationWebhook(channel: NotificationChannel): Promise<void> {
+  await apiFetch(`/notifications/webhooks/${channel}`, { method: 'DELETE' });
 }
 
 // Brand Kit (03d) - Brand Report's minimal logo + color settings.

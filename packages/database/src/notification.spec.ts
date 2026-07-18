@@ -169,4 +169,87 @@ describe('recordNotification', () => {
       ).resolves.toBeUndefined();
     });
   });
+
+  describe('deps.enqueueDelivery (Milestone 04d)', () => {
+    it('calls deps.enqueueDelivery with the created row id after a successful write', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue(null);
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+      const enqueueDelivery = jest.fn().mockResolvedValue(undefined);
+
+      await recordNotification(
+        prisma as never,
+        {
+          userId: 'user-1',
+          type: 'CLIP_READY' as never,
+          title: 'Klip siap!',
+          body: 'Klip Anda sudah siap ditonton.',
+        },
+        { enqueueDelivery },
+      );
+
+      expect(enqueueDelivery).toHaveBeenCalledWith({ notificationId: 'notif-1' });
+    });
+
+    it('does not call deps.enqueueDelivery when the preference gate skips the write', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue({ enabled: false });
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+      const enqueueDelivery = jest.fn();
+
+      await recordNotification(
+        prisma as never,
+        {
+          userId: 'user-1',
+          type: 'CLIP_READY' as never,
+          title: 'Klip siap!',
+          body: 'Klip Anda sudah siap ditonton.',
+        },
+        { enqueueDelivery },
+      );
+
+      expect(enqueueDelivery).not.toHaveBeenCalled();
+    });
+
+    it('does not reject when deps.enqueueDelivery itself rejects', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue(null);
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+      const enqueueDelivery = jest.fn().mockRejectedValue(new Error('redis down'));
+
+      await expect(
+        recordNotification(
+          prisma as never,
+          {
+            userId: 'user-1',
+            type: 'CLIP_READY' as never,
+            title: 'Klip siap!',
+            body: 'Klip Anda sudah siap ditonton.',
+          },
+          { enqueueDelivery },
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('a failing deps.publish does not skip deps.enqueueDelivery (separate try/catch)', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue(null);
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+      const publish = jest.fn().mockRejectedValue(new Error('redis down'));
+      const enqueueDelivery = jest.fn().mockResolvedValue(undefined);
+
+      await recordNotification(
+        prisma as never,
+        {
+          userId: 'user-1',
+          type: 'CLIP_READY' as never,
+          title: 'Klip siap!',
+          body: 'Klip Anda sudah siap ditonton.',
+        },
+        { publish, enqueueDelivery },
+      );
+
+      expect(enqueueDelivery).toHaveBeenCalledWith({ notificationId: 'notif-1' });
+    });
+  });
 });

@@ -1,5 +1,9 @@
 import { VideoStatus, type Prisma, type PrismaClient } from './generated/prisma/client';
-import { recordNotification, type PublishNotificationFn } from './notification';
+import {
+  recordNotification,
+  type EnqueueDeliveryFn,
+  type PublishNotificationFn,
+} from './notification';
 
 // Inserts one VideoStatusEvent row - the audit-trail write half of a status
 // change. Takes any Prisma client-shaped object (a real PrismaClient, or the
@@ -30,7 +34,7 @@ export async function updateVideoStatus(
   videoId: string,
   status: VideoStatus,
   options: { errorMessage?: string; data?: Omit<Prisma.VideoUpdateInput, 'status'> } = {},
-  deps: { publish?: PublishNotificationFn } = {},
+  deps: { publish?: PublishNotificationFn; enqueueDelivery?: EnqueueDeliveryFn } = {},
 ): Promise<void> {
   const [video] = await prisma.$transaction([
     prisma.video.update({ where: { id: videoId }, data: { ...options.data, status } }),

@@ -1,15 +1,28 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Notification } from '@speedora/database';
+import { encryptWebhookUrl, type Notification } from '@speedora/database';
 import {
+  NotificationChannel,
   NotificationType,
   type NotificationDto,
   type NotificationListDto,
   type NotificationPreferenceDto,
   type NotificationPreferenceListDto,
   type NotificationUnreadCountDto,
+  type NotificationWebhookDto,
+  type NotificationWebhookListDto,
 } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
+
+// Milestone 04d - the 3 outbound channels a NotificationWebhook destination
+// can exist for. IN_APP is rejected wherever a channel comes from
+// client input (upsertWebhook/deleteWebhook) - it has no external
+// destination to configure.
+const WEBHOOK_CHANNELS = [
+  NotificationChannel.SLACK,
+  NotificationChannel.DISCORD,
+  NotificationChannel.WEBHOOK,
+];
 
 // Notification Center Sprint 4A - shaped like ExportService: ownership via a
 // plain userId filter for lists (a video/notification list that isn't the
@@ -55,14 +68,20 @@ export class NotificationsService {
     return { count };
   }
 
-  // Sprint 4B. `channel` is always IN_APP - never client-chosen, same
-  // restraint as 4A only ever populating a fixed set of shipped types.
-  // Always returns exactly one entry per NotificationType, defaults already
-  // resolved (absence of a row = enabled: true, toast: true) - the client
-  // never merges/defaults itself.
-  async getPreferences(userId: string): Promise<NotificationPreferenceListDto> {
+  // Sprint 4B (IN_APP only) / Milestone 04d (channel becomes a param).
+  // `channel` defaults to IN_APP - every existing caller (NotificationBell's
+  // preference-gated toast diffing) keeps working unchanged. Always returns
+  // exactly one entry per NotificationType, defaults already resolved
+  // (absence of a row = enabled: true, toast: true) - the client never
+  // merges/defaults itself. `toast` stays meaningful only for IN_APP -
+  // returned as true (never read/written to `config`) for the other 3
+  // channels, which don't use `config` at all.
+  async getPreferences(
+    userId: string,
+    channel: NotificationChannel = NotificationChannel.IN_APP,
+  ): Promise<NotificationPreferenceListDto> {
     const rows = await this.prisma.notificationPreference.findMany({
-      where: { userId, channel: 'IN_APP' },
+      where: { userId, channel },
     });
     const byType = new Map(rows.map((row) => [row.type, row]));
 
@@ -72,7 +91,7 @@ export class NotificationsService {
       return {
         type,
         enabled: row?.enabled ?? true,
-        toast: config?.toast ?? true,
+        toast: channel === NotificationChannel.IN_APP ? (config?.toast ?? true) : true,
       };
     });
 
@@ -81,7 +100,8 @@ export class NotificationsService {
 
   // Create-on-first-write (upsert), not update-only + 404 like markRead -
   // there's no "existing preference" to require, absence is a valid,
-  // fully-enabled state.
+  // fully-enabled state. `channel` defaults to IN_APP, same as
+  // getPreferences above.
   async updatePreference(
     userId: string,
     type: string,
@@ -91,25 +111,83 @@ export class NotificationsService {
       throw new BadRequestException(`Unknown notification type: ${type}`);
     }
     const notificationType = type as NotificationType;
+    const channel = dto.channel ?? NotificationChannel.IN_APP;
 
     const existing = await this.prisma.notificationPreference.findUnique({
-      where: { userId_type_channel: { userId, type: notificationType, channel: 'IN_APP' } },
+      where: { userId_type_channel: { userId, type: notificationType, channel } },
     });
     const existingConfig = (existing?.config as { toast?: boolean } | null) ?? {};
     const enabled = dto.enabled ?? existing?.enabled ?? true;
-    const toast = dto.toast ?? existingConfig.toast ?? true;
+    // config (toast) is IN_APP-only - never read/written for the other 3
+    // channels, which have no client-facing presentation to toggle.
+    const config =
+      channel === NotificationChannel.IN_APP
+        ? { toast: dto.toast ?? existingConfig.toast ?? true }
+        : undefined;
 
     const row = await this.prisma.notificationPreference.upsert({
-      where: { userId_type_channel: { userId, type: notificationType, channel: 'IN_APP' } },
-      create: { userId, type: notificationType, channel: 'IN_APP', enabled, config: { toast } },
-      update: { enabled, config: { toast } },
+      where: { userId_type_channel: { userId, type: notificationType, channel } },
+      create: { userId, type: notificationType, channel, enabled, config },
+      update: { enabled, config },
     });
 
     return {
       type: row.type as unknown as NotificationType,
       enabled: row.enabled,
-      toast,
+      toast: channel === NotificationChannel.IN_APP ? (config?.toast ?? true) : true,
     };
+  }
+
+  // Milestone 04d - one entry per SLACK/DISCORD/WEBHOOK, `configured`
+  // computed from row presence. Never returns the decrypted url - write-only
+  // field, same posture as a password input.
+  async getWebhooks(userId: string): Promise<NotificationWebhookListDto> {
+    const rows = await this.prisma.notificationWebhook.findMany({
+      where: { userId, channel: { in: WEBHOOK_CHANNELS } },
+      select: { channel: true },
+    });
+    const configuredChannels = new Set(rows.map((row) => row.channel));
+
+    const webhooks: NotificationWebhookDto[] = WEBHOOK_CHANNELS.map((channel) => ({
+      channel,
+      configured: configuredChannels.has(channel),
+    }));
+
+    return { webhooks };
+  }
+
+  // Rejects IN_APP at the service level (not just the DTO/route) - same
+  // service-level-enum-validation convention as updatePreference's
+  // NotificationType check above. Create-on-first-write (upsert), same
+  // posture as updatePreference - a user re-saving the same channel just
+  // replaces the stored ciphertext.
+  async upsertWebhook(
+    userId: string,
+    channel: NotificationChannel,
+    url: string,
+  ): Promise<NotificationWebhookDto> {
+    if (channel === NotificationChannel.IN_APP) {
+      throw new BadRequestException('IN_APP has no external destination to configure');
+    }
+
+    await this.prisma.notificationWebhook.upsert({
+      where: { userId_channel: { userId, channel } },
+      create: { userId, channel, url: encryptWebhookUrl(url) },
+      update: { url: encryptWebhookUrl(url) },
+    });
+
+    return { channel, configured: true };
+  }
+
+  async deleteWebhook(userId: string, channel: NotificationChannel): Promise<void> {
+    if (channel === NotificationChannel.IN_APP) {
+      throw new BadRequestException('IN_APP has no external destination to configure');
+    }
+
+    // Same "absence is a fine, ordinary end state" posture as every other
+    // delete in this codebase - not an error if there was nothing to
+    // delete (deleteMany, not delete, so a missing row never 404s).
+    await this.prisma.notificationWebhook.deleteMany({ where: { userId, channel } });
   }
 
   toDto(notification: Notification): NotificationDto {

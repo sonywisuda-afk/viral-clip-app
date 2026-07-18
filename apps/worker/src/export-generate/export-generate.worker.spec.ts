@@ -50,6 +50,12 @@ jest.mock('../notificationPublisher', () => ({
   publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
 }));
 
+// Milestone 04d - same reasoning as notificationPublisher above.
+const enqueueNotificationDeliveryMock = jest.fn();
+jest.mock('../notificationDeliveryEnqueuer', () => ({
+  enqueueNotificationDelivery: (...args: unknown[]) => enqueueNotificationDeliveryMock(...args),
+}));
+
 const buildVideoReportInputFromPrismaMock = jest.fn();
 jest.mock('./build-video-report-input', () => ({
   buildVideoReportInputFromPrisma: (...args: unknown[]) =>

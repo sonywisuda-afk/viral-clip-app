@@ -15,6 +15,7 @@ import {
 import { Worker, type Job } from 'bullmq';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { openai } from '../openai';
 import { prisma } from '../prisma';
@@ -197,7 +198,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
               videoId,
               VideoStatus.FAILED,
               { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification },
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
             );
             throw error;
           }

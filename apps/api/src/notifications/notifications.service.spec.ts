@@ -16,9 +16,15 @@ describe('NotificationsService', () => {
       findUnique: jest.Mock;
       upsert: jest.Mock;
     };
+    notificationWebhook: {
+      findMany: jest.Mock;
+      upsert: jest.Mock;
+      deleteMany: jest.Mock;
+    };
   };
 
   beforeEach(() => {
+    process.env.TOKEN_ENCRYPTION_KEY = 'a'.repeat(64);
     prisma = {
       notification: {
         findMany: jest.fn(),
@@ -29,6 +35,11 @@ describe('NotificationsService', () => {
         findMany: jest.fn(),
         findUnique: jest.fn(),
         upsert: jest.fn(),
+      },
+      notificationWebhook: {
+        findMany: jest.fn(),
+        upsert: jest.fn(),
+        deleteMany: jest.fn(),
       },
     };
     service = new NotificationsService(prisma as unknown as PrismaService);
@@ -203,6 +214,110 @@ describe('NotificationsService', () => {
         service.updatePreference('user-1', 'NOT_A_REAL_TYPE', { enabled: false }),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.notificationPreference.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('Milestone 04d - queries/upserts a non-IN_APP channel when given, config stays unused', async () => {
+      prisma.notificationPreference.findUnique.mockResolvedValue(null);
+      prisma.notificationPreference.upsert.mockResolvedValue({
+        type: 'CLIP_READY',
+        enabled: true,
+        config: undefined,
+      });
+
+      const result = await service.updatePreference('user-1', 'CLIP_READY', {
+        enabled: true,
+        channel: 'SLACK' as never,
+      });
+
+      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith({
+        where: { userId_type_channel: { userId: 'user-1', type: 'CLIP_READY', channel: 'SLACK' } },
+        create: {
+          userId: 'user-1',
+          type: 'CLIP_READY',
+          channel: 'SLACK',
+          enabled: true,
+          config: undefined,
+        },
+        update: { enabled: true, config: undefined },
+      });
+      // toast is always true for non-IN_APP channels - meaningless outside
+      // IN_APP, never persisted.
+      expect(result.toast).toBe(true);
+    });
+  });
+
+  describe('getWebhooks (Milestone 04d)', () => {
+    it('returns configured: true only for channels with a saved destination', async () => {
+      prisma.notificationWebhook.findMany.mockResolvedValue([{ channel: 'SLACK' }]);
+
+      const result = await service.getWebhooks('user-1');
+
+      expect(prisma.notificationWebhook.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', channel: { in: ['SLACK', 'DISCORD', 'WEBHOOK'] } },
+        select: { channel: true },
+      });
+      expect(result.webhooks).toEqual([
+        { channel: 'SLACK', configured: true },
+        { channel: 'DISCORD', configured: false },
+        { channel: 'WEBHOOK', configured: false },
+      ]);
+    });
+
+    it('never returns the decrypted (or even encrypted) url', async () => {
+      prisma.notificationWebhook.findMany.mockResolvedValue([{ channel: 'SLACK' }]);
+
+      const result = await service.getWebhooks('user-1');
+
+      expect(JSON.stringify(result)).not.toContain('url');
+    });
+  });
+
+  describe('upsertWebhook (Milestone 04d)', () => {
+    it('encrypts the url before storing it and returns configured: true', async () => {
+      prisma.notificationWebhook.upsert.mockResolvedValue({});
+
+      const result = await service.upsertWebhook(
+        'user-1',
+        'SLACK' as never,
+        'https://hooks.slack.com/services/x',
+      );
+
+      expect(prisma.notificationWebhook.upsert).toHaveBeenCalledWith({
+        where: { userId_channel: { userId: 'user-1', channel: 'SLACK' } },
+        create: {
+          userId: 'user-1',
+          channel: 'SLACK',
+          url: expect.stringMatching(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/),
+        },
+        update: { url: expect.stringMatching(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/) },
+      });
+      expect(result).toEqual({ channel: 'SLACK', configured: true });
+    });
+
+    it('rejects IN_APP with BadRequestException', async () => {
+      await expect(
+        service.upsertWebhook('user-1', 'IN_APP' as never, 'https://example.com/hook'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.notificationWebhook.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteWebhook (Milestone 04d)', () => {
+    it('deletes by (userId, channel), never throwing if nothing existed', async () => {
+      prisma.notificationWebhook.deleteMany.mockResolvedValue({ count: 0 });
+
+      await service.deleteWebhook('user-1', 'DISCORD' as never);
+
+      expect(prisma.notificationWebhook.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', channel: 'DISCORD' },
+      });
+    });
+
+    it('rejects IN_APP with BadRequestException', async () => {
+      await expect(service.deleteWebhook('user-1', 'IN_APP' as never)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.notificationWebhook.deleteMany).not.toHaveBeenCalled();
     });
   });
 

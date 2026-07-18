@@ -11,6 +11,7 @@ import { uploadObject } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { transcribeQueue } from '../queues';
@@ -141,7 +142,7 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
               videoId,
               VideoStatus.FAILED,
               { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification },
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
             );
             throw error;
           } finally {

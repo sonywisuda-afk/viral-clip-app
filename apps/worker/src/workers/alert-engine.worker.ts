@@ -10,6 +10,7 @@ import { isOutOfPurchasedCredit, isStorageOverQuota, QueueName } from '@speedora
 import { getBucketUsage } from '@speedora/storage';
 import { Worker } from 'bullmq';
 import { forStage } from '../logger';
+import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { alertEngineQueue } from '../queues';
@@ -114,6 +115,7 @@ export function createAlertEngineWorker(): Worker {
     async () => {
       const { evaluated, notified } = await runAlertRules(prisma, ALERT_RULES, {
         publish: publishNotification,
+        enqueueDelivery: enqueueNotificationDelivery,
       });
       if (notified > 0) {
         logger.info('alert engine tick', { evaluated, notified });

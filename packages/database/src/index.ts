@@ -7,6 +7,7 @@ export * from './node-execution';
 export * from './activity';
 export * from './notification';
 export * from './alert-engine';
+export * from './webhook-encryption';
 export { PrismaPg };
 
 export function createPrismaClient(connectionString = process.env.DATABASE_URL) {

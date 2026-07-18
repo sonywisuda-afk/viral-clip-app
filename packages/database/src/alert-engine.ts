@@ -4,7 +4,11 @@ import {
   type PrismaClient,
   type UserRole,
 } from './generated/prisma/client';
-import { recordNotification, type PublishNotificationFn } from './notification';
+import {
+  recordNotification,
+  type EnqueueDeliveryFn,
+  type PublishNotificationFn,
+} from './notification';
 
 // Sprint 4C (Alert Engine) - one evaluated alert "instance". Both fan-out
 // shapes this milestone ships collapse to the same type: a system-wide
@@ -43,7 +47,7 @@ export interface AlertRule {
 export async function runAlertRules(
   prisma: PrismaClient,
   rules: AlertRule[],
-  deps: { publish?: PublishNotificationFn } = {},
+  deps: { publish?: PublishNotificationFn; enqueueDelivery?: EnqueueDeliveryFn } = {},
 ): Promise<{ evaluated: number; notified: number }> {
   let evaluated = 0;
   let notified = 0;

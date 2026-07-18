@@ -31,6 +31,11 @@ export enum QueueName {
   // evaluates every registered AlertRule; see
   // apps/worker/src/workers/alert-engine.worker.ts.
   ALERT_ENGINE = 'alert-engine',
+  // Milestone 04d - produced by recordNotification()'s deps.enqueueDelivery
+  // (apps/api's 2 direct call sites, apps/worker's 4), consumed by
+  // apps/worker/src/workers/notification-delivery.worker.ts. Same "apps/api
+  // is sole producer, apps/worker sole consumer" shape as EXPORT_GENERATE.
+  NOTIFICATION_DELIVERY = 'notification-delivery',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by
@@ -143,4 +148,20 @@ export interface ExportGenerateJobResult {
 export const PUBLISH_RETRY_OPTIONS = {
   attempts: 3,
   backoff: { type: 'exponential' as const, delay: 30_000 },
+};
+
+// Milestone 04d - notification-delivery enqueues by notificationId only, not
+// channel/payload details - the Notification row (already written by
+// recordNotification() before enqueueing) is the single source of truth,
+// same "id-only, DB row is truth" convention as PublishClipJobData/
+// ExportGenerateJobData above. Lighter/faster backoff than
+// PUBLISH_RETRY_OPTIONS - this is a best-effort nudge to a third-party chat
+// webhook, not a user-visible publish action.
+export interface NotificationDeliveryJobData {
+  notificationId: string;
+}
+
+export const NOTIFICATION_DELIVERY_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 10_000 },
 };

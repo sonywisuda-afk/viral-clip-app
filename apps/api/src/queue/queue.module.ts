@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
 import { QueueName } from '@speedora/shared';
+import { NotificationDeliveryProducer } from './notification-delivery.producer';
 
 function parseRedisConnection() {
   const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
@@ -39,6 +40,13 @@ const syncPublishStatsQueue = BullModule.registerQueue({ name: QueueName.SYNC_PU
 // same shape as importYoutubeQueue above, not the "registered read-only for
 // monitoring" case schedulePublishClipQueue/syncPublishStatsQueue are.
 const exportGenerateQueue = BullModule.registerQueue({ name: QueueName.EXPORT_GENERATE });
+// Milestone 04d - apps/api is sole producer (VideosService's 2
+// recordNotification() call sites, via NotificationDeliveryProducer below),
+// apps/worker's notification-delivery.worker.ts the sole consumer - same
+// shape as exportGenerateQueue above.
+const notificationDeliveryQueue = BullModule.registerQueue({
+  name: QueueName.NOTIFICATION_DELIVERY,
+});
 
 @Module({
   imports: [
@@ -57,7 +65,9 @@ const exportGenerateQueue = BullModule.registerQueue({ name: QueueName.EXPORT_GE
     schedulePublishClipQueue,
     syncPublishStatsQueue,
     exportGenerateQueue,
+    notificationDeliveryQueue,
   ],
+  providers: [NotificationDeliveryProducer],
   exports: [
     importYoutubeQueue,
     transcribeQueue,
@@ -67,6 +77,8 @@ const exportGenerateQueue = BullModule.registerQueue({ name: QueueName.EXPORT_GE
     schedulePublishClipQueue,
     syncPublishStatsQueue,
     exportGenerateQueue,
+    notificationDeliveryQueue,
+    NotificationDeliveryProducer,
   ],
 })
 export class QueueModule {}
