@@ -1,11 +1,24 @@
-import { Bell, CreditCard, Download, FileWarning, Film, HardDrive, UploadCloud } from 'lucide-react';
+import {
+  AtSign,
+  Bell,
+  CreditCard,
+  Download,
+  FileWarning,
+  Film,
+  HardDrive,
+  MessageSquare,
+  ShieldCheck,
+  UploadCloud,
+  UserPlus,
+} from 'lucide-react';
 import { NOTIFICATION_SEVERITY, NotificationType, type NotificationSeverity } from '@speedora/shared';
 
 // Notification Center Sprint 4A - the client-side half of the type registry
 // (icon needs lucide-react, so it can't live in packages/shared alongside
 // NOTIFICATION_SEVERITY). Sprint 4C (Alert Engine) extends both this map and
 // packages/shared's NOTIFICATION_SEVERITY with one entry per new type -
-// NotificationBell never needs a new switch/if branch for it.
+// NotificationBell never needs a new switch/if branch for it. Milestone 04f
+// added the 5 Collaboration-driven entries.
 export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   [NotificationType.UPLOAD_COMPLETE]: UploadCloud,
   [NotificationType.CLIP_READY]: Film,
@@ -13,6 +26,11 @@ export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   [NotificationType.RENDER_FAILED]: FileWarning,
   [NotificationType.STORAGE_WARNING]: HardDrive,
   [NotificationType.CREDIT_WARNING]: CreditCard,
+  [NotificationType.COMMENT]: MessageSquare,
+  [NotificationType.MENTION]: AtSign,
+  [NotificationType.REVIEW_REQUEST]: ShieldCheck,
+  [NotificationType.APPROVAL]: ShieldCheck,
+  [NotificationType.MEMBER_INVITATION_ACCEPTED]: UserPlus,
 };
 
 // Same 'good' | 'neutral' | 'bad' tone vocabulary as lib/export.ts's
@@ -39,4 +57,9 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.RENDER_FAILED]: 'Proses gagal',
   [NotificationType.STORAGE_WARNING]: 'Peringatan penyimpanan',
   [NotificationType.CREDIT_WARNING]: 'Kredit premium habis',
+  [NotificationType.COMMENT]: 'Komentar baru',
+  [NotificationType.MENTION]: 'Disebut dalam komentar',
+  [NotificationType.REVIEW_REQUEST]: 'Permintaan review',
+  [NotificationType.APPROVAL]: 'Keputusan review',
+  [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'Undangan diterima',
 };

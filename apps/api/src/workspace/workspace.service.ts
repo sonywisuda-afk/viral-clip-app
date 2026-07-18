@@ -3,10 +3,11 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PendingInviteStatus, WorkspaceRole } from '@speedora/database';
-import { recordActivityEvent, recordAuditLog } from '@speedora/database';
+import { recordActivityEvent, recordAuditLog, recordNotification } from '@speedora/database';
 import type {
   AuditLogEntryDto,
   AuditLogListDto,
@@ -17,6 +18,8 @@ import type {
 } from '@speedora/shared';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
+import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import { WorkspaceAccessService } from './workspace-access.service';
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, same order of
@@ -30,10 +33,14 @@ const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, same order of
 // git history) now that a real Workspace/Membership schema exists.
 @Injectable()
 export class WorkspaceService {
+  private readonly logger = new Logger(WorkspaceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: WorkspaceAccessService,
     private readonly mailService: MailService,
+    private readonly notificationPublisher: NotificationPublisherService,
+    private readonly notificationDeliveryProducer: NotificationDeliveryProducer,
   ) {}
 
   private async toDto(workspaceId: string, requesterId: string): Promise<WorkspaceDto> {
@@ -269,6 +276,29 @@ export class WorkspaceService {
       metadata: { email: invite.email, role: invite.role },
     }).catch(() => {});
 
+    // Milestone 04f - the last of the four originally "Collaboration-
+    // blocked" notification types (see NotificationType's own schema
+    // comment). Fires to the inviter, same best-effort/never-fail-the-
+    // primary-action posture as every other recordNotification call site.
+    if (invite.inviterId !== userId) {
+      await recordNotification(
+        this.prisma,
+        {
+          userId: invite.inviterId,
+          type: 'MEMBER_INVITATION_ACCEPTED',
+          title: 'Undangan diterima',
+          body: `${userEmail} bergabung ke workspace "${invite.workspace.name}"`,
+          metadata: { workspaceId: invite.workspaceId },
+        },
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      ).catch((error) =>
+        this.logger.warn(`failed to record MEMBER_INVITATION_ACCEPTED notification: ${error}`),
+      );
+    }
+
     return this.toDto(invite.workspaceId, userId);
   }
 
@@ -341,17 +371,15 @@ export class WorkspaceService {
     const page = hasMore ? entries.slice(0, limit) : entries;
 
     return {
-      entries: page.map(
-        (e): AuditLogEntryDto => ({
-          id: e.id,
-          action: e.action as unknown as AuditLogEntryDto['action'],
-          actorEmail: e.actor.email,
-          targetType: e.targetType,
-          targetId: e.targetId,
-          metadata: e.metadata as Record<string, unknown> | null,
-          createdAt: e.createdAt.toISOString(),
-        }),
-      ),
+      entries: page.map((e): AuditLogEntryDto => ({
+        id: e.id,
+        action: e.action as unknown as AuditLogEntryDto['action'],
+        actorEmail: e.actor.email,
+        targetType: e.targetType,
+        targetId: e.targetId,
+        metadata: e.metadata as Record<string, unknown> | null,
+        createdAt: e.createdAt.toISOString(),
+      })),
       nextCursor: hasMore ? page[page.length - 1].id : null,
     };
   }

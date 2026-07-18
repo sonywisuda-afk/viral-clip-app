@@ -6,7 +6,13 @@ import { ProjectService } from './project.service';
 describe('ProjectService', () => {
   let service: ProjectService;
   let prisma: {
-    project: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock; delete: jest.Mock };
+    project: {
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+      delete: jest.Mock;
+    };
     auditLogEntry: { create: jest.Mock };
   };
   let access: { assertMinRole: jest.Mock };

@@ -1269,9 +1269,9 @@ describe('VideosService', () => {
       });
       prisma.project.findUnique.mockResolvedValue({ id: 'project-1', workspaceId: 'other-ws' });
 
-      await expect(
-        service.move('video-1', 'user-1', { projectId: 'project-1' }),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.move('video-1', 'user-1', { projectId: 'project-1' })).rejects.toThrow(
+        BadRequestException,
+      );
       expect(prisma.video.update).not.toHaveBeenCalled();
     });
 

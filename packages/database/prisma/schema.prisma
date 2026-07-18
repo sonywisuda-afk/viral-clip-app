@@ -1006,9 +1006,10 @@ model ActivityEvent {
 // (Dashboard's Activity Timeline); Notification is "what was actually
 // delivered to a channel" and carries read-state (readAt), which
 // ActivityEvent has never needed. Grown incrementally per shipped
-// trigger/rule, same discipline as ActivityEventType/ExportType. The
-// Collaboration-blocked events (Review Request/Comment/Approval/Member
-// Invitation accepted) remain unscheduled.
+// trigger/rule, same discipline as ActivityEventType/ExportType. The four
+// originally-deferred "Collaboration-blocked" events (Review Request/
+// Comment/Approval/Member Invitation Accepted) all shipped across Sprint
+// 5C/5D and Milestone 04f - see each type's own comment below.
 enum NotificationType {
   UPLOAD_COMPLETE
   CLIP_READY
@@ -1035,6 +1036,11 @@ enum NotificationType {
   // whoever requested the review) - see ApprovalStatus below.
   REVIEW_REQUEST
   APPROVAL
+  // Milestone 04f - closes out the Notification Center roadmap's last
+  // deferred type. Fires to the inviter (PendingInvite.inviterId) when
+  // someone accepts their workspace invite - see
+  // WorkspaceService.acceptInvite.
+  MEMBER_INVITATION_ACCEPTED
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e

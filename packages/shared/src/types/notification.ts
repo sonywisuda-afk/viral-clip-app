@@ -12,6 +12,19 @@ export enum NotificationType {
   // types. See packages/database/src/alert-engine.ts.
   STORAGE_WARNING = 'STORAGE_WARNING',
   CREDIT_WARNING = 'CREDIT_WARNING',
+  // Milestone 04f - the four originally "Collaboration-blocked" types,
+  // unblocked once Sprint 5 shipped real Workspace/Comment/Approval
+  // primitives. These were already firing from apps/api (comments.service.ts,
+  // approvals.service.ts, workspace.service.ts each call recordNotification
+  // with a matching Prisma NotificationType value) before this enum caught
+  // up - the gap this closes is purely this shared-type/severity/icon/label
+  // registry, which apps/web's NotificationBell/NotificationPreferencesTab
+  // read from.
+  COMMENT = 'COMMENT',
+  MENTION = 'MENTION',
+  REVIEW_REQUEST = 'REVIEW_REQUEST',
+  APPROVAL = 'APPROVAL',
+  MEMBER_INVITATION_ACCEPTED = 'MEMBER_INVITATION_ACCEPTED',
 }
 
 // Mirrors NotificationChannel in packages/database's Prisma schema, same
@@ -51,6 +64,14 @@ export const NOTIFICATION_SEVERITY: Record<NotificationType, NotificationSeverit
   [NotificationType.RENDER_FAILED]: 'error',
   [NotificationType.STORAGE_WARNING]: 'warning',
   [NotificationType.CREDIT_WARNING]: 'warning',
+  // Milestone 04f - all 5 are positive/informational collaboration activity
+  // (someone engaged with your content), not a warning or failure state -
+  // same 'success' tone as the other event-driven types above.
+  [NotificationType.COMMENT]: 'success',
+  [NotificationType.MENTION]: 'success',
+  [NotificationType.REVIEW_REQUEST]: 'success',
+  [NotificationType.APPROVAL]: 'success',
+  [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'success',
 };
 
 export interface NotificationDto {

@@ -122,7 +122,10 @@ describe('ApprovalsService', () => {
     });
 
     it('does not notify when the requester is also the target (owner requesting their own video)', async () => {
-      workspaceAccess.assertVideoAccess.mockResolvedValue({ ...BASE_VIDEO, ownerId: 'requester-1' });
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
+        ...BASE_VIDEO,
+        ownerId: 'requester-1',
+      });
 
       await service.request('requester-1', 'video-1', {});
 
@@ -132,9 +135,9 @@ describe('ApprovalsService', () => {
     it('validates clipId belongs to the video', async () => {
       prisma.clip.findUnique.mockResolvedValue({ id: 'clip-1', videoId: 'other-video' });
 
-      await expect(
-        service.request('requester-1', 'video-1', { clipId: 'clip-1' }),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.request('requester-1', 'video-1', { clipId: 'clip-1' })).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('rejects a second active request for the same target', async () => {
@@ -217,9 +220,9 @@ describe('ApprovalsService', () => {
     it('throws NotFoundException for a missing approval', async () => {
       prisma.approval.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.decide('reviewer-1', 'missing', { status: 'APPROVED' }),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.decide('reviewer-1', 'missing', { status: 'APPROVED' })).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('does not notify when the reviewer is also the requester', async () => {

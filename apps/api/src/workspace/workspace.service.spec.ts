@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { MailService } from '../mail/mail.service';
+import type { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
+import type { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import type { WorkspaceAccessService } from './workspace-access.service';
 import { WorkspaceService } from './workspace.service';
 
@@ -17,13 +19,22 @@ describe('WorkspaceService', () => {
       upsert: jest.Mock;
       count: jest.Mock;
     };
-    pendingInvite: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
+    pendingInvite: {
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+    };
     auditLogEntry: { create: jest.Mock; findMany: jest.Mock };
     activityEvent: { create: jest.Mock };
+    notification: { create: jest.Mock };
+    notificationPreference: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
   let access: { assertMinRole: jest.Mock; getRole: jest.Mock };
   let mailService: { sendWorkspaceInviteEmail: jest.Mock };
+  let notificationPublisher: { publish: jest.Mock };
+  let notificationDeliveryProducer: { enqueue: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -49,6 +60,8 @@ describe('WorkspaceService', () => {
       },
       auditLogEntry: { create: jest.fn().mockResolvedValue({}), findMany: jest.fn() },
       activityEvent: { create: jest.fn().mockResolvedValue({}) },
+      notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(),
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
@@ -57,11 +70,15 @@ describe('WorkspaceService', () => {
       getRole: jest.fn().mockResolvedValue('OWNER'),
     };
     mailService = { sendWorkspaceInviteEmail: jest.fn().mockResolvedValue(undefined) };
+    notificationPublisher = { publish: jest.fn().mockResolvedValue(undefined) };
+    notificationDeliveryProducer = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     service = new WorkspaceService(
       prisma as unknown as PrismaService,
       access as unknown as WorkspaceAccessService,
       mailService as unknown as MailService,
+      notificationPublisher as unknown as NotificationPublisherService,
+      notificationDeliveryProducer as unknown as NotificationDeliveryProducer,
     );
   });
 
@@ -130,6 +147,7 @@ describe('WorkspaceService', () => {
   describe('acceptInvite', () => {
     const invite = {
       id: 'invite-1',
+      inviterId: 'admin-1',
       workspaceId: 'ws-1',
       email: 'friend@example.com',
       role: 'EDITOR',
@@ -162,6 +180,45 @@ describe('WorkspaceService', () => {
           targetId: 'invite-1',
         }),
       });
+    });
+
+    it('records a MEMBER_INVITATION_ACCEPTED notification for the inviter (Milestone 04f)', async () => {
+      prisma.pendingInvite.findUnique.mockResolvedValue(invite);
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+        id: 'ws-1',
+        name: 'Acme',
+        isPersonal: false,
+        createdAt: new Date(),
+      });
+
+      await service.acceptInvite('user-2', 'friend@example.com', 'raw-token');
+
+      expect(prisma.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'admin-1',
+          type: 'MEMBER_INVITATION_ACCEPTED',
+        }),
+      });
+      expect(notificationPublisher.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'admin-1', type: 'MEMBER_INVITATION_ACCEPTED' }),
+      );
+      expect(notificationDeliveryProducer.enqueue).toHaveBeenCalledWith({
+        notificationId: 'notif-1',
+      });
+    });
+
+    it('skips the notification when the inviter accepts their own invite', async () => {
+      prisma.pendingInvite.findUnique.mockResolvedValue({ ...invite, inviterId: 'user-2' });
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+        id: 'ws-1',
+        name: 'Acme',
+        isPersonal: false,
+        createdAt: new Date(),
+      });
+
+      await service.acceptInvite('user-2', 'friend@example.com', 'raw-token');
+
+      expect(prisma.notification.create).not.toHaveBeenCalled();
     });
 
     it('throws ForbiddenException when the accepting email does not match', async () => {

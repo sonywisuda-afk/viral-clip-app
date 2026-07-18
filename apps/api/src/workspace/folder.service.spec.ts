@@ -20,7 +20,9 @@ describe('FolderService', () => {
 
   beforeEach(() => {
     prisma = {
-      project: { findUnique: jest.fn().mockResolvedValue({ id: 'project-1', workspaceId: 'ws-1' }) },
+      project: {
+        findUnique: jest.fn().mockResolvedValue({ id: 'project-1', workspaceId: 'ws-1' }),
+      },
       folder: {
         create: jest.fn(),
         findMany: jest.fn(),
@@ -63,7 +65,10 @@ describe('FolderService', () => {
     });
 
     it('throws BadRequestException when parentId belongs to a different project', async () => {
-      prisma.folder.findUnique.mockResolvedValue({ id: 'other-folder', projectId: 'other-project' });
+      prisma.folder.findUnique.mockResolvedValue({
+        id: 'other-folder',
+        projectId: 'other-project',
+      });
 
       await expect(
         service.create('user-1', 'project-1', { name: 'Drafts', parentId: 'other-folder' }),
