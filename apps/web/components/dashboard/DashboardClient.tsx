@@ -22,6 +22,8 @@ import {
   clipStreamUrl,
   deleteClip,
   deleteVideo,
+  listCampaigns,
+  listRecurringSchedules,
   listSocialAccounts,
   listVideos,
   publishClip,
@@ -33,6 +35,7 @@ import {
 import { platformLabel } from '@/lib/platform-metadata';
 import { useAuth } from '@/lib/useAuth';
 import { cn } from '@/lib/utils';
+import { useWorkspaceStore } from '@/lib/workspaceStore';
 import { Nav } from '../Nav';
 import { ProcessingQueue } from './ProcessingQueue';
 import { QuickActions } from './QuickActions';
@@ -211,6 +214,32 @@ export function DashboardClient({
     recordId: string;
     message: string;
   } | null>(null);
+  // Phase 6 (Scheduling) - optional Campaign/RecurringSchedule associations
+  // on the existing publish flow (Platform -> Schedule -> Campaign optional
+  // -> Recurring optional, no separate wizard). Scoped to whichever
+  // workspace WorkspaceSwitcher currently has active - if a clip belongs to
+  // a different workspace than the one active in the switcher, the backend
+  // rejects the mismatch with a clear error surfaced through publishError,
+  // same as any other publish failure.
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<Record<string, string>>({});
+  const [selectedRecurringScheduleId, setSelectedRecurringScheduleId] = useState<
+    Record<string, string>
+  >({});
+  const { data: campaignsForPublish } = useSWR(
+    activeWorkspaceId ? ['campaigns-for-publish', activeWorkspaceId] : null,
+    () => listCampaigns(activeWorkspaceId as string),
+  );
+  const { data: schedulesForPublish } = useSWR(
+    activeWorkspaceId ? ['schedules-for-publish', activeWorkspaceId] : null,
+    () => listRecurringSchedules(activeWorkspaceId as string),
+  );
+  const publishableCampaigns = (campaignsForPublish?.campaigns ?? []).filter(
+    (c) => c.status !== 'CANCELLED' && c.status !== 'COMPLETED',
+  );
+  const publishableSchedules = (schedulesForPublish?.recurringSchedules ?? []).filter(
+    (s) => s.active,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -242,11 +271,15 @@ export function DashboardClient({
     );
   }
 
-  async function handlePublish(clipId: string, socialAccountId: string) {
+  async function handlePublish(
+    clipId: string,
+    socialAccountId: string,
+    campaignId?: string,
+  ) {
     setPublishError(null);
     setPublishingClipId(clipId);
     try {
-      const record = await publishClip(clipId, socialAccountId);
+      const record = await publishClip(clipId, socialAccountId, undefined, { campaignId });
       replaceClipPublishRecords(clipId, (records) => [...records, record]);
     } catch (err) {
       setPublishError({
@@ -258,16 +291,50 @@ export function DashboardClient({
     }
   }
 
-  async function handleSchedule(clipId: string, socialAccountId: string, localDateTime: string) {
+  async function handleSchedule(
+    clipId: string,
+    socialAccountId: string,
+    localDateTime: string,
+    campaignId?: string,
+  ) {
     setPublishError(null);
     setSchedulingClipId(clipId);
     try {
       const scheduledAt = new Date(localDateTime).toISOString();
-      const record = await publishClip(clipId, socialAccountId, scheduledAt);
+      const record = await publishClip(clipId, socialAccountId, scheduledAt, { campaignId });
       replaceClipPublishRecords(clipId, (records) => [...records, record]);
       setScheduleInput((prev) => ({ ...prev, [clipId]: '' }));
     } catch (err) {
       setPublishError({ clipId, message: err instanceof Error ? err.message : 'Jadwal gagal' });
+    } finally {
+      setSchedulingClipId(null);
+    }
+  }
+
+  // Phase 6 (Scheduling) - queues a clip against a RecurringSchedule's next
+  // open slot. The server computes scheduledAt itself (ignores any client
+  // value) and is authoritative on socialAccountId, so this never sends a
+  // scheduledAt - see ClipsService.publish().
+  async function handleQueueToSchedule(
+    clipId: string,
+    socialAccountId: string,
+    recurringScheduleId: string,
+    campaignId?: string,
+  ) {
+    setPublishError(null);
+    setSchedulingClipId(clipId);
+    try {
+      const record = await publishClip(clipId, socialAccountId, undefined, {
+        campaignId,
+        recurringScheduleId,
+      });
+      replaceClipPublishRecords(clipId, (records) => [...records, record]);
+      setSelectedRecurringScheduleId((prev) => ({ ...prev, [clipId]: '' }));
+    } catch (err) {
+      setPublishError({
+        clipId,
+        message: err instanceof Error ? err.message : 'Gagal menambahkan ke antrian',
+      });
     } finally {
       setSchedulingClipId(null);
     }
@@ -745,63 +812,154 @@ export function DashboardClient({
                                   const selectedAccount =
                                     accounts.find((a) => a.id === selectedId) ?? accounts[0];
                                   const scheduleValue = scheduleInput[clip.id] ?? '';
+                                  const campaignId = selectedCampaignId[clip.id] ?? '';
+                                  const recurringScheduleId =
+                                    selectedRecurringScheduleId[clip.id] ?? '';
                                   const busy =
                                     publishingClipId === clip.id || schedulingClipId === clip.id;
                                   return (
-                                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                                      {accounts.length > 1 && (
-                                        <select
-                                          value={selectedId}
-                                          onChange={(e) =>
-                                            setSelectedAccountId((prev) => ({
-                                              ...prev,
-                                              [clip.id]: e.target.value,
-                                            }))
-                                          }
-                                          className="h-8 rounded-md border border-input bg-slate-panel px-2 font-body text-xs text-foreground"
-                                        >
-                                          {accounts.map((account) => (
-                                            <option key={account.id} value={account.id}>
-                                              {platformLabel(account.platform)} —{' '}
-                                              {account.displayName}
-                                            </option>
-                                          ))}
-                                        </select>
+                                    <div className="mt-3 space-y-2">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {accounts.length > 1 && !recurringScheduleId && (
+                                          <select
+                                            value={selectedId}
+                                            onChange={(e) =>
+                                              setSelectedAccountId((prev) => ({
+                                                ...prev,
+                                                [clip.id]: e.target.value,
+                                              }))
+                                            }
+                                            className="h-8 rounded-md border border-input bg-slate-panel px-2 font-body text-xs text-foreground"
+                                          >
+                                            {accounts.map((account) => (
+                                              <option key={account.id} value={account.id}>
+                                                {platformLabel(account.platform)} —{' '}
+                                                {account.displayName}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )}
+                                        {recurringScheduleId ? (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            disabled={busy}
+                                            onClick={() =>
+                                              handleQueueToSchedule(
+                                                clip.id,
+                                                selectedId,
+                                                recurringScheduleId,
+                                                campaignId || undefined,
+                                              )
+                                            }
+                                          >
+                                            {schedulingClipId === clip.id
+                                              ? 'Menambahkan ke antrian...'
+                                              : 'Queue to Schedule'}
+                                          </Button>
+                                        ) : (
+                                          <>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={busy}
+                                              onClick={() =>
+                                                handlePublish(
+                                                  clip.id,
+                                                  selectedId,
+                                                  campaignId || undefined,
+                                                )
+                                              }
+                                            >
+                                              {publishingClipId === clip.id
+                                                ? 'Publishing...'
+                                                : `Publish ke ${platformLabel(selectedAccount.platform)}`}
+                                            </Button>
+                                            <input
+                                              type="datetime-local"
+                                              value={scheduleValue}
+                                              onChange={(e) =>
+                                                setScheduleInput((prev) => ({
+                                                  ...prev,
+                                                  [clip.id]: e.target.value,
+                                                }))
+                                              }
+                                              className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                                            />
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              disabled={busy || !scheduleValue}
+                                              onClick={() =>
+                                                scheduleValue &&
+                                                handleSchedule(
+                                                  clip.id,
+                                                  selectedId,
+                                                  scheduleValue,
+                                                  campaignId || undefined,
+                                                )
+                                              }
+                                            >
+                                              {schedulingClipId === clip.id
+                                                ? 'Menjadwalkan...'
+                                                : 'Jadwalkan'}
+                                            </Button>
+                                          </>
+                                        )}
+                                      </div>
+                                      {(publishableCampaigns.length > 0 ||
+                                        publishableSchedules.length > 0) && (
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          {publishableCampaigns.length > 0 && (
+                                            <select
+                                              value={campaignId}
+                                              onChange={(e) =>
+                                                setSelectedCampaignId((prev) => ({
+                                                  ...prev,
+                                                  [clip.id]: e.target.value,
+                                                }))
+                                              }
+                                              className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-muted-foreground"
+                                            >
+                                              <option value="">No campaign</option>
+                                              {publishableCampaigns.map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                  {c.name}
+                                                </option>
+                                              ))}
+                                            </select>
+                                          )}
+                                          {publishableSchedules.length > 0 && (
+                                            <select
+                                              value={recurringScheduleId}
+                                              onChange={(e) => {
+                                                const id = e.target.value;
+                                                setSelectedRecurringScheduleId((prev) => ({
+                                                  ...prev,
+                                                  [clip.id]: id,
+                                                }));
+                                                const schedule = publishableSchedules.find(
+                                                  (s) => s.id === id,
+                                                );
+                                                if (schedule) {
+                                                  setSelectedAccountId((prev) => ({
+                                                    ...prev,
+                                                    [clip.id]: schedule.socialAccountId,
+                                                  }));
+                                                }
+                                              }}
+                                              className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-muted-foreground"
+                                            >
+                                              <option value="">Publish now / schedule manually</option>
+                                              {publishableSchedules.map((s) => (
+                                                <option key={s.id} value={s.id}>
+                                                  {s.name} ({platformLabel(s.platform)})
+                                                </option>
+                                              ))}
+                                            </select>
+                                          )}
+                                        </div>
                                       )}
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={busy}
-                                        onClick={() => handlePublish(clip.id, selectedId)}
-                                      >
-                                        {publishingClipId === clip.id
-                                          ? 'Publishing...'
-                                          : `Publish ke ${platformLabel(selectedAccount.platform)}`}
-                                      </Button>
-                                      <input
-                                        type="datetime-local"
-                                        value={scheduleValue}
-                                        onChange={(e) =>
-                                          setScheduleInput((prev) => ({
-                                            ...prev,
-                                            [clip.id]: e.target.value,
-                                          }))
-                                        }
-                                        className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
-                                      />
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        disabled={busy || !scheduleValue}
-                                        onClick={() =>
-                                          scheduleValue &&
-                                          handleSchedule(clip.id, selectedId, scheduleValue)
-                                        }
-                                      >
-                                        {schedulingClipId === clip.id
-                                          ? 'Menjadwalkan...'
-                                          : 'Jadwalkan'}
-                                      </Button>
                                     </div>
                                   );
                                 })()}

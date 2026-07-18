@@ -7,6 +7,9 @@ import type {
   ApprovalListDto,
   AuditLogListDto,
   BrandKitDto,
+  CampaignDetailDto,
+  CampaignDto,
+  CampaignListDto,
   Clip,
   ClipExplainabilityDto,
   ClipVersionListDto,
@@ -38,6 +41,8 @@ import type {
   PremiumCheckoutResult,
   PremiumCreditAvailability,
   PublishRecord,
+  RecurringScheduleDto,
+  RecurringScheduleListDto,
   SearchResultsDto,
   ShareLinkCreatedDto,
   ShareLinkListDto,
@@ -390,15 +395,26 @@ export async function disconnectSocialAccount(id: string): Promise<void> {
 // PublishRecord immediately (status QUEUED, or SCHEDULED if scheduledAt was
 // given); the caller polls getVideo()/listVideos() same as render/
 // transcribe status to see it move through PUBLISHING/PUBLISHED/FAILED.
+// Phase 6 (Scheduling) - options carries the two optional associations added
+// to PublishClipDto: campaignId (just stamped onto the record) and
+// recurringScheduleId (server computes scheduledAt from the schedule's next
+// open slot and ignores any client-supplied scheduledAt - see
+// ClipsService.publish()).
 export async function publishClip(
   clipId: string,
   socialAccountId: string,
   scheduledAt?: string,
+  options?: { campaignId?: string; recurringScheduleId?: string },
 ): Promise<PublishRecord> {
   const res = await apiFetch(`/clips/${clipId}/publish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ socialAccountId, scheduledAt }),
+    body: JSON.stringify({
+      socialAccountId,
+      scheduledAt,
+      campaignId: options?.campaignId,
+      recurringScheduleId: options?.recurringScheduleId,
+    }),
   });
   return parseJsonOrThrow<PublishRecord>(res);
 }
@@ -422,6 +438,110 @@ export async function reschedulePublish(
     body: JSON.stringify({ scheduledAt }),
   });
   return parseJsonOrThrow<PublishRecord>(res);
+}
+
+// Phase 6 (Scheduling) - Campaign CRUD. Status/clipCount/platformCount/
+// progress are all server-derived (see CampaignsService), never sent by
+// the client.
+export async function listCampaigns(workspaceId: string): Promise<CampaignListDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/campaigns`);
+  return parseJsonOrThrow<CampaignListDto>(res);
+}
+
+export async function getCampaign(id: string): Promise<CampaignDetailDto> {
+  const res = await apiFetch(`/campaigns/${id}`);
+  return parseJsonOrThrow<CampaignDetailDto>(res);
+}
+
+export async function createCampaign(
+  workspaceId: string,
+  input: { name: string; description?: string; tag?: string; startDate: string; endDate: string },
+): Promise<CampaignDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/campaigns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<CampaignDto>(res);
+}
+
+export async function updateCampaign(
+  id: string,
+  input: Partial<{
+    name: string;
+    description: string;
+    tag: string;
+    startDate: string;
+    endDate: string;
+  }>,
+): Promise<CampaignDto> {
+  const res = await apiFetch(`/campaigns/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<CampaignDto>(res);
+}
+
+export async function cancelCampaign(id: string): Promise<CampaignDto> {
+  const res = await apiFetch(`/campaigns/${id}/cancel`, { method: 'POST' });
+  return parseJsonOrThrow<CampaignDto>(res);
+}
+
+// Phase 6 (Scheduling) - RecurringSchedule CRUD. `platform`/`socialAccountId`
+// aren't editable after creation (see UpdateRecurringScheduleDto) - delete
+// and recreate instead.
+export async function listRecurringSchedules(
+  workspaceId: string,
+): Promise<RecurringScheduleListDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/recurring-schedules`);
+  return parseJsonOrThrow<RecurringScheduleListDto>(res);
+}
+
+export async function getRecurringSchedule(id: string): Promise<RecurringScheduleDto> {
+  const res = await apiFetch(`/recurring-schedules/${id}`);
+  return parseJsonOrThrow<RecurringScheduleDto>(res);
+}
+
+export async function createRecurringSchedule(
+  workspaceId: string,
+  input: {
+    name: string;
+    platform: SocialPlatform;
+    socialAccountId: string;
+    timezone: string;
+    daysOfWeek: number[];
+    timeOfDay: string;
+  },
+): Promise<RecurringScheduleDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/recurring-schedules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<RecurringScheduleDto>(res);
+}
+
+export async function updateRecurringSchedule(
+  id: string,
+  input: Partial<{
+    name: string;
+    timezone: string;
+    daysOfWeek: number[];
+    timeOfDay: string;
+    active: boolean;
+  }>,
+): Promise<RecurringScheduleDto> {
+  const res = await apiFetch(`/recurring-schedules/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<RecurringScheduleDto>(res);
+}
+
+export async function deleteRecurringSchedule(id: string): Promise<void> {
+  await apiFetch(`/recurring-schedules/${id}`, { method: 'DELETE' });
 }
 
 // Not fetched - used directly as an <a href> so the browser does a real
