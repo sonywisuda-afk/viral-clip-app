@@ -1,4 +1,4 @@
-import { SocialPlatform, VideoStatus } from '@speedora/shared';
+import { PLATFORM_METADATA, SocialPlatform, VideoStatus } from '@speedora/shared';
 
 // Milestone 5A (Analytics Dashboard - Overview) - pure, no-JSX display
 // helpers, same "keep component logic testable without a component-testing
@@ -12,11 +12,15 @@ export function toBarPercent(count: number, max: number): number {
   return Math.round(Math.min(1, Math.max(0, count / max)) * 100);
 }
 
-export const PLATFORM_LABELS: Record<SocialPlatform, string> = {
-  [SocialPlatform.YOUTUBE]: 'YouTube',
-  [SocialPlatform.TIKTOK]: 'TikTok',
-  [SocialPlatform.INSTAGRAM]: 'Instagram',
-};
+// Multi-Platform Publishing Expansion, Phase 0 - derived from
+// @speedora/shared's PLATFORM_METADATA (the single source of truth) rather
+// than an independently hand-copied map, same as social/page.tsx and
+// DashboardClient.tsx now reading lib/platform-metadata.ts directly. Kept
+// as its own export here (not just re-exported) since PlatformComparisonTable/
+// PlatformBreakdown/TopClipsTable already import this exact name.
+export const PLATFORM_LABELS: Record<SocialPlatform, string> = Object.fromEntries(
+  Object.entries(PLATFORM_METADATA).map(([platform, meta]) => [platform, meta.label]),
+) as Record<SocialPlatform, string>;
 
 export interface StatusBadge {
   label: string;

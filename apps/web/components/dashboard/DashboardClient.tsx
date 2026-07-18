@@ -30,6 +30,7 @@ import {
   type UserDto,
   type VideoWithClipsDto,
 } from '@/lib/api';
+import { platformLabel } from '@/lib/platform-metadata';
 import { useAuth } from '@/lib/useAuth';
 import { cn } from '@/lib/utils';
 import { Nav } from '../Nav';
@@ -44,12 +45,6 @@ import { SearchBar } from './SearchBar';
 // "Load More" are appended locally and never repolled.
 const DEFAULT_LIMIT = 20;
 const POLL_INTERVAL_MS = 2000;
-
-const PLATFORM_LABELS: Record<string, string> = {
-  YOUTUBE: 'YouTube',
-  TIKTOK: 'TikTok',
-  INSTAGRAM: 'Instagram',
-};
 
 const PUBLISH_STATUS_LABELS: Record<PublishStatus, string> = {
   [PublishStatus.SCHEDULED]: 'Terjadwal',
@@ -737,9 +732,8 @@ export function DashboardClient({
                                         >
                                           {accounts.map((account) => (
                                             <option key={account.id} value={account.id}>
-                                              {PLATFORM_LABELS[account.platform] ??
-                                                account.platform}{' '}
-                                              — {account.displayName}
+                                              {platformLabel(account.platform)} —{' '}
+                                              {account.displayName}
                                             </option>
                                           ))}
                                         </select>
@@ -752,10 +746,7 @@ export function DashboardClient({
                                       >
                                         {publishingClipId === clip.id
                                           ? 'Publishing...'
-                                          : `Publish ke ${
-                                              PLATFORM_LABELS[selectedAccount.platform] ??
-                                              selectedAccount.platform
-                                            }`}
+                                          : `Publish ke ${platformLabel(selectedAccount.platform)}`}
                                       </Button>
                                       <input
                                         type="datetime-local"
@@ -800,8 +791,7 @@ export function DashboardClient({
                                         <div className="space-y-1.5">
                                           <div className="flex flex-wrap items-center gap-2">
                                             <span>
-                                              {PLATFORM_LABELS[record.platform] ?? record.platform}:
-                                              Dijadwalkan untuk{' '}
+                                              {platformLabel(record.platform)}: Dijadwalkan untuk{' '}
                                               <span className="font-mono">
                                                 {record.scheduledAt
                                                   ? new Date(record.scheduledAt).toLocaleString()
@@ -866,7 +856,7 @@ export function DashboardClient({
                                         </div>
                                       ) : (
                                         <>
-                                          {PLATFORM_LABELS[record.platform] ?? record.platform}:{' '}
+                                          {platformLabel(record.platform)}:{' '}
                                           {record.status === PublishStatus.PUBLISHED &&
                                           record.platform === 'YOUTUBE' &&
                                           record.platformPostId ? (

@@ -1,6 +1,12 @@
 import { JwtModule } from '@nestjs/jwt';
 import { Module } from '@nestjs/common';
-import { InstagramOAuthClient, TikTokOAuthClient, YouTubeOAuthClient } from '@speedora/social';
+import {
+  FacebookOAuthClient,
+  InstagramOAuthClient,
+  ThreadsOAuthClient,
+  TikTokOAuthClient,
+  YouTubeOAuthClient,
+} from '@speedora/social';
 import { SocialController } from './social.controller';
 import { SocialAccountsService } from './social.service';
 
@@ -18,7 +24,14 @@ import { SocialAccountsService } from './social.service';
     }),
   ],
   controllers: [SocialController],
-  providers: [SocialAccountsService, YouTubeOAuthClient, TikTokOAuthClient, InstagramOAuthClient],
+  providers: [
+    SocialAccountsService,
+    YouTubeOAuthClient,
+    TikTokOAuthClient,
+    InstagramOAuthClient,
+    FacebookOAuthClient,
+    ThreadsOAuthClient,
+  ],
   // ClipsModule (Fase 6b) needs SocialAccountsService.findOwnedOrThrow() to
   // validate the target account before enqueueing a publish-clip job.
   exports: [SocialAccountsService],

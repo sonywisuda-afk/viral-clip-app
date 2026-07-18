@@ -1,11 +1,36 @@
 // Mirrors SocialPlatform in packages/database's Prisma schema. YOUTUBE
-// (Fase 6a), TIKTOK (Fase 6d), INSTAGRAM (Fase 6d follow-up) - see
-// CLAUDE.md's "Publish Center" section.
+// (Fase 6a), TIKTOK (Fase 6d), INSTAGRAM (Fase 6d follow-up), FACEBOOK/
+// THREADS (Multi-Platform Publishing Expansion, Phase 1) - see CLAUDE.md's
+// "Publish Center" section.
 export enum SocialPlatform {
   YOUTUBE = 'YOUTUBE',
   TIKTOK = 'TIKTOK',
   INSTAGRAM = 'INSTAGRAM',
+  FACEBOOK = 'FACEBOOK',
+  THREADS = 'THREADS',
 }
+
+// Multi-Platform Publishing Expansion, Phase 0 - the single source of truth
+// for platform display metadata, replacing what used to be 3 independently
+// hand-copied `PLATFORM_LABELS` maps in apps/web (social/page.tsx,
+// DashboardClient.tsx, lib/analytics.ts) with zero icon/color info anywhere.
+// `iconKey` is a plain string, not a component - this package has no
+// React/lucide-react dependency, so apps/web's lib/platform-metadata.ts maps
+// the key to an actual icon. Adding a platform (Phase 1+) means adding one
+// enum member here + one entry here, nothing else on the frontend.
+export interface PlatformMetadata {
+  label: string;
+  iconKey: string;
+  colorHex: string;
+}
+
+export const PLATFORM_METADATA: Record<SocialPlatform, PlatformMetadata> = {
+  [SocialPlatform.YOUTUBE]: { label: 'YouTube', iconKey: 'youtube', colorHex: '#FF0000' },
+  [SocialPlatform.TIKTOK]: { label: 'TikTok', iconKey: 'tiktok', colorHex: '#000000' },
+  [SocialPlatform.INSTAGRAM]: { label: 'Instagram', iconKey: 'instagram', colorHex: '#E1306C' },
+  [SocialPlatform.FACEBOOK]: { label: 'Facebook Reels', iconKey: 'facebook', colorHex: '#1877F2' },
+  [SocialPlatform.THREADS]: { label: 'Threads', iconKey: 'threads', colorHex: '#000000' },
+};
 
 // API/UI-facing DTO for a connected account - deliberately never includes
 // accessToken/refreshToken (see apps/api/src/social/social.service.ts's

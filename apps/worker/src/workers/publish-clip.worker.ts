@@ -1,63 +1,14 @@
 import * as Sentry from '@sentry/node';
-import { PublishStatus, SocialPlatform } from '@speedora/database';
+import { PublishStatus } from '@speedora/database';
 import { QueueName, type PublishClipJobData, type PublishClipJobResult } from '@speedora/shared';
-import {
-  resolveAccessToken,
-  InstagramOAuthClient,
-  TikTokOAuthClient,
-  uploadInstagramReel,
-  uploadTikTokVideo,
-  uploadYouTubeVideo,
-  YouTubeOAuthClient,
-  type OAuthRefreshClient,
-} from '@speedora/social';
-import { getObjectStream, getPresignedDownloadUrl } from '@speedora/storage';
+import { resolveAccessToken } from '@speedora/social';
 import { Worker, type Job } from 'bullmq';
 import { forStage } from '../logger';
 import { prisma } from '../prisma';
+import { platformRegistry } from '../publish/platform-registry';
 import { createRedisConnection } from '../redis';
 
 const logger = forStage('publish-clip');
-
-// No constructor deps for any of the three clients (all read their
-// credentials from process.env directly, same as apps/api's instances) -
-// one shared instance of each is enough, same pattern as apps/api's
-// SocialModule providing a single instance per platform.
-const youtubeOAuth = new YouTubeOAuthClient();
-const tiktokOAuth = new TikTokOAuthClient();
-const instagramOAuth = new InstagramOAuthClient();
-
-// How long the presigned URL handed to Meta's servers (Instagram Reels
-// only - see CLAUDE.md's Fase 6d "Instagram" section) stays valid. Meta
-// fetches the video shortly after the container-create call returns, so
-// this just needs comfortable margin over that, not over the container's
-// own (separately polled, up to 5 minutes) processing time.
-const INSTAGRAM_PRESIGNED_URL_TTL_SECONDS = 15 * 60;
-
-function oauthClientFor(platform: SocialPlatform): OAuthRefreshClient {
-  switch (platform) {
-    case SocialPlatform.YOUTUBE:
-      return youtubeOAuth;
-    case SocialPlatform.TIKTOK:
-      return tiktokOAuth;
-    case SocialPlatform.INSTAGRAM:
-      return instagramOAuth;
-  }
-}
-
-function buildDescription(hashtags: string[]): string {
-  return hashtags.map((tag) => `#${tag}`).join(' ');
-}
-
-// Instagram Reels only has a single caption field (no separate title), so
-// hookText and hashtags are combined here rather than split like YouTube's
-// title/description.
-function buildCaption(hookText: string | null, hashtags: string[]): string {
-  const hashtagLine = buildDescription(hashtags);
-  return [hookText, hashtagLine || null]
-    .filter((part): part is string => Boolean(part))
-    .join('\n\n');
-}
 
 export function createPublishClipWorker(): Worker<PublishClipJobData, PublishClipJobResult> {
   return new Worker<PublishClipJobData, PublishClipJobResult>(
@@ -107,7 +58,8 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
         }
 
         const platform = record.socialAccount.platform;
-        const resolved = await resolveAccessToken(record.socialAccount, oauthClientFor(platform));
+        const adapter = platformRegistry[platform];
+        const resolved = await resolveAccessToken(record.socialAccount, adapter.oauth);
         if (resolved.refreshed && resolved.updated) {
           // Best-effort cache write, not required for THIS attempt to
           // succeed - resolved.accessToken below is already the real,
@@ -134,57 +86,11 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
           }
         }
 
-        let platformPostId: string;
-        let logDetail: string;
-        if (platform === SocialPlatform.TIKTOK) {
-          // Upload to Inbox (draft) - see CLAUDE.md's Fase 6d section for
-          // why. publish_id just acknowledges TikTok received the video
-          // into the user's inbox, it isn't a public content id/URL - the
-          // user still has to open the TikTok app and finish posting
-          // themselves. There's no title/caption field to set here either
-          // (only Direct Post's API accepts one); hookText/hashtags are
-          // simply unused for a TikTok publish.
-          const videoStream = await getObjectStream(record.clip.outputUrl);
-          const upload = await uploadTikTokVideo({
-            accessToken: resolved.accessToken,
-            videoStream,
-          });
-          platformPostId = upload.publishId;
-          logDetail = `sent to TikTok inbox, publish_id ${upload.publishId}`;
-        } else if (platform === SocialPlatform.INSTAGRAM) {
-          // Instagram's Content Publishing API has no direct byte-upload
-          // option - it fetches the video itself from a public HTTPS URL
-          // (see CLAUDE.md's Fase 6d "Instagram" section), so a short-lived
-          // presigned URL is generated instead of opening a stream here.
-          const videoUrl = await getPresignedDownloadUrl(
-            record.clip.outputUrl,
-            INSTAGRAM_PRESIGNED_URL_TTL_SECONDS,
-          );
-          const upload = await uploadInstagramReel({
-            accessToken: resolved.accessToken,
-            igUserId: record.socialAccount.platformAccountId,
-            videoUrl,
-            caption: buildCaption(record.clip.hookText, record.clip.hashtags),
-          });
-          platformPostId = upload.mediaId;
-          logDetail = `published as Instagram Reel, media id ${upload.mediaId}`;
-        } else {
-          const videoStream = await getObjectStream(record.clip.outputUrl);
-          const upload = await uploadYouTubeVideo({
-            accessToken: resolved.accessToken,
-            title: record.clip.hookText || `Clip ${record.clip.id}`,
-            description: buildDescription(record.clip.hashtags),
-            videoStream,
-            // Fase 6b default (see CLAUDE.md) - "publish now" uploads a
-            // real video to the user's channel, and unlisted avoids a
-            // mis-picked clip going live publicly with no safety net,
-            // while still being an actual publish (unlike private, which
-            // would defeat the point).
-            privacyStatus: 'unlisted',
-          });
-          platformPostId = upload.videoId;
-          logDetail = upload.url;
-        }
+        const { platformPostId, logDetail } = await adapter.publish({
+          record,
+          outputUrl: record.clip.outputUrl,
+          accessToken: resolved.accessToken,
+        });
 
         await prisma.publishRecord.update({
           where: { id: publishRecordId },

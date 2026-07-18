@@ -1,26 +1,15 @@
 'use client';
 
-import type { SocialAccount } from '@speedora/shared';
+import { SocialPlatform, type SocialAccount } from '@speedora/shared';
 import { Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import {
-  connectInstagramUrl,
-  connectTikTokUrl,
-  connectYouTubeUrl,
-  disconnectSocialAccount,
-  listSocialAccounts,
-} from '../../lib/api';
+import { connectPlatformUrl, disconnectSocialAccount, listSocialAccounts } from '../../lib/api';
+import { platformIcon, platformLabel } from '../../lib/platform-metadata';
 import { useAuth } from '../../lib/useAuth';
-
-const PLATFORM_LABELS: Record<string, string> = {
-  YOUTUBE: 'YouTube',
-  TIKTOK: 'TikTok',
-  INSTAGRAM: 'Instagram',
-};
 
 // Read directly off window.location rather than next/navigation's
 // useSearchParams() - that hook requires wrapping the page in a Suspense
@@ -98,9 +87,7 @@ export default function SocialMediaPage() {
 
             {redirectNotice.connected && (
               <p className="mt-4 font-body text-sm text-signal-cyan">
-                {PLATFORM_LABELS[redirectNotice.connected.toUpperCase()] ??
-                  redirectNotice.connected}{' '}
-                berhasil terhubung.
+                {platformLabel(redirectNotice.connected.toUpperCase())} berhasil terhubung.
               </p>
             )}
             {redirectNotice.error && (
@@ -111,15 +98,17 @@ export default function SocialMediaPage() {
             {loadError && <p className="mt-4 font-body text-sm text-destructive">{loadError}</p>}
 
             <div className="mt-6 flex flex-wrap gap-3">
-              <Button variant="outline" asChild>
-                <a href={connectYouTubeUrl()}>Hubungkan YouTube</a>
-              </Button>
-              <Button variant="outline" asChild>
-                <a href={connectTikTokUrl()}>Hubungkan TikTok</a>
-              </Button>
-              <Button variant="outline" asChild>
-                <a href={connectInstagramUrl()}>Hubungkan Instagram</a>
-              </Button>
+              {Object.values(SocialPlatform).map((platform) => {
+                const Icon = platformIcon(platform);
+                return (
+                  <Button key={platform} variant="outline" asChild>
+                    <a href={connectPlatformUrl(platform)} className="gap-1.5">
+                      <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                      Hubungkan {platformLabel(platform)}
+                    </a>
+                  </Button>
+                );
+              })}
             </div>
 
             {accounts === null ? null : accounts.length === 0 ? (
@@ -136,8 +125,7 @@ export default function SocialMediaPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <p className="font-body text-sm font-medium text-foreground">
-                          {PLATFORM_LABELS[account.platform] ?? account.platform} —{' '}
-                          {account.displayName}
+                          {platformLabel(account.platform)} — {account.displayName}
                         </p>
                         <Badge variant="secondary">Terhubung</Badge>
                       </div>

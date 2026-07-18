@@ -13,17 +13,25 @@ const resolveAccessTokenMock = jest.fn();
 const uploadYouTubeVideoMock = jest.fn();
 const uploadTikTokVideoMock = jest.fn();
 const uploadInstagramReelMock = jest.fn();
+const uploadFacebookReelMock = jest.fn();
+const uploadThreadsVideoMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeTikTokOAuthClient {}
 class FakeInstagramOAuthClient {}
+class FakeFacebookOAuthClient {}
+class FakeThreadsOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   uploadYouTubeVideo: (...args: unknown[]) => uploadYouTubeVideoMock(...args),
   uploadTikTokVideo: (...args: unknown[]) => uploadTikTokVideoMock(...args),
   uploadInstagramReel: (...args: unknown[]) => uploadInstagramReelMock(...args),
+  uploadFacebookReel: (...args: unknown[]) => uploadFacebookReelMock(...args),
+  uploadThreadsVideo: (...args: unknown[]) => uploadThreadsVideoMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
+  FacebookOAuthClient: FakeFacebookOAuthClient,
+  ThreadsOAuthClient: FakeThreadsOAuthClient,
 }));
 
 const getObjectStreamMock = jest.fn();

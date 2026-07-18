@@ -1,4 +1,4 @@
-import { GRAPH_BASE_URL } from './instagram-graph';
+import { GRAPH_BASE_URL } from './meta-graph';
 
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;

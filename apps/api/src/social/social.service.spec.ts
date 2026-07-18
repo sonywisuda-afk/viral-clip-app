@@ -4,7 +4,9 @@ import { SocialPlatform } from '@speedora/database';
 import {
   decryptToken,
   encryptToken,
+  type FacebookOAuthClient,
   type InstagramOAuthClient,
+  type ThreadsOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
 } from '@speedora/social';
@@ -26,6 +28,8 @@ describe('SocialAccountsService', () => {
   let youtube: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
   let tiktok: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
   let instagram: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
+  let facebook: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
+  let threads: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
 
   beforeEach(() => {
     process.env = { ...originalEnv, TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('hex') };
@@ -41,11 +45,15 @@ describe('SocialAccountsService', () => {
     youtube = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     tiktok = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     instagram = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
+    facebook = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
+    threads = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     service = new SocialAccountsService(
       prisma as unknown as PrismaService,
       youtube as unknown as YouTubeOAuthClient,
       tiktok as unknown as TikTokOAuthClient,
       instagram as unknown as InstagramOAuthClient,
+      facebook as unknown as FacebookOAuthClient,
+      threads as unknown as ThreadsOAuthClient,
     );
   });
 
@@ -362,6 +370,75 @@ describe('SocialAccountsService', () => {
       expect(call.create.displayName).toBe('my_reels');
       expect(result.id).toBe('acc-1');
       expect(result.displayName).toBe('my_reels');
+    });
+  });
+
+  describe('connectFacebook', () => {
+    it('upserts on (userId, platform, pageId), storing the Page token as accessToken and the long-lived user token as refreshToken', async () => {
+      prisma.socialAccount.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({
+          id: 'acc-1',
+          ...create,
+          tokenExpiresAt: create.tokenExpiresAt,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      );
+
+      const result = await service.connectFacebook(
+        'user-1',
+        {
+          accessToken: 'plain-long-lived-user-token',
+          expiresAt: new Date('2026-03-01T00:00:00.000Z'),
+        },
+        { pageId: 'page-1', pageName: 'My Page', pageAccessToken: 'plain-page-token' },
+      );
+
+      const call = prisma.socialAccount.upsert.mock.calls[0][0];
+      expect(call.where).toEqual({
+        userId_platform_platformAccountId: {
+          userId: 'user-1',
+          platform: SocialPlatform.FACEBOOK,
+          platformAccountId: 'page-1',
+        },
+      });
+      expect(decryptToken(call.create.accessToken)).toBe('plain-page-token');
+      expect(decryptToken(call.create.refreshToken)).toBe('plain-long-lived-user-token');
+      expect(call.create.displayName).toBe('My Page');
+      expect(result.id).toBe('acc-1');
+      expect(result.displayName).toBe('My Page');
+    });
+  });
+
+  describe('connectThreads', () => {
+    it('upserts on (userId, platform, threadsUserId), storing the same long-lived token as both accessToken and refreshToken', async () => {
+      prisma.socialAccount.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({
+          id: 'acc-1',
+          ...create,
+          tokenExpiresAt: create.tokenExpiresAt,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      );
+
+      const result = await service.connectThreads(
+        'user-1',
+        { accessToken: 'plain-long-lived-token', expiresAt: new Date('2026-03-01T00:00:00.000Z') },
+        { threadsUserId: 'threads-user-1', username: 'my_threads' },
+      );
+
+      const call = prisma.socialAccount.upsert.mock.calls[0][0];
+      expect(call.where).toEqual({
+        userId_platform_platformAccountId: {
+          userId: 'user-1',
+          platform: SocialPlatform.THREADS,
+          platformAccountId: 'threads-user-1',
+        },
+      });
+      expect(decryptToken(call.create.accessToken)).toBe('plain-long-lived-token');
+      expect(decryptToken(call.create.refreshToken)).toBe('plain-long-lived-token');
+      expect(call.create.displayName).toBe('my_threads');
+      expect(result.id).toBe('acc-1');
+      expect(result.displayName).toBe('my_threads');
     });
   });
 });

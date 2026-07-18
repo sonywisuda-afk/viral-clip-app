@@ -91,11 +91,15 @@ model PremiumCredit {
 // Mirrors SocialPlatform in packages/shared/src/types/social.ts. YOUTUBE
 // (Fase 6a) picked first for lowest-friction OAuth; TIKTOK (Fase 6d) added
 // second; INSTAGRAM added third - see CLAUDE.md's "Publish Center" section
-// for all three.
+// for all three. FACEBOOK/THREADS added in Multi-Platform Publishing
+// Expansion, Phase 1 - both Meta Graph API products, following Instagram's
+// container-create -> poll -> publish pattern.
 enum SocialPlatform {
   YOUTUBE
   TIKTOK
   INSTAGRAM
+  FACEBOOK
+  THREADS
 }
 
 // Mirrors PublishStatus in packages/shared/src/types/social.ts. SCHEDULED

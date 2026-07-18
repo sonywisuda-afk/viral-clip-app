@@ -1,21 +1,11 @@
 import * as Sentry from '@sentry/node';
-import { PublishStatus, SocialPlatform } from '@speedora/database';
+import { PublishStatus } from '@speedora/database';
 import { QueueName } from '@speedora/shared';
-import {
-  computeEngagementScore,
-  fetchInstagramMediaStats,
-  fetchTikTokPublishStatus,
-  fetchTikTokVideoStats,
-  fetchYouTubeVideoStats,
-  InstagramOAuthClient,
-  resolveAccessToken,
-  TikTokOAuthClient,
-  YouTubeOAuthClient,
-  type OAuthRefreshClient,
-} from '@speedora/social';
+import { computeEngagementScore, resolveAccessToken } from '@speedora/social';
 import { Worker } from 'bullmq';
 import { forStage } from '../logger';
 import { prisma } from '../prisma';
+import { platformRegistry, platformsWithStatsSync } from '../publish/platform-registry';
 import { syncPublishStatsQueue } from '../queues';
 import { createRedisConnection } from '../redis';
 
@@ -28,23 +18,6 @@ const logger = forStage('sync-publish-stats');
 const SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const SYNC_TRIGGER_JOB_ID = 'sync-publish-stats-poll';
-
-// No constructor deps (all three read their credentials from process.env
-// directly, same as publish-clip.worker.ts's instances).
-const youtubeOAuth = new YouTubeOAuthClient();
-const tiktokOAuth = new TikTokOAuthClient();
-const instagramOAuth = new InstagramOAuthClient();
-
-function oauthClientFor(platform: SocialPlatform): OAuthRefreshClient {
-  switch (platform) {
-    case SocialPlatform.YOUTUBE:
-      return youtubeOAuth;
-    case SocialPlatform.TIKTOK:
-      return tiktokOAuth;
-    case SocialPlatform.INSTAGRAM:
-      return instagramOAuth;
-  }
-}
 
 // Registers the single repeatable trigger that fires this worker's
 // processor every SYNC_INTERVAL_MS - called once at startup (see main.ts).
@@ -64,11 +37,7 @@ export function createSyncPublishStatsWorker(): Worker {
       const records = await prisma.publishRecord.findMany({
         where: {
           status: PublishStatus.PUBLISHED,
-          socialAccount: {
-            platform: {
-              in: [SocialPlatform.YOUTUBE, SocialPlatform.INSTAGRAM, SocialPlatform.TIKTOK],
-            },
-          },
+          socialAccount: { platform: { in: platformsWithStatsSync() } },
         },
         include: { socialAccount: true },
       });
@@ -82,10 +51,10 @@ export function createSyncPublishStatsWorker(): Worker {
         try {
           if (!record.platformPostId) continue;
 
-          const resolved = await resolveAccessToken(
-            record.socialAccount,
-            oauthClientFor(record.socialAccount.platform),
-          );
+          const adapter = platformRegistry[record.socialAccount.platform];
+          if (!adapter.syncStats) continue;
+
+          const resolved = await resolveAccessToken(record.socialAccount, adapter.oauth);
           if (resolved.refreshed && resolved.updated) {
             await prisma.socialAccount.update({
               where: { id: record.socialAccountId },
@@ -93,39 +62,15 @@ export function createSyncPublishStatsWorker(): Worker {
             });
           }
 
-          let stats: {
-            viewCount: number | null;
-            likeCount: number | null;
-            commentCount: number | null;
-            // Not every platform's stats client reports these yet - YouTube
-            // has neither (needs the deferred Analytics API scope), TikTok
-            // has no watch-time endpoint at all. See
-            // docs/ai/dataset-feedback-loop.md.
-            shareCount?: number | null;
-            watchTimeSeconds?: number | null;
-          };
-          if (record.socialAccount.platform === SocialPlatform.YOUTUBE) {
-            stats = await fetchYouTubeVideoStats(resolved.accessToken, record.platformPostId);
-          } else if (record.socialAccount.platform === SocialPlatform.INSTAGRAM) {
-            stats = await fetchInstagramMediaStats(resolved.accessToken, record.platformPostId);
-          } else {
-            // TikTok - platformPostId here is the ephemeral publish_id from
-            // Upload to Inbox (Fase 6d), not a video id. A real, queryable
-            // video id only exists once the user actually finishes posting
-            // the draft themselves from their TikTok inbox - until then
-            // this is a normal "not yet" state, not a failure, so it's
-            // skipped without going through the catch block below. See
-            // CLAUDE.md's Fase 6e section.
-            const publishStatus = await fetchTikTokPublishStatus(
-              resolved.accessToken,
-              record.platformPostId,
-            );
-            if (!publishStatus.videoId) {
-              pending += 1;
-              continue;
-            }
-            stats = await fetchTikTokVideoStats(resolved.accessToken, publishStatus.videoId);
+          const result = await adapter.syncStats({
+            accessToken: resolved.accessToken,
+            platformPostId: record.platformPostId,
+          });
+          if (result.kind === 'pending') {
+            pending += 1;
+            continue;
           }
+          const { stats } = result;
 
           await prisma.publishRecord.update({
             where: { id: record.id },

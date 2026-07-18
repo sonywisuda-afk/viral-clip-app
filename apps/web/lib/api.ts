@@ -425,23 +425,15 @@ export async function reschedulePublish(
 }
 
 // Not fetched - used directly as an <a href> so the browser does a real
-// top-level navigation (OAuth needs an actual redirect to Google, which a
-// fetch() can't do). The session cookie still goes out on this kind of
-// navigation - see CLAUDE.md's "Publish Center" section.
-export function connectYouTubeUrl(): string {
-  return `${API_URL}/social/youtube/connect`;
-}
-
-// Same reasoning as connectYouTubeUrl() above, for TikTok (Fase 6d).
-export function connectTikTokUrl(): string {
-  return `${API_URL}/social/tiktok/connect`;
-}
-
-// Same reasoning as connectYouTubeUrl() above, for Instagram (Fase 6d
-// follow-up) - this is a Facebook Login dialog, not an Instagram one, see
-// CLAUDE.md's Fase 6d "Instagram" section.
-export function connectInstagramUrl(): string {
-  return `${API_URL}/social/instagram/connect`;
+// top-level navigation (OAuth needs an actual redirect to the platform,
+// which a fetch() can't do). The session cookie still goes out on this kind
+// of navigation - see CLAUDE.md's "Publish Center" section. Multi-Platform
+// Publishing Expansion, Phase 0 - one generic helper replacing
+// connectYouTubeUrl/connectTikTokUrl/connectInstagramUrl, mirroring
+// apps/api's social.controller.ts collapsing its 3 duplicated route pairs
+// into one dynamic `:platform` pair.
+export function connectPlatformUrl(platform: SocialPlatform): string {
+  return `${API_URL}/social/${platform.toLowerCase()}/connect`;
 }
 
 // Starts a Midtrans Snap transaction for one premium (OpenAI Whisper)

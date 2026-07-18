@@ -1,5 +1,5 @@
 import { OAuthNotConfiguredError } from './errors';
-import { GRAPH_API_VERSION, GRAPH_BASE_URL } from './instagram-graph';
+import { GRAPH_API_VERSION, GRAPH_BASE_URL } from './meta-graph';
 import type { OAuthRefreshClient } from './resolve-access-token';
 
 const AUTHORIZE_URL = `https://www.facebook.com/${GRAPH_API_VERSION}/dialog/oauth`;

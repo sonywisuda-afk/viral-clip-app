@@ -15,20 +15,28 @@ const fetchYouTubeVideoStatsMock = jest.fn();
 const fetchInstagramMediaStatsMock = jest.fn();
 const fetchTikTokPublishStatusMock = jest.fn();
 const fetchTikTokVideoStatsMock = jest.fn();
+const fetchFacebookVideoStatsMock = jest.fn();
+const fetchThreadsPostStatsMock = jest.fn();
 const computeEngagementScoreMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeInstagramOAuthClient {}
 class FakeTikTokOAuthClient {}
+class FakeFacebookOAuthClient {}
+class FakeThreadsOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   fetchYouTubeVideoStats: (...args: unknown[]) => fetchYouTubeVideoStatsMock(...args),
   fetchInstagramMediaStats: (...args: unknown[]) => fetchInstagramMediaStatsMock(...args),
   fetchTikTokPublishStatus: (...args: unknown[]) => fetchTikTokPublishStatusMock(...args),
   fetchTikTokVideoStats: (...args: unknown[]) => fetchTikTokVideoStatsMock(...args),
+  fetchFacebookVideoStats: (...args: unknown[]) => fetchFacebookVideoStatsMock(...args),
+  fetchThreadsPostStats: (...args: unknown[]) => fetchThreadsPostStatsMock(...args),
   computeEngagementScore: (...args: unknown[]) => computeEngagementScoreMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
+  FacebookOAuthClient: FakeFacebookOAuthClient,
+  ThreadsOAuthClient: FakeThreadsOAuthClient,
 }));
 
 const publishRecordFindManyMock = jest.fn();
@@ -159,12 +167,21 @@ describe('sync-publish-stats worker', () => {
           status: PublishStatus.PUBLISHED,
           socialAccount: {
             platform: {
-              in: [SocialPlatform.YOUTUBE, SocialPlatform.INSTAGRAM, SocialPlatform.TIKTOK],
+              in: expect.arrayContaining([
+                SocialPlatform.YOUTUBE,
+                SocialPlatform.INSTAGRAM,
+                SocialPlatform.TIKTOK,
+              ]),
             },
           },
         },
         include: { socialAccount: true },
       });
+      // Also includes FACEBOOK/THREADS (Phase 1) since both define
+      // syncStats - platformsWithStatsSync() derives this list rather than
+      // a second hand-maintained platform array.
+      const inArg = publishRecordFindManyMock.mock.calls[0][0].where.socialAccount.platform.in;
+      expect(inArg).toHaveLength(5);
     });
 
     it('fetches and persists YouTube stats via the YouTube client', async () => {

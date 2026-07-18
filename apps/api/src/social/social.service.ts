@@ -4,11 +4,17 @@ import {
   encryptToken,
   decryptToken,
   resolveAccessToken,
+  FacebookOAuthClient,
   InstagramOAuthClient,
+  ThreadsOAuthClient,
   TikTokOAuthClient,
   YouTubeOAuthClient,
+  type FacebookPage,
+  type FacebookTokens,
   type InstagramAccount,
   type InstagramTokens,
+  type ThreadsTokens,
+  type ThreadsUser,
   type TikTokTokens,
   type TikTokUser,
   type YouTubeChannel,
@@ -25,6 +31,8 @@ export class SocialAccountsService {
     private readonly youtube: YouTubeOAuthClient,
     private readonly tiktok: TikTokOAuthClient,
     private readonly instagram: InstagramOAuthClient,
+    private readonly facebook: FacebookOAuthClient,
+    private readonly threads: ThreadsOAuthClient,
   ) {}
 
   // Both revokeToken() and resolveAccessToken() (via OAuthRefreshClient)
@@ -33,7 +41,7 @@ export class SocialAccountsService {
   // the concrete OAuth client that owns it.
   private clientFor(
     platform: SocialPlatform,
-  ): YouTubeOAuthClient | TikTokOAuthClient | InstagramOAuthClient {
+  ): YouTubeOAuthClient | TikTokOAuthClient | InstagramOAuthClient | FacebookOAuthClient | ThreadsOAuthClient {
     switch (platform) {
       case SocialPlatform.YOUTUBE:
         return this.youtube;
@@ -41,6 +49,10 @@ export class SocialAccountsService {
         return this.tiktok;
       case SocialPlatform.INSTAGRAM:
         return this.instagram;
+      case SocialPlatform.FACEBOOK:
+        return this.facebook;
+      case SocialPlatform.THREADS:
+        return this.threads;
     }
   }
 
@@ -166,6 +178,81 @@ export class SocialAccountsService {
       update: {
         displayName: account.username,
         accessToken: encryptToken(account.pageAccessToken),
+        refreshToken: encryptToken(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+    });
+    return toDto(row);
+  }
+
+  // Upserts on (userId, platform, platformAccountId), keyed on the Facebook
+  // Page id. Same Page-token quirk as connectInstagram() above -
+  // `page.pageAccessToken` (not `tokens.accessToken`) is what video_reels
+  // calls actually use, and the long-lived USER token is stored as
+  // `refreshToken` for the same re-derivation reason.
+  async connectFacebook(
+    userId: string,
+    tokens: FacebookTokens,
+    page: FacebookPage,
+  ): Promise<SocialAccount> {
+    const row = await this.prisma.socialAccount.upsert({
+      where: {
+        userId_platform_platformAccountId: {
+          userId,
+          platform: SocialPlatform.FACEBOOK,
+          platformAccountId: page.pageId,
+        },
+      },
+      create: {
+        userId,
+        platform: SocialPlatform.FACEBOOK,
+        platformAccountId: page.pageId,
+        displayName: page.pageName,
+        accessToken: encryptToken(page.pageAccessToken),
+        refreshToken: encryptToken(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+      update: {
+        displayName: page.pageName,
+        accessToken: encryptToken(page.pageAccessToken),
+        refreshToken: encryptToken(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+    });
+    return toDto(row);
+  }
+
+  // Upserts on (userId, platform, platformAccountId), keyed on the Threads
+  // user id. Unlike Instagram/Facebook, there's no Page-token indirection -
+  // the long-lived Threads user token is used directly for API calls, so
+  // it's stored as BOTH accessToken and refreshToken (see
+  // ThreadsOAuthClient.refreshAccessToken's matching "one token, no
+  // separate refresh_token" comment).
+  async connectThreads(
+    userId: string,
+    tokens: ThreadsTokens,
+    user: ThreadsUser,
+  ): Promise<SocialAccount> {
+    const row = await this.prisma.socialAccount.upsert({
+      where: {
+        userId_platform_platformAccountId: {
+          userId,
+          platform: SocialPlatform.THREADS,
+          platformAccountId: user.threadsUserId,
+        },
+      },
+      create: {
+        userId,
+        platform: SocialPlatform.THREADS,
+        platformAccountId: user.threadsUserId,
+        displayName: user.username,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+      update: {
+        displayName: user.username,
+        accessToken: encryptToken(tokens.accessToken),
         refreshToken: encryptToken(tokens.accessToken),
         tokenExpiresAt: tokens.expiresAt,
       },

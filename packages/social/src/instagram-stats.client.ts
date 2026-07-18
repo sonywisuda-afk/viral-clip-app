@@ -1,4 +1,4 @@
-import { GRAPH_BASE_URL } from './instagram-graph';
+import { GRAPH_BASE_URL } from './meta-graph';
 
 export interface InstagramMediaStats {
   viewCount: number | null;
