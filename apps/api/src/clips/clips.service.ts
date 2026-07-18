@@ -22,7 +22,9 @@ import {
   type ThumbnailFallbackLevel,
 } from '@speedora/shared';
 import type { Queue } from 'bullmq';
+import { CampaignsService } from '../campaigns/campaigns.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RecurringSchedulesService } from '../recurring-schedules/recurring-schedules.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { SocialAccountsService } from '../social/social.service';
 import { StorageService } from '../storage/storage.service';
@@ -102,6 +104,8 @@ export class ClipsService {
     private readonly socialAccounts: SocialAccountsService,
     private readonly storage: StorageService,
     private readonly workspaceAccess: WorkspaceAccessService,
+    private readonly campaigns: CampaignsService,
+    private readonly recurringSchedules: RecurringSchedulesService,
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
     @InjectQueue(QueueName.PUBLISH_CLIP)
     private readonly publishClipQueue: Queue<PublishClipJobData>,
@@ -442,9 +446,26 @@ export class ClipsService {
     // someone else - same ownership check pattern as findOwnedOrThrow.
     await this.socialAccounts.findOwnedOrThrow(input.socialAccountId, requesterId);
 
-    const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
-    if (scheduledAt && scheduledAt.getTime() <= Date.now()) {
-      throw new BadRequestException('scheduledAt must be in the future');
+    if (input.campaignId) {
+      await this.campaigns.assertUsableForQueue(clip.video.workspaceId, input.campaignId);
+    }
+
+    // Publishing Expansion Phase 6 (Scheduling) - a recurring-schedule
+    // queue REPLACES the normal scheduledAt handling below: the server is
+    // authoritative on when the job actually fires (next-slot.util.ts),
+    // not whatever (if anything) the client sent.
+    let scheduledAt: Date | null;
+    if (input.recurringScheduleId) {
+      scheduledAt = await this.recurringSchedules.resolveSlotForQueue(
+        clip.video.workspaceId,
+        input.recurringScheduleId,
+        input.socialAccountId,
+      );
+    } else {
+      scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
+      if (scheduledAt && scheduledAt.getTime() <= Date.now()) {
+        throw new BadRequestException('scheduledAt must be in the future');
+      }
     }
 
     const record = await this.prisma.publishRecord.create({
@@ -453,6 +474,8 @@ export class ClipsService {
         socialAccountId: input.socialAccountId,
         status: scheduledAt ? PublishStatus.SCHEDULED : PublishStatus.QUEUED,
         scheduledAt,
+        campaignId: input.campaignId ?? null,
+        recurringScheduleId: input.recurringScheduleId ?? null,
       },
       include: { socialAccount: true },
     });

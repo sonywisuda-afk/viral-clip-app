@@ -187,6 +187,8 @@ model User {
   clipVersionsCreated      ClipVersion[]
   // Sprint 5F (Audit Log)
   auditLogEntries          AuditLogEntry[]
+  // Publishing Expansion Phase 6 (Scheduling)
+  campaignsCreated         Campaign[]
 }
 
 model Video {
@@ -911,7 +913,9 @@ model SocialAccount {
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 
-  publishRecords PublishRecord[]
+  publishRecords     PublishRecord[]
+  // Publishing Expansion Phase 6 (Scheduling)
+  recurringSchedules RecurringSchedule[]
 
   @@unique([userId, platform, platformAccountId])
   @@index([userId])
@@ -949,6 +953,19 @@ model PublishRecord {
 
   statsSnapshots PublishRecordStatsSnapshot[]
 
+  // Publishing Expansion Phase 6 (Scheduling) - both nullable and
+  // independent of each other and of scheduledAt itself: a job can belong
+  // to neither, either, or both a Campaign and a RecurringSchedule. This
+  // row (PublishRecord) IS the "PublishJob" execution unit described in the
+  // Campaign/RecurringSchedule design - not a separate table, see
+  // CLAUDE.md's Publish Center section. onDelete: SetNull (not Cascade) -
+  // deleting a Campaign/RecurringSchedule must never delete or orphan a job
+  // that already fired or is in flight, it just detaches from the group.
+  campaignId          String?
+  campaign            Campaign?          @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  recurringScheduleId String?
+  recurringSchedule   RecurringSchedule? @relation(fields: [recurringScheduleId], references: [id], onDelete: SetNull)
+
   @@index([clipId])
   @@index([socialAccountId])
   // schedule-publish-clip.worker.ts's poller runs this exact
@@ -956,6 +973,8 @@ model PublishRecord {
   // life of the deployment - a composite index keeps that query cheap
   // regardless of how many PublishRecord rows accumulate over time.
   @@index([status, scheduledAt])
+  @@index([campaignId])
+  @@index([recurringScheduleId])
 }
 
 // Milestone 1 (Dataset & Feedback Loop): one append-only row per
@@ -980,6 +999,94 @@ model PublishRecordStatsSnapshot {
   engagementScore  Float?
 
   @@index([publishRecordId, capturedAt])
+}
+
+// Publishing Expansion Phase 6 (Scheduling). Mirrors CampaignStatus in
+// packages/shared/src/types/campaign.ts. Deliberately NOT a stored column
+// on Campaign - see CampaignsService's computeCampaignStatus(), which
+// derives this entirely from Campaign.cancelledAt plus the aggregate
+// status of its PublishRecords, so there's no second source of truth to
+// drift out of sync with the jobs it's summarizing.
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+// Publishing Expansion Phase 6 - a named group of publish jobs
+// (PublishRecords) across clips/platforms, for a coordinated multi-platform
+// launch. Deliberately does NOT have budget/KPI/target reach/ROI/
+// conversion/ad spend/marketing funnel/audience segment fields - those
+// belong to a future Marketing Automation / Social Media Management suite,
+// not Speedora (explicit user decision). Workspace-scoped the same way
+// Video already is (Video.workspaceId), not a new access-control construct.
+model Campaign {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  tag         String?
+  startDate   DateTime
+  endDate     DateTime
+  // Set only by CampaignsService.cancel() - see the CampaignStatus comment
+  // above for why this is the one piece of status state that has to be
+  // stored (CANCELLED can't be re-derived from job state alone).
+  cancelledAt DateTime?
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  publishRecords PublishRecord[]
+
+  @@index([workspaceId])
+}
+
+// Publishing Expansion Phase 6 - automatic recurring publish time *slots*
+// (e.g. "TikTok every Mon/Wed/Fri at 9am Asia/Jakarta"). Deliberately NOT a
+// "repost the same clip on a cadence" mechanism (explicit user decision) -
+// that's a different, deferred feature needing its own duplicate-content/
+// platform-policy/repost-interval handling, kept separate so this system's
+// logic stays clean. Clips are queued against a schedule via the existing
+// POST /clips/:id/publish endpoint (recurringScheduleId field) - see
+// ClipsService.publish() and next-slot.util.ts's computeNextSlot(), which
+// assigns each queued clip the next open slot synchronously at queue time,
+// not via a separate periodic sweep.
+model RecurringSchedule {
+  id          String         @id @default(cuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  platform    SocialPlatform
+  // Which connected account to publish to - a workspace/user can have more
+  // than one connected account on the same platform, so `platform` alone
+  // isn't enough to actually target a SocialAccount (same "picks first,
+  // revisit if needed" reasoning as this app's other first-pass account
+  // selection code, except here the user picks explicitly at create time
+  // instead of the app guessing).
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  // IANA timezone name (e.g. "Asia/Jakarta") - the first place in this app
+  // that's timezone-aware at all; see next-slot.util.ts.
+  timezone   String
+  // 0=Sunday..6=Saturday, matches JS Date.getDay() - Postgres/Prisma scalar
+  // list, not a join table, since order/uniqueness within the array doesn't
+  // matter and it's always read as a whole.
+  daysOfWeek Int[]
+  // "HH:mm", 24h, wall-clock time in `timezone` - a plain string rather
+  // than a DateTime since Prisma/Postgres has no portable "time of day
+  // only" type; validated at the DTO level.
+  timeOfDay  String
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  publishRecords PublishRecord[]
+
+  @@index([workspaceId])
 }
 
 // Sprint 1-2 (Dashboard Redesign, Product Experience track) - a
@@ -1238,6 +1345,9 @@ model Workspace {
   videos         Video[]
   invites        PendingInvite[]
   auditLogEntries AuditLogEntry[]
+  // Publishing Expansion Phase 6 (Scheduling)
+  campaigns          Campaign[]
+  recurringSchedules RecurringSchedule[]
 
   @@index([ownerId])
 }
@@ -1638,6 +1748,14 @@ enum AuditAction {
   SHARE_LINK_CREATED
   SHARE_LINK_REVOKED
   APPROVAL_DECIDED
+  // Publishing Expansion Phase 6 (Scheduling) - selective, same posture as
+  // Project's own audit trail: log create/cancel/delete, not every plain
+  // edit (see ProjectService, which only calls recordAuditLog from
+  // create()/remove()).
+  CAMPAIGN_CREATED
+  CAMPAIGN_CANCELLED
+  RECURRING_SCHEDULE_CREATED
+  RECURRING_SCHEDULE_DELETED
 }
 
 model AuditLogEntry {

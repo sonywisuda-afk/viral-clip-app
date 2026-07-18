@@ -2,7 +2,9 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CaptionStyle } from '@speedora/database';
 import { QueueName } from '@speedora/shared';
 import type { Queue } from 'bullmq';
+import type { CampaignsService } from '../campaigns/campaigns.service';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { RecurringSchedulesService } from '../recurring-schedules/recurring-schedules.service';
 import type { SocialAccountsService } from '../social/social.service';
 import type { StorageService } from '../storage/storage.service';
 import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
@@ -35,6 +37,8 @@ describe('ClipsService', () => {
   let socialAccounts: { findOwnedOrThrow: jest.Mock };
   let storage: { deleteObjects: jest.Mock };
   let workspaceAccess: { assertMinRole: jest.Mock };
+  let campaigns: { assertUsableForQueue: jest.Mock };
+  let recurringSchedules: { resolveSlotForQueue: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
   let publishClipQueue: { add: jest.Mock };
 
@@ -65,6 +69,8 @@ describe('ClipsService', () => {
     // dedicated spec for role-rank logic; this file only verifies
     // ClipsService's own orchestration around it.
     workspaceAccess = { assertMinRole: jest.fn().mockResolvedValue('OWNER') };
+    campaigns = { assertUsableForQueue: jest.fn().mockResolvedValue(undefined) };
+    recurringSchedules = { resolveSlotForQueue: jest.fn() };
     renderClipQueue = { add: jest.fn() };
     publishClipQueue = { add: jest.fn() };
     service = new ClipsService(
@@ -72,6 +78,8 @@ describe('ClipsService', () => {
       socialAccounts as unknown as SocialAccountsService,
       storage as unknown as StorageService,
       workspaceAccess as unknown as WorkspaceAccessService,
+      campaigns as unknown as CampaignsService,
+      recurringSchedules as unknown as RecurringSchedulesService,
       renderClipQueue as unknown as Queue,
       publishClipQueue as unknown as Queue,
     );
@@ -881,6 +889,8 @@ describe('ClipsService', () => {
       commentCount: null,
       statsUpdatedAt: null,
       createdAt: new Date('2026-01-01'),
+      campaignId: null,
+      recurringScheduleId: null,
       socialAccount: { platform: 'YOUTUBE' },
     };
 
@@ -898,6 +908,8 @@ describe('ClipsService', () => {
           socialAccountId: 'account-1',
           status: 'QUEUED',
           scheduledAt: null,
+          campaignId: null,
+          recurringScheduleId: null,
         },
         include: { socialAccount: true },
       });
@@ -921,6 +933,8 @@ describe('ClipsService', () => {
         commentCount: null,
         statsUpdatedAt: null,
         createdAt: createdRecord.createdAt.toISOString(),
+        campaignId: null,
+        recurringScheduleId: null,
       });
     });
 
@@ -968,6 +982,8 @@ describe('ClipsService', () => {
           socialAccountId: 'account-1',
           status: 'SCHEDULED',
           scheduledAt: new Date(futureIso),
+          campaignId: null,
+          recurringScheduleId: null,
         },
         include: { socialAccount: true },
       });
@@ -987,6 +1003,94 @@ describe('ClipsService', () => {
         }),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.publishRecord.create).not.toHaveBeenCalled();
+    });
+
+    describe('Publishing Expansion Phase 6 (Scheduling)', () => {
+      const clipInWorkspace = {
+        id: 'clip-1',
+        outputUrl: 'renders/clip-1.mp4',
+        video: { ownerId: 'user-1', workspaceId: 'ws-1' },
+      };
+
+      it('validates and stamps campaignId onto the created record', async () => {
+        prisma.clip.findUnique.mockResolvedValue(clipInWorkspace);
+        socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
+        prisma.publishRecord.create.mockResolvedValue({ ...createdRecord, campaignId: 'campaign-1' });
+
+        await service.publish('clip-1', 'user-1', {
+          socialAccountId: 'account-1',
+          campaignId: 'campaign-1',
+        });
+
+        expect(campaigns.assertUsableForQueue).toHaveBeenCalledWith('ws-1', 'campaign-1');
+        expect(prisma.publishRecord.create).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ campaignId: 'campaign-1' }) }),
+        );
+      });
+
+      it('propagates the campaign validation error rather than creating a record', async () => {
+        prisma.clip.findUnique.mockResolvedValue(clipInWorkspace);
+        socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
+        campaigns.assertUsableForQueue.mockRejectedValue(new BadRequestException('Campaign campaign-1 is cancelled'));
+
+        await expect(
+          service.publish('clip-1', 'user-1', { socialAccountId: 'account-1', campaignId: 'campaign-1' }),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.publishRecord.create).not.toHaveBeenCalled();
+      });
+
+      it('resolves scheduledAt via the recurring schedule, ignoring any client-supplied scheduledAt, and does not enqueue', async () => {
+        const resolvedSlot = new Date('2026-08-01T02:00:00.000Z');
+        prisma.clip.findUnique.mockResolvedValue(clipInWorkspace);
+        socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
+        recurringSchedules.resolveSlotForQueue.mockResolvedValue(resolvedSlot);
+        prisma.publishRecord.create.mockResolvedValue({
+          ...createdRecord,
+          status: 'SCHEDULED',
+          scheduledAt: resolvedSlot,
+          recurringScheduleId: 'schedule-1',
+        });
+
+        const clientSuppliedScheduledAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        const result = await service.publish('clip-1', 'user-1', {
+          socialAccountId: 'account-1',
+          recurringScheduleId: 'schedule-1',
+          scheduledAt: clientSuppliedScheduledAt, // must be ignored
+        });
+
+        expect(recurringSchedules.resolveSlotForQueue).toHaveBeenCalledWith(
+          'ws-1',
+          'schedule-1',
+          'account-1',
+        );
+        expect(prisma.publishRecord.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              status: 'SCHEDULED',
+              scheduledAt: resolvedSlot,
+              recurringScheduleId: 'schedule-1',
+            }),
+          }),
+        );
+        expect(publishClipQueue.add).not.toHaveBeenCalled();
+        expect(result.status).toBe('SCHEDULED');
+      });
+
+      it('propagates the recurring-schedule resolution error (e.g. mismatched socialAccountId) rather than creating a record', async () => {
+        prisma.clip.findUnique.mockResolvedValue(clipInWorkspace);
+        socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
+        recurringSchedules.resolveSlotForQueue.mockRejectedValue(
+          new BadRequestException('socialAccountId does not match recurring schedule schedule-1'),
+        );
+
+        await expect(
+          service.publish('clip-1', 'user-1', {
+            socialAccountId: 'account-1',
+            recurringScheduleId: 'schedule-1',
+          }),
+        ).rejects.toThrow(BadRequestException);
+        expect(prisma.publishRecord.create).not.toHaveBeenCalled();
+      });
     });
   });
 

@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { BrandKitModule } from './brand-kit/brand-kit.module';
+import { CampaignsModule } from './campaigns/campaigns.module';
 import { ClipsModule } from './clips/clips.module';
 import { CommentsModule } from './comments/comments.module';
 import { validateEnv } from './config/env.validation';
@@ -18,6 +19,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OpsAiModule } from './ops-ai/ops-ai.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { RecurringSchedulesModule } from './recurring-schedules/recurring-schedules.module';
 import { RedisPubSubModule } from './redis-pubsub/redis-pubsub.module';
 import { SearchModule } from './search/search.module';
 import { ShareModule } from './share/share.module';
@@ -56,6 +58,8 @@ import { WorkspaceModule } from './workspace/workspace.module';
     ExportModule,
     BrandKitModule,
     NotificationsModule,
+    CampaignsModule,
+    RecurringSchedulesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

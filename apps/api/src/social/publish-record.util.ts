@@ -29,5 +29,7 @@ export function toSharedPublishRecord(
     commentCount: record.commentCount,
     statsUpdatedAt: record.statsUpdatedAt?.toISOString() ?? null,
     createdAt: record.createdAt.toISOString(),
+    campaignId: record.campaignId,
+    recurringScheduleId: record.recurringScheduleId,
   };
 }

@@ -90,4 +90,9 @@ export interface PublishRecord {
   commentCount: number | null;
   statsUpdatedAt: string | null;
   createdAt: string;
+  // Publishing Expansion Phase 6 (Scheduling) - both nullable and
+  // independent, a job can belong to neither, either, or both. See
+  // campaign.ts/recurring-schedule.ts for the two entities these point at.
+  campaignId: string | null;
+  recurringScheduleId: string | null;
 }
