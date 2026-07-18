@@ -6,6 +6,7 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { BrandKitModule } from './brand-kit/brand-kit.module';
 import { ClipsModule } from './clips/clips.module';
+import { CommentsModule } from './comments/comments.module';
 import { validateEnv } from './config/env.validation';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ExportModule } from './export/export.module';
@@ -49,6 +50,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     SearchModule,
     WorkspaceModule,
     ShareModule,
+    CommentsModule,
     ExportModule,
     BrandKitModule,
     NotificationsModule,

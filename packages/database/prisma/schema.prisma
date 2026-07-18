@@ -158,6 +158,11 @@ model User {
   workspaceMemberships     WorkspaceMembership[]
   // Sprint 5B (Shared Clips)
   createdShareLinks        ShareLink[]
+  // Sprint 5C (Comments)
+  comments                 Comment[]                 @relation("CommentAuthor")
+  resolvedComments         Comment[]                 @relation("CommentResolver")
+  commentMentions          CommentMention[]
+  commentReactions         CommentReaction[]
 }
 
 model Video {
@@ -341,6 +346,7 @@ model Video {
   statusEvents       VideoStatusEvent[]
   exportJobs         ExportJob[]
   shareLinks         ShareLink[]
+  comments           Comment[]
 
   @@index([ownerId])
   @@index([workspaceId])
@@ -771,6 +777,7 @@ model Clip {
 
   publishRecords PublishRecord[]
   jobExecutions  JobExecution[]
+  comments       Comment[]
 
   @@index([videoId])
 }
@@ -1001,6 +1008,14 @@ enum NotificationType {
   // packages/database/src/alert-engine.ts.
   STORAGE_WARNING
   CREDIT_WARNING
+  // Sprint 5C (Comments) - two of the four notification types the original
+  // Notification Center roadmap flagged "Collaboration-blocked" (see
+  // NotificationWebhook's own comment above). COMMENT fires for the video's
+  // owner (a new top-level comment or reply, unless they're the author);
+  // MENTION fires for each explicitly @mentioned workspace member,
+  // regardless of who owns the video.
+  COMMENT
+  MENTION
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e
@@ -1359,4 +1374,87 @@ model ShareLink {
 
   @@index([videoId])
   @@index([createdById, createdAt])
+}
+
+// Sprint 5C (Comments). Video-scoped (clipId optional - a comment can
+// anchor to a specific clip, or just the video as a whole), threaded via
+// a self-relation (parentId null = a root/top-level comment; only root
+// comments can be resolved - a reply inherits its thread's resolved state
+// rather than carrying its own, same "resolve the whole thread" semantics
+// as Figma/Notion). timestampSeconds anchors a comment to a specific
+// moment (clip-relative if clipId is set, otherwise video-relative) - null
+// for a general, not-time-anchored comment.
+model Comment {
+  id               String    @id @default(cuid())
+  videoId          String
+  video            Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  clipId           String?
+  clip             Clip?     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  authorId         String
+  author           User      @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  parentId         String?
+  parent           Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies          Comment[] @relation("CommentThread")
+  body             String
+  timestampSeconds Float?
+  resolved         Boolean   @default(false)
+  resolvedAt       DateTime?
+  resolvedById     String?
+  resolvedBy       User?     @relation("CommentResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  editedAt         DateTime?
+  createdAt        DateTime  @default(now())
+
+  mentions    CommentMention[]
+  reactions   CommentReaction[]
+  attachments CommentAttachment[]
+
+  @@index([videoId, createdAt])
+  @@index([clipId])
+  @@index([parentId])
+}
+
+// A row per (comment, mentioned user) pair - drives the MENTION
+// notification and lets the frontend render "@Name" for a user who may
+// since have left the workspace (the row/relation survives independent of
+// current WorkspaceMembership).
+model CommentMention {
+  id        String   @id @default(cuid())
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, userId])
+}
+
+// One row per (comment, user, emoji) - a user can react to the same
+// comment with several different emoji, but not the same emoji twice
+// (toggling calls DELETE, not a second POST).
+model CommentReaction {
+  id        String   @id @default(cuid())
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([commentId, userId, emoji])
+}
+
+// One file per attachment row (a comment can have several). storageKey is
+// never exposed to the client raw - same "endpoint path instead" treatment
+// as every other resource's stored object key in this codebase.
+model CommentAttachment {
+  id          String   @id @default(cuid())
+  commentId   String
+  comment     Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  storageKey  String
+  fileName    String
+  fileSize    Int
+  contentType String
+  createdAt   DateTime @default(now())
+
+  @@index([commentId])
 }

@@ -33,6 +33,19 @@ export class StorageService {
     return key;
   }
 
+  // Sprint 5C (Comments) - same shape as saveBrandLogo above, a different
+  // key prefix. Keeps the original filename in the returned key's basename
+  // (URL-unsafe characters aside) so a stored object stays identifiable
+  // in the bucket, but CommentAttachment.fileName (not this key) is what's
+  // ever shown to a user - see CommentService.
+  async saveCommentAttachment(file: Express.Multer.File): Promise<string> {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const key = `comment-attachments/${randomUUID()}${ext}`;
+    await uploadObject(key, file.buffer, file.mimetype);
+
+    return key;
+  }
+
   // Best-effort cleanup used when a video (or a whole account) is deleted -
   // the DB row is the source of truth and has already been removed by the
   // time this runs, so a storage object that's already gone (or a transient

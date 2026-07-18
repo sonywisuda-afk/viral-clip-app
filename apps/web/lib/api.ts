@@ -6,6 +6,9 @@ import type {
   BrandKitDto,
   Clip,
   ClipExplainabilityDto,
+  CommentAttachmentDto,
+  CommentDto,
+  CommentListDto,
   DashboardActivityDto,
   DashboardStatsDto,
   ExportJobDto,
@@ -874,6 +877,83 @@ export function sharedVideoStreamUrl(sourceStreamUrl: string): string {
 
 export function sharedThumbnailUrl(thumbnailUrl: string): string {
   return `${API_URL}${thumbnailUrl}`;
+}
+
+// Sprint 5C (Comments).
+export async function createComment(
+  videoId: string,
+  input: {
+    body: string;
+    clipId?: string;
+    timestampSeconds?: number;
+    parentId?: string;
+    mentionedUserIds?: string[];
+  },
+): Promise<CommentDto> {
+  const res = await apiFetch(`/videos/${videoId}/comments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<CommentDto>(res);
+}
+
+export async function listComments(videoId: string): Promise<CommentListDto> {
+  const res = await apiFetch(`/videos/${videoId}/comments`);
+  return parseJsonOrThrow<CommentListDto>(res);
+}
+
+export async function updateComment(id: string, body: string): Promise<CommentDto> {
+  const res = await apiFetch(`/comments/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  });
+  return parseJsonOrThrow<CommentDto>(res);
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  await apiFetch(`/comments/${id}`, { method: 'DELETE' });
+}
+
+export async function resolveComment(id: string): Promise<CommentDto> {
+  const res = await apiFetch(`/comments/${id}/resolve`, { method: 'POST' });
+  return parseJsonOrThrow<CommentDto>(res);
+}
+
+export async function unresolveComment(id: string): Promise<CommentDto> {
+  const res = await apiFetch(`/comments/${id}/unresolve`, { method: 'POST' });
+  return parseJsonOrThrow<CommentDto>(res);
+}
+
+export async function addCommentReaction(id: string, emoji: string): Promise<CommentDto> {
+  const res = await apiFetch(`/comments/${id}/reactions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emoji }),
+  });
+  return parseJsonOrThrow<CommentDto>(res);
+}
+
+export async function removeCommentReaction(id: string, emoji: string): Promise<CommentDto> {
+  const res = await apiFetch(`/comments/${id}/reactions/${encodeURIComponent(emoji)}`, {
+    method: 'DELETE',
+  });
+  return parseJsonOrThrow<CommentDto>(res);
+}
+
+export async function addCommentAttachment(
+  id: string,
+  file: File,
+): Promise<CommentAttachmentDto> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch(`/comments/${id}/attachments`, { method: 'POST', body: formData });
+  return parseJsonOrThrow<CommentAttachmentDto>(res);
+}
+
+export function commentAttachmentUrl(url: string): string {
+  return `${API_URL}${url}`;
 }
 
 export { API_URL };
