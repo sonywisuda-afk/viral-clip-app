@@ -7,6 +7,7 @@ import {
   type PinterestOAuthClient,
   type ThreadsOAuthClient,
   type TikTokOAuthClient,
+  type XOAuthClient,
   type YouTubeOAuthClient,
 } from '@speedora/social';
 import type { Response } from 'express';
@@ -25,6 +26,7 @@ describe('SocialController', () => {
     connectThreads: jest.Mock;
     connectLinkedIn: jest.Mock;
     connectPinterest: jest.Mock;
+    connectX: jest.Mock;
   };
   let youtube: {
     buildAuthorizeUrl: jest.Mock;
@@ -61,6 +63,11 @@ describe('SocialController', () => {
     exchangeCode: jest.Mock;
     fetchAccountInfo: jest.Mock;
   };
+  let x: {
+    buildAuthorizeUrl: jest.Mock;
+    exchangeCode: jest.Mock;
+    fetchAccountInfo: jest.Mock;
+  };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
@@ -79,6 +86,7 @@ describe('SocialController', () => {
       connectThreads: jest.fn(),
       connectLinkedIn: jest.fn(),
       connectPinterest: jest.fn(),
+      connectX: jest.fn(),
     };
     youtube = {
       buildAuthorizeUrl: jest.fn(),
@@ -115,6 +123,11 @@ describe('SocialController', () => {
       exchangeCode: jest.fn(),
       fetchAccountInfo: jest.fn(),
     };
+    x = {
+      buildAuthorizeUrl: jest.fn(),
+      exchangeCode: jest.fn(),
+      fetchAccountInfo: jest.fn(),
+    };
     jwt = { sign: jest.fn(), verify: jest.fn() };
     controller = new SocialController(
       socialAccounts as unknown as SocialAccountsService,
@@ -125,6 +138,7 @@ describe('SocialController', () => {
       threads as unknown as ThreadsOAuthClient,
       linkedin as unknown as LinkedInOAuthClient,
       pinterest as unknown as PinterestOAuthClient,
+      x as unknown as XOAuthClient,
       jwt as never,
     );
     process.env.WEB_ORIGIN = 'http://localhost:3000';
@@ -384,6 +398,27 @@ describe('SocialController', () => {
         { boardId: 'board-1', displayName: 'my_pins — My Board' },
       );
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=pinterest');
+    });
+
+    it('exchanges the code WITH state (PKCE), fetches the account, connects it, and redirects on success (X)', async () => {
+      jwt.verify.mockReturnValue({ sub: 'user-1' });
+      x.exchangeCode.mockResolvedValue({ accessToken: 'access-1', refreshToken: 'refresh-1' });
+      x.fetchAccountInfo.mockResolvedValue({ userId: 'x-user-1', username: 'my_x' });
+      const res = fakeResponse();
+
+      await controller.callback('x', 'the-code', 'signed-state', undefined, res);
+
+      // The one platform where `state` is forwarded into exchangeCode (PKCE
+      // code_verifier re-derivation) rather than only being used for the
+      // JWT verify step every other platform stops at.
+      expect(x.exchangeCode).toHaveBeenCalledWith('the-code', 'signed-state');
+      expect(x.fetchAccountInfo).toHaveBeenCalledWith('access-1');
+      expect(socialAccounts.connectX).toHaveBeenCalledWith(
+        'user-1',
+        { accessToken: 'access-1', refreshToken: 'refresh-1' },
+        { userId: 'x-user-1', username: 'my_x' },
+      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=x');
     });
   });
 });

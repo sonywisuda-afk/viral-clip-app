@@ -1,5 +1,16 @@
 import { PLATFORM_METADATA, SocialPlatform } from '@speedora/shared';
-import { AtSign, Briefcase, Camera, Music2, Pin, Play, Share2, ThumbsUp, type LucideIcon } from 'lucide-react';
+import {
+  AtSign,
+  Briefcase,
+  Camera,
+  Music2,
+  Pin,
+  Play,
+  Share2,
+  ThumbsUp,
+  X as XIcon,
+  type LucideIcon,
+} from 'lucide-react';
 
 // Multi-Platform Publishing Expansion, Phase 0. `@speedora/shared`'s
 // PLATFORM_METADATA has no React dependency (just label/iconKey/colorHex) -
@@ -18,6 +29,7 @@ const ICONS: Record<string, LucideIcon> = {
   threads: AtSign,
   linkedin: Briefcase,
   pinterest: Pin,
+  x: XIcon,
 };
 
 export function platformLabel(platform: SocialPlatform | string): string {

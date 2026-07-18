@@ -10,6 +10,7 @@ import {
   type PinterestOAuthClient,
   type ThreadsOAuthClient,
   type TikTokOAuthClient,
+  type XOAuthClient,
   type YouTubeOAuthClient,
 } from '@speedora/social';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -34,6 +35,7 @@ describe('SocialAccountsService', () => {
   let threads: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
   let linkedin: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
   let pinterest: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
+  let x: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
 
   beforeEach(() => {
     process.env = { ...originalEnv, TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('hex') };
@@ -53,6 +55,7 @@ describe('SocialAccountsService', () => {
     threads = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     linkedin = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     pinterest = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
+    x = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     service = new SocialAccountsService(
       prisma as unknown as PrismaService,
       youtube as unknown as YouTubeOAuthClient,
@@ -62,6 +65,7 @@ describe('SocialAccountsService', () => {
       threads as unknown as ThreadsOAuthClient,
       linkedin as unknown as LinkedInOAuthClient,
       pinterest as unknown as PinterestOAuthClient,
+      x as unknown as XOAuthClient,
     );
   });
 
@@ -536,6 +540,43 @@ describe('SocialAccountsService', () => {
       expect(call.create.displayName).toBe('my_pins — My Board');
       expect(result.id).toBe('acc-1');
       expect(result.displayName).toBe('my_pins — My Board');
+    });
+  });
+
+  describe('connectX', () => {
+    it('upserts on (userId, platform, userId)', async () => {
+      prisma.socialAccount.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({
+          id: 'acc-1',
+          ...create,
+          tokenExpiresAt: create.tokenExpiresAt,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      );
+
+      const result = await service.connectX(
+        'user-1',
+        {
+          accessToken: 'plain-access',
+          refreshToken: 'plain-refresh',
+          expiresAt: new Date('2026-03-01T00:00:00.000Z'),
+        },
+        { userId: 'x-user-1', username: 'my_x' },
+      );
+
+      const call = prisma.socialAccount.upsert.mock.calls[0][0];
+      expect(call.where).toEqual({
+        userId_platform_platformAccountId: {
+          userId: 'user-1',
+          platform: SocialPlatform.X,
+          platformAccountId: 'x-user-1',
+        },
+      });
+      expect(decryptToken(call.create.accessToken)).toBe('plain-access');
+      expect(decryptToken(call.create.refreshToken)).toBe('plain-refresh');
+      expect(call.create.displayName).toBe('my_x');
+      expect(result.id).toBe('acc-1');
+      expect(result.displayName).toBe('my_x');
     });
   });
 });

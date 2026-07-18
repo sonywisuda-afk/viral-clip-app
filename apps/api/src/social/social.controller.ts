@@ -18,6 +18,7 @@ import {
   PinterestOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
+  XOAuthClient,
   YouTubeOAuthClient,
   type FacebookPage,
   type FacebookTokens,
@@ -31,6 +32,8 @@ import {
   type ThreadsUser,
   type TikTokTokens,
   type TikTokUser,
+  type XAccount,
+  type XTokens,
   type YouTubeChannel,
   type YouTubeTokens,
 } from '@speedora/social';
@@ -56,9 +59,14 @@ interface OAuthState {
 // entry below closes over its own concretely-typed client/service methods,
 // so the `unknown` casts are localized here rather than forcing a single
 // leaky interface on SocialAccountsService itself.
+// exchangeCode takes `state` as a second param solely for X's PKCE flow
+// (see x-graph.ts's deriveCodeVerifier comment) - every other platform's
+// closure below just ignores it. The callback handler already has `state`
+// in scope (verified immediately before this call), so this is a same-
+// signature-family addition, not new data to thread through.
 interface OAuthConnectAdapter {
   buildAuthorizeUrl(state: string): string;
-  exchangeCode(code: string): Promise<{ accessToken: string }>;
+  exchangeCode(code: string, state: string): Promise<{ accessToken: string }>;
   fetchProfile(accessToken: string): Promise<unknown>;
   connect(userId: string, tokens: unknown, profile: unknown): Promise<unknown>;
 }
@@ -96,6 +104,7 @@ export class SocialController {
     private readonly threads: ThreadsOAuthClient,
     private readonly linkedin: LinkedInOAuthClient,
     private readonly pinterest: PinterestOAuthClient,
+    private readonly x: XOAuthClient,
     // Separate JwtModule instance from AuthModule's (see social.module.ts) -
     // same JWT_SECRET, unrelated purpose (signing the OAuth `state` param,
     // not session auth), short-lived (10m) so a state token can't be
@@ -175,6 +184,15 @@ export class SocialController {
             tokens as PinterestTokens,
             profile as PinterestAccount,
           ),
+      },
+      [SocialPlatform.X]: {
+        buildAuthorizeUrl: (state) => this.x.buildAuthorizeUrl(state),
+        // The only platform that actually needs `state` here - PKCE
+        // requires re-deriving the code_verifier from it (see x-graph.ts).
+        exchangeCode: (code, state) => this.x.exchangeCode(code, state),
+        fetchProfile: (token) => this.x.fetchAccountInfo(token),
+        connect: (userId, tokens, profile) =>
+          this.socialAccounts.connectX(userId, tokens as XTokens, profile as XAccount),
       },
     };
   }
@@ -259,7 +277,7 @@ export class SocialController {
 
     const adapter = this.oauthRegistry[platform];
     try {
-      const tokens = await adapter.exchangeCode(code);
+      const tokens = await adapter.exchangeCode(code, state);
       const profile = await adapter.fetchProfile(tokens.accessToken);
       await adapter.connect(userId, tokens, profile);
       res.redirect(`${webOrigin}/social?connected=${platformParam.toLowerCase()}`);

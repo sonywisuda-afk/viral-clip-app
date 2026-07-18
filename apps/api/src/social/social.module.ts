@@ -7,6 +7,7 @@ import {
   PinterestOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
+  XOAuthClient,
   YouTubeOAuthClient,
 } from '@speedora/social';
 import { SocialController } from './social.controller';
@@ -35,6 +36,7 @@ import { SocialAccountsService } from './social.service';
     ThreadsOAuthClient,
     LinkedInOAuthClient,
     PinterestOAuthClient,
+    XOAuthClient,
   ],
   // ClipsModule (Fase 6b) needs SocialAccountsService.findOwnedOrThrow() to
   // validate the target account before enqueueing a publish-clip job.

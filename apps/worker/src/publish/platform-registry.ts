@@ -9,6 +9,7 @@ import {
   fetchTikTokVideoStats,
   fetchYouTubeVideoStats,
   fetchPinterestPinStats,
+  fetchXTweetStats,
   InstagramOAuthClient,
   LinkedInOAuthClient,
   PinterestOAuthClient,
@@ -20,7 +21,9 @@ import {
   uploadPinterestVideo,
   uploadThreadsVideo,
   uploadTikTokVideo,
+  uploadXVideo,
   uploadYouTubeVideo,
+  XOAuthClient,
   YouTubeOAuthClient,
   type OAuthRefreshClient,
 } from '@speedora/social';
@@ -86,6 +89,7 @@ const facebookOAuth = new FacebookOAuthClient();
 const threadsOAuth = new ThreadsOAuthClient();
 const linkedinOAuth = new LinkedInOAuthClient();
 const pinterestOAuth = new PinterestOAuthClient();
+const xOAuth = new XOAuthClient();
 
 // How long the presigned URL handed to Meta's servers (Instagram Reels,
 // Facebook Reels, and Threads video posts - all fetch-from-URL rather than
@@ -278,6 +282,27 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     },
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchPinterestPinStats(accessToken, platformPostId) };
+    },
+  },
+  [SocialPlatform.X]: {
+    oauth: xOAuth,
+    async publish({ record, outputUrl, accessToken }) {
+      // Best-effort platform (see CLAUDE.md's Publish Center section) - a
+      // billing/quota failure from X's API surfaces as a normal thrown
+      // error here, which the caller (publish-clip.worker.ts) already
+      // turns into PublishRecord.errorMessage/FAILED, the same honest-
+      // status path every other publish failure uses. No special casing
+      // needed for X specifically.
+      const videoStream = await getObjectStream(outputUrl);
+      const upload = await uploadXVideo({
+        accessToken,
+        videoStream,
+        text: buildCaption(record.clip.hookText, record.clip.hashtags),
+      });
+      return { platformPostId: upload.tweetId, logDetail: `posted to X, tweet id ${upload.tweetId}` };
+    },
+    async syncStats({ accessToken, platformPostId }) {
+      return { kind: 'stats', stats: await fetchXTweetStats(accessToken, platformPostId) };
     },
   },
 };

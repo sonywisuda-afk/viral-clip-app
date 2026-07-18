@@ -97,7 +97,12 @@ model PremiumCredit {
 // a genuinely different multi-part byte-upload model (LinkedIn's Videos
 // API), not the Meta "fetch from a URL" pattern. PINTEREST added in
 // Phase 3 - a board-scoped video Pin, requiring a mandatory cover image
-// unlike every other platform.
+// unlike every other platform. X added in Phase 4 - best-effort only, see
+// CLAUDE.md's Publish Center section: as of Feb 2026 X has no free API
+// tier for new developer apps (pay-per-use, $0.015/post, or a legacy paid
+// tier) - this is a real, ongoing operating cost for whoever owns the X
+// Developer App credentials, not a one-time setup step like every other
+// platform here.
 enum SocialPlatform {
   YOUTUBE
   TIKTOK
@@ -106,6 +111,7 @@ enum SocialPlatform {
   THREADS
   LINKEDIN
   PINTEREST
+  X
 }
 
 // Mirrors PublishStatus in packages/shared/src/types/social.ts. SCHEDULED

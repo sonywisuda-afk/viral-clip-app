@@ -17,6 +17,7 @@ const uploadFacebookReelMock = jest.fn();
 const uploadThreadsVideoMock = jest.fn();
 const uploadLinkedInVideoMock = jest.fn();
 const uploadPinterestVideoMock = jest.fn();
+const uploadXVideoMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeTikTokOAuthClient {}
 class FakeInstagramOAuthClient {}
@@ -24,6 +25,7 @@ class FakeFacebookOAuthClient {}
 class FakeThreadsOAuthClient {}
 class FakeLinkedInOAuthClient {}
 class FakePinterestOAuthClient {}
+class FakeXOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   uploadYouTubeVideo: (...args: unknown[]) => uploadYouTubeVideoMock(...args),
@@ -33,6 +35,7 @@ jest.mock('@speedora/social', () => ({
   uploadThreadsVideo: (...args: unknown[]) => uploadThreadsVideoMock(...args),
   uploadLinkedInVideo: (...args: unknown[]) => uploadLinkedInVideoMock(...args),
   uploadPinterestVideo: (...args: unknown[]) => uploadPinterestVideoMock(...args),
+  uploadXVideo: (...args: unknown[]) => uploadXVideoMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
@@ -40,6 +43,7 @@ jest.mock('@speedora/social', () => ({
   ThreadsOAuthClient: FakeThreadsOAuthClient,
   LinkedInOAuthClient: FakeLinkedInOAuthClient,
   PinterestOAuthClient: FakePinterestOAuthClient,
+  XOAuthClient: FakeXOAuthClient,
 }));
 
 const getObjectStreamMock = jest.fn();
@@ -535,6 +539,72 @@ describe('publish-clip worker', () => {
       expect(resolveAccessTokenMock).toHaveBeenCalledWith(
         pinterestRecord.socialAccount,
         expect.any(FakePinterestOAuthClient),
+      );
+    });
+  });
+
+  describe('X accounts', () => {
+    const xRecord = {
+      ...baseRecord,
+      socialAccount: {
+        ...baseRecord.socialAccount,
+        platform: SocialPlatform.X,
+        platformAccountId: 'x-user-1',
+      },
+    };
+
+    beforeEach(() => {
+      uploadXVideoMock.mockResolvedValue({ tweetId: 'tweet-1' });
+    });
+
+    it('streams the clip bytes, posts to X, and marks PUBLISHED with the tweet id', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(xRecord);
+
+      const processor = getProcessor();
+      const result = await processor(baseJob());
+
+      expect(getObjectStreamMock).toHaveBeenCalledWith('renders/clip-1.mp4');
+      expect(uploadXVideoMock).toHaveBeenCalledWith({
+        accessToken: 'plaintext-access',
+        videoStream: { fake: 'readable' },
+        text: 'Wait for it\n\n#viral #fyp',
+      });
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-1' },
+        data: {
+          status: PublishStatus.PUBLISHED,
+          platformPostId: 'tweet-1',
+          publishedAt: expect.any(Date),
+        },
+      });
+      expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'tweet-1' });
+    });
+
+    it('marks the record FAILED with a billing/quota-shaped error message, same honest-status path as any other failure', async () => {
+      uploadXVideoMock.mockRejectedValue(new Error('X media/upload INIT failed: 403 quota exceeded'));
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(xRecord);
+
+      const processor = getProcessor();
+      await expect(processor(baseJob({ opts: { attempts: 1 } }))).rejects.toThrow('quota exceeded');
+
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-1' },
+        data: {
+          status: PublishStatus.FAILED,
+          errorMessage: 'X media/upload INIT failed: 403 quota exceeded',
+        },
+      });
+    });
+
+    it('resolves the access token via the X client, not any other platform', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(xRecord);
+
+      const processor = getProcessor();
+      await processor(baseJob());
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        xRecord.socialAccount,
+        expect.any(FakeXOAuthClient),
       );
     });
   });

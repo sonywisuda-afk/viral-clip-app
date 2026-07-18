@@ -10,6 +10,7 @@ import {
   PinterestOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
+  XOAuthClient,
   YouTubeOAuthClient,
   type FacebookPage,
   type FacebookTokens,
@@ -23,6 +24,8 @@ import {
   type ThreadsUser,
   type TikTokTokens,
   type TikTokUser,
+  type XAccount,
+  type XTokens,
   type YouTubeChannel,
   type YouTubeTokens,
 } from '@speedora/social';
@@ -41,6 +44,7 @@ export class SocialAccountsService {
     private readonly threads: ThreadsOAuthClient,
     private readonly linkedin: LinkedInOAuthClient,
     private readonly pinterest: PinterestOAuthClient,
+    private readonly x: XOAuthClient,
   ) {}
 
   // Both revokeToken() and resolveAccessToken() (via OAuthRefreshClient)
@@ -56,7 +60,8 @@ export class SocialAccountsService {
     | FacebookOAuthClient
     | ThreadsOAuthClient
     | LinkedInOAuthClient
-    | PinterestOAuthClient {
+    | PinterestOAuthClient
+    | XOAuthClient {
     switch (platform) {
       case SocialPlatform.YOUTUBE:
         return this.youtube;
@@ -72,6 +77,8 @@ export class SocialAccountsService {
         return this.linkedin;
       case SocialPlatform.PINTEREST:
         return this.pinterest;
+      case SocialPlatform.X:
+        return this.x;
     }
   }
 
@@ -347,6 +354,42 @@ export class SocialAccountsService {
       },
       update: {
         displayName: account.displayName,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+    });
+    return toDto(row);
+  }
+
+  // Upserts on (userId, platform, userId). Best-effort platform (see
+  // CLAUDE.md's Publish Center section) - the connect flow itself is a
+  // normal OAuth 2.0 PKCE dance and works regardless of whether the
+  // connecting user's X Developer App has active API billing; that only
+  // matters at actual publish time, where a billing/quota failure surfaces
+  // through the existing PublishRecord.errorMessage/FAILED-status path
+  // (see publish-clip.worker.ts), same as any other publish failure - no
+  // special-cased UI needed here.
+  async connectX(userId: string, tokens: XTokens, account: XAccount): Promise<SocialAccount> {
+    const row = await this.prisma.socialAccount.upsert({
+      where: {
+        userId_platform_platformAccountId: {
+          userId,
+          platform: SocialPlatform.X,
+          platformAccountId: account.userId,
+        },
+      },
+      create: {
+        userId,
+        platform: SocialPlatform.X,
+        platformAccountId: account.userId,
+        displayName: account.username,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+      update: {
+        displayName: account.username,
         accessToken: encryptToken(tokens.accessToken),
         refreshToken: encryptToken(tokens.refreshToken),
         tokenExpiresAt: tokens.expiresAt,

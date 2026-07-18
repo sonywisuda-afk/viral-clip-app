@@ -19,6 +19,7 @@ const fetchFacebookVideoStatsMock = jest.fn();
 const fetchThreadsPostStatsMock = jest.fn();
 const fetchLinkedInPostStatsMock = jest.fn();
 const fetchPinterestPinStatsMock = jest.fn();
+const fetchXTweetStatsMock = jest.fn();
 const computeEngagementScoreMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeInstagramOAuthClient {}
@@ -27,6 +28,7 @@ class FakeFacebookOAuthClient {}
 class FakeThreadsOAuthClient {}
 class FakeLinkedInOAuthClient {}
 class FakePinterestOAuthClient {}
+class FakeXOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   fetchYouTubeVideoStats: (...args: unknown[]) => fetchYouTubeVideoStatsMock(...args),
@@ -37,6 +39,7 @@ jest.mock('@speedora/social', () => ({
   fetchThreadsPostStats: (...args: unknown[]) => fetchThreadsPostStatsMock(...args),
   fetchLinkedInPostStats: (...args: unknown[]) => fetchLinkedInPostStatsMock(...args),
   fetchPinterestPinStats: (...args: unknown[]) => fetchPinterestPinStatsMock(...args),
+  fetchXTweetStats: (...args: unknown[]) => fetchXTweetStatsMock(...args),
   computeEngagementScore: (...args: unknown[]) => computeEngagementScoreMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
@@ -45,6 +48,7 @@ jest.mock('@speedora/social', () => ({
   ThreadsOAuthClient: FakeThreadsOAuthClient,
   LinkedInOAuthClient: FakeLinkedInOAuthClient,
   PinterestOAuthClient: FakePinterestOAuthClient,
+  XOAuthClient: FakeXOAuthClient,
 }));
 
 const publishRecordFindManyMock = jest.fn();
@@ -146,6 +150,19 @@ const pinterestRecord = {
   },
 };
 
+const xRecord = {
+  id: 'record-6',
+  socialAccountId: 'account-6',
+  platformPostId: 'tweet-1',
+  socialAccount: {
+    id: 'account-6',
+    platform: SocialPlatform.X,
+    accessToken: 'encrypted-access-6',
+    refreshToken: 'encrypted-refresh-6',
+    tokenExpiresAt: new Date('2099-01-01'),
+  },
+};
+
 describe('sync-publish-stats worker', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -191,6 +208,13 @@ describe('sync-publish-stats worker', () => {
       shareCount: null,
       watchTimeSeconds: null,
     });
+    fetchXTweetStatsMock.mockResolvedValue({
+      viewCount: 800,
+      likeCount: 25,
+      commentCount: 3,
+      shareCount: 4,
+      watchTimeSeconds: null,
+    });
   });
 
   describe('scheduleRepeatingTrigger', () => {
@@ -225,12 +249,12 @@ describe('sync-publish-stats worker', () => {
         },
         include: { socialAccount: true },
       });
-      // Also includes FACEBOOK/THREADS (Phase 1), LINKEDIN (Phase 2), and
-      // PINTEREST (Phase 3) since all define syncStats -
+      // Also includes FACEBOOK/THREADS (Phase 1), LINKEDIN (Phase 2),
+      // PINTEREST (Phase 3), and X (Phase 4) since all define syncStats -
       // platformsWithStatsSync() derives this list rather than a second
       // hand-maintained platform array.
       const inArg = publishRecordFindManyMock.mock.calls[0][0].where.socialAccount.platform.in;
-      expect(inArg).toHaveLength(7);
+      expect(inArg).toHaveLength(8);
     });
 
     it('fetches and persists YouTube stats via the YouTube client', async () => {
@@ -500,6 +524,41 @@ describe('sync-publish-stats worker', () => {
           likeCount: 12,
           commentCount: null,
           shareCount: null,
+          watchTimeSeconds: null,
+          engagementScore: 0.5,
+        },
+      });
+    });
+  });
+
+  describe('X records', () => {
+    it('fetches and persists X stats via the X client', async () => {
+      publishRecordFindManyMock.mockResolvedValue([xRecord]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        xRecord.socialAccount,
+        expect.any(FakeXOAuthClient),
+      );
+      expect(fetchXTweetStatsMock).toHaveBeenCalledWith('plaintext-access', 'tweet-1');
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-6' },
+        data: {
+          viewCount: 800,
+          likeCount: 25,
+          commentCount: 3,
+          statsUpdatedAt: expect.any(Date),
+        },
+      });
+      expect(publishRecordStatsSnapshotCreateMock).toHaveBeenCalledWith({
+        data: {
+          publishRecordId: 'record-6',
+          viewCount: 800,
+          likeCount: 25,
+          commentCount: 3,
+          shareCount: 4,
           watchTimeSeconds: null,
           engagementScore: 0.5,
         },
