@@ -18,6 +18,7 @@ export * from './types/clip-version';
 export * from './types/audit-log';
 export * from './types/campaign';
 export * from './types/recurring-schedule';
+export * from './types/platform-fit';
 export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';

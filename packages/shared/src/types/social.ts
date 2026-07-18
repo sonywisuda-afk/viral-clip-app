@@ -38,6 +38,53 @@ export const PLATFORM_METADATA: Record<SocialPlatform, PlatformMetadata> = {
   [SocialPlatform.X]: { label: 'X', iconKey: 'x', colorHex: '#000000' },
 };
 
+// Publishing Expansion Phase 7A (AI SEO - best-time-to-post heuristic).
+// `daysOfWeek` matches RecurringSchedule's own convention (0=Sunday..
+// 6=Saturday, Date.getDay()); `hourRangeLocal` is a [startHour, endHour)
+// 24h range interpreted in whatever timezone the viewer is looking at it
+// in - this is a GENERIC, industry-standard best-practice heuristic, not
+// personalized to any workspace's actual audience. Production currently has
+// 0 usable per-platform engagement samples (see the Fusion Engine v3
+// notes), so a data-driven "when does *this* workspace's audience engage"
+// version isn't viable yet - revisit once PublishRecordStatsSnapshot has
+// enough real history, same "Open, pending real data" posture as
+// @speedora/platform-fit's weights. No LLM/API call needed - static data,
+// same convention as PLATFORM_METADATA above.
+export interface BestTimeSlot {
+  daysOfWeek: number[];
+  hourRangeLocal: [number, number];
+}
+
+export const BEST_TIME_HEURISTICS: Record<SocialPlatform, BestTimeSlot[]> = {
+  [SocialPlatform.YOUTUBE]: [
+    { daysOfWeek: [4, 5, 6], hourRangeLocal: [14, 17] }, // Thu-Sat afternoon
+  ],
+  [SocialPlatform.TIKTOK]: [
+    { daysOfWeek: [2, 4], hourRangeLocal: [19, 22] }, // Tue/Thu evening
+    { daysOfWeek: [0, 6], hourRangeLocal: [9, 11] }, // weekend morning
+  ],
+  [SocialPlatform.INSTAGRAM]: [
+    { daysOfWeek: [1, 2, 3, 4, 5], hourRangeLocal: [11, 13] }, // weekday lunch
+    { daysOfWeek: [1, 2, 3, 4, 5], hourRangeLocal: [19, 21] }, // weekday evening
+  ],
+  [SocialPlatform.FACEBOOK]: [
+    { daysOfWeek: [2, 3, 4], hourRangeLocal: [13, 16] }, // Tue-Thu afternoon
+  ],
+  [SocialPlatform.THREADS]: [
+    { daysOfWeek: [1, 2, 3, 4, 5], hourRangeLocal: [8, 10] }, // weekday morning
+  ],
+  [SocialPlatform.LINKEDIN]: [
+    { daysOfWeek: [2, 3, 4], hourRangeLocal: [9, 11] }, // Tue-Thu mid-morning
+  ],
+  [SocialPlatform.PINTEREST]: [
+    { daysOfWeek: [5, 6, 0], hourRangeLocal: [20, 23] }, // Fri-Sun evening
+  ],
+  [SocialPlatform.X]: [
+    { daysOfWeek: [1, 2, 3, 4, 5], hourRangeLocal: [8, 10] }, // weekday morning commute
+    { daysOfWeek: [1, 2, 3, 4, 5], hourRangeLocal: [12, 13] }, // weekday lunch
+  ],
+};
+
 // API/UI-facing DTO for a connected account - deliberately never includes
 // accessToken/refreshToken (see apps/api/src/social/social.service.ts's
 // toDto()). Client never needs the tokens themselves; publishing happens

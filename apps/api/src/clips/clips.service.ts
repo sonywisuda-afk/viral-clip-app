@@ -14,6 +14,7 @@ import {
   QueueName,
   sanitizeHashtags,
   type ClipExplainabilityDto,
+  type ClipPlatformFitDto,
   type ClipVersionDto,
   type ClipVersionListDto,
   type PublishClipJobData,
@@ -21,6 +22,7 @@ import {
   type RenderClipJobData,
   type ThumbnailFallbackLevel,
 } from '@speedora/shared';
+import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -234,6 +236,30 @@ export class ClipsService {
           highlightRank: clip.highlightRank,
         },
       ],
+    };
+  }
+
+  // Publishing Expansion Phase 7A (AI SEO - Platform-Fit Recommendation).
+  // Read-only, computed-on-request - same shape as getExplainability above,
+  // but over Clip.scores (the frozen detect-clips LLM call's ClipScores
+  // breakdown) rather than the Fusion Engine's highlight* columns. No
+  // persistence, no LLM call - @speedora/platform-fit's computePlatformFit
+  // is a pure weighted-sum. `rankings: []` when a clip has no scores yet
+  // (pre-Fase-8 data, or an edge case), same graceful-null posture as
+  // getExplainability's nullable highlight* fields.
+  async getPlatformFit(id: string, requesterId: string): Promise<ClipPlatformFitDto> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+    const scores = toSharedClipScores(clip.scores);
+
+    return {
+      clipId: clip.id,
+      // @speedora/contracts' SocialPlatform is its own duplicated string
+      // literal union (no dependency on @speedora/shared's real enum, same
+      // convention as ClipScores) - safe to cast since both enumerate the
+      // exact same 8 values, checked by clips.service.spec.ts.
+      rankings: scores
+        ? (computePlatformFit(scores).rankings as unknown as ClipPlatformFitDto['rankings'])
+        : [],
     };
   }
 

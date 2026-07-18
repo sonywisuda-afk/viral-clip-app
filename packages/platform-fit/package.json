@@ -1,0 +1,37 @@
+{
+  "name": "@speedora/platform-fit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): Publishing Expansion Phase 7A (AI SEO - Platform-Fit Recommendation). Ranks Speedora's 9 SocialPlatform values for a clip by taking a weighted sum of its already-computed ClipScores 9-dimension breakdown (the frozen detect-clips LLM call's output) against one hand-authored weight vector per platform. No LLM call, no detector, no I/O - pure function only. See root ARCHITECTURE.md. Consumed by apps/api's ClipsService.getPlatformFit.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.5"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

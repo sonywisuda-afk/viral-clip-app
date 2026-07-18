@@ -167,6 +167,14 @@ export class ClipsController {
     return this.clipsService.getExplainability(id, user.id);
   }
 
+  // Publishing Expansion Phase 7A (AI SEO) - a read-only ranking of which
+  // SocialPlatform this clip suits best, computed from its already-stored
+  // ClipScores breakdown. See ClipsService.getPlatformFit.
+  @Get(':id/platform-fit')
+  getPlatformFit(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.getPlatformFit(id, user.id);
+  }
+
   // Manual trim from the timeline editor - does not trigger a re-render.
   @Patch(':id')
   update(@CurrentUser() user: SafeUser, @Param('id') id: string, @Body() dto: UpdateClipDto) {

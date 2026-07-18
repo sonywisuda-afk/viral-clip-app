@@ -397,6 +397,61 @@ describe('ClipsService', () => {
     });
   });
 
+  describe('getPlatformFit', () => {
+    const scores = {
+      hookStrength: 90,
+      educationalValue: 10,
+      practicalValue: 10,
+      curiosity: 80,
+      emotion: 20,
+      storytelling: 20,
+      novelty: 30,
+      trustAuthority: 10,
+      ctaStrength: 10,
+    };
+    const clip = { id: 'clip-1', video: { ownerId: 'user-1' }, scores };
+
+    it('ranks all 8 platforms, sorted descending, for a clip with scores', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getPlatformFit('clip-1', 'user-1');
+
+      expect(result.clipId).toBe('clip-1');
+      expect(result.rankings).toHaveLength(8);
+      for (let i = 1; i < result.rankings.length; i++) {
+        expect(result.rankings[i - 1].score).toBeGreaterThanOrEqual(result.rankings[i].score);
+      }
+      // hookStrength/curiosity-heavy scores should favor TikTok over LinkedIn.
+      const rank = (platform: string) => result.rankings.findIndex((r) => r.platform === platform);
+      expect(rank('TIKTOK')).toBeLessThan(rank('LINKEDIN'));
+    });
+
+    it('returns empty rankings when the clip has no scores yet', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, scores: null });
+
+      const result = await service.getPlatformFit('clip-1', 'user-1');
+
+      expect(result).toEqual({ clipId: 'clip-1', rankings: [] });
+    });
+
+    it('throws NotFoundException when the clip does not exist', async () => {
+      prisma.clip.findUnique.mockResolvedValue(null);
+
+      await expect(service.getPlatformFit('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, video: { workspaceId: 'ws-1' } });
+      workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
+
+      await expect(service.getPlatformFit('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('update', () => {
     const existingClip = {
       id: 'clip-1',

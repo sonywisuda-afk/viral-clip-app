@@ -12,6 +12,7 @@ import type {
   CampaignListDto,
   Clip,
   ClipExplainabilityDto,
+  ClipPlatformFitDto,
   ClipVersionListDto,
   CommentAttachmentDto,
   CommentDto,
@@ -366,6 +367,14 @@ export async function renderClip(clipId: string): Promise<Clip> {
 export async function getClipExplainability(clipId: string): Promise<ClipExplainabilityDto> {
   const res = await apiFetch(`/clips/${clipId}/explainability`);
   return parseJsonOrThrow<ClipExplainabilityDto>(res);
+}
+
+// Publishing Expansion Phase 7A (AI SEO - Platform-Fit Recommendation) -
+// same "per-clip round trip only when the user actually looks" reasoning as
+// getClipExplainability above.
+export async function getClipPlatformFit(clipId: string): Promise<ClipPlatformFitDto> {
+  const res = await apiFetch(`/clips/${clipId}/platform-fit`);
+  return parseJsonOrThrow<ClipPlatformFitDto>(res);
 }
 
 // Permanently deletes one clip (not the parent video or its sibling clips).

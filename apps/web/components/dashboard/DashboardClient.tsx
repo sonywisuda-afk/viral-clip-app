@@ -16,6 +16,7 @@ import { ScoreGauge } from '@/components/ScoreGauge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ShareDialog } from '@/components/dashboard/ShareDialog';
+import { PlatformFitHint } from '@/components/seo/PlatformFitHint';
 import {
   cancelScheduledPublish,
   clipDownloadUrl,
@@ -960,6 +961,7 @@ export function DashboardClient({
                                           )}
                                         </div>
                                       )}
+                                      <PlatformFitHint clipId={clip.id} />
                                     </div>
                                   );
                                 })()}

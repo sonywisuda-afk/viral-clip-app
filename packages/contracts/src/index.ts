@@ -17,6 +17,7 @@ export * from './gesture-intelligence';
 export * from './intelligence-signal';
 export * from './object-intelligence';
 export * from './ocr';
+export * from './platform-fit';
 export * from './primary-subject';
 export * from './reframe';
 export * from './scene-intelligence';
