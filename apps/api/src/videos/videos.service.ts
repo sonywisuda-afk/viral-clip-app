@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   recordActivityEvent,
+  recordAuditLog,
   recordNotification,
   recordVideoStatusEvent,
   updateVideoStatus,
@@ -622,6 +623,19 @@ export class VideosService {
 
     await this.prisma.video.delete({ where: { id } });
     await this.storage.deleteObjects(storageKeys);
+
+    // Sprint 5F (Audit Log) - best-effort, same posture as every other
+    // recordAuditLog/recordActivityEvent/recordNotification call site: a
+    // lost audit row must never fail the delete itself (already committed
+    // by this point).
+    await recordAuditLog(this.prisma, {
+      workspaceId: video.workspaceId,
+      action: 'VIDEO_DELETED',
+      actorId: requesterId,
+      targetType: 'Video',
+      targetId: id,
+      metadata: { title: video.title },
+    }).catch(() => {});
   }
 
   // Sprint 5A (Collaboration Foundation) - PATCH /videos/:id/move.
@@ -669,7 +683,7 @@ export class VideosService {
       }
     }
 
-    return this.prisma.video.update({
+    const updated = await this.prisma.video.update({
       where: { id },
       data: {
         workspaceId: targetWorkspaceId,
@@ -677,6 +691,23 @@ export class VideosService {
         folderId: targetFolderId,
       },
     });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: targetWorkspaceId,
+      action: 'VIDEO_MOVED',
+      actorId: requesterId,
+      targetType: 'Video',
+      targetId: id,
+      metadata: {
+        title: video.title,
+        fromWorkspaceId: video.workspaceId,
+        toWorkspaceId: targetWorkspaceId,
+        toProjectId: targetProjectId,
+        toFolderId: targetFolderId,
+      },
+    }).catch(() => {});
+
+    return updated;
   }
 
   // Separate from findOne()/mapVideoWithClips() on purpose - transcript

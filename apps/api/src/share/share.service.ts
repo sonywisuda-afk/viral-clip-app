@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { WorkspaceRole, type ShareLink } from '@speedora/database';
+import { recordAuditLog, WorkspaceRole, type ShareLink } from '@speedora/database';
 import type {
   ShareLinkCreatedDto,
   ShareLinkDto,
@@ -66,6 +66,15 @@ export class ShareService {
       },
     });
 
+    await recordAuditLog(this.prisma, {
+      workspaceId: video.workspaceId,
+      action: 'SHARE_LINK_CREATED',
+      actorId: userId,
+      targetType: 'ShareLink',
+      targetId: link.id,
+      metadata: { videoId: video.id, role: link.role },
+    }).catch(() => {});
+
     return { ...toDto(link), url: `${webOrigin}/share/${rawToken}` };
   }
 
@@ -91,6 +100,15 @@ export class ShareService {
       where: { id: shareLinkId },
       data: { revokedAt: new Date() },
     });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: video.workspaceId,
+      action: 'SHARE_LINK_REVOKED',
+      actorId: userId,
+      targetType: 'ShareLink',
+      targetId: shareLinkId,
+      metadata: { videoId: video.id },
+    }).catch(() => {});
   }
 
   // Resolves a raw token to its live ShareLink row, or throws - the one

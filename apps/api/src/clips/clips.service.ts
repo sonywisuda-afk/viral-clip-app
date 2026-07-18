@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   PublishStatus,
+  recordAuditLog,
   WorkspaceRole,
   type CaptionStyle,
   type ClipVersion,
@@ -249,6 +250,17 @@ export class ClipsService {
       // delete button. The DB row (the source of truth) is already gone.
       void this.storage.deleteObjects([clip.outputUrl]);
     }
+
+    // Sprint 5F (Audit Log) - best-effort, same posture as every other
+    // recordAuditLog call site.
+    await recordAuditLog(this.prisma, {
+      workspaceId: clip.video.workspaceId,
+      action: 'CLIP_DELETED',
+      actorId: requesterId,
+      targetType: 'Clip',
+      targetId: id,
+      metadata: { videoId: clip.videoId, hookText: clip.hookText },
+    }).catch(() => {});
   }
 
   // Manual trim/style change from the timeline editor. Deliberately does not

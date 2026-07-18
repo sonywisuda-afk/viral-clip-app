@@ -6,8 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PendingInviteStatus, WorkspaceRole } from '@speedora/database';
-import { recordActivityEvent } from '@speedora/database';
+import { recordActivityEvent, recordAuditLog } from '@speedora/database';
 import type {
+  AuditLogEntryDto,
+  AuditLogListDto,
   PendingInviteDto,
   WorkspaceDetailDto,
   WorkspaceDto,
@@ -190,6 +192,16 @@ export class WorkspaceService {
       // Best-effort, same posture as every other recordActivityEvent call
       // site - the invite itself (create + email) already succeeded.
     });
+    // Sprint 5F (Audit Log) - same best-effort posture: a lost audit row
+    // must never fail the invite itself.
+    await recordAuditLog(this.prisma, {
+      workspaceId,
+      action: 'INVITE_CREATED',
+      actorId: inviterId,
+      targetType: 'PendingInvite',
+      targetId: invite.id,
+      metadata: { email: input.email, role: input.role },
+    }).catch(() => {});
 
     return this.toInviteDto(invite);
   }
@@ -248,6 +260,14 @@ export class WorkspaceService {
       type: 'MEMBER_INVITED',
       metadata: { workspaceId: invite.workspaceId, accepted: true },
     }).catch(() => {});
+    await recordAuditLog(this.prisma, {
+      workspaceId: invite.workspaceId,
+      action: 'INVITE_ACCEPTED',
+      actorId: userId,
+      targetType: 'PendingInvite',
+      targetId: invite.id,
+      metadata: { email: invite.email, role: invite.role },
+    }).catch(() => {});
 
     return this.toDto(invite.workspaceId, userId);
   }
@@ -259,12 +279,21 @@ export class WorkspaceService {
     role: WorkspaceRole,
   ): Promise<void> {
     await this.access.assertMinRole(requesterId, workspaceId, WorkspaceRole.ADMIN);
-    await this.assertNotLastOwnerChange(workspaceId, targetUserId, role);
+    const previous = await this.assertNotLastOwnerChange(workspaceId, targetUserId, role);
 
     await this.prisma.workspaceMembership.update({
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
       data: { role },
     });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId,
+      action: 'MEMBER_ROLE_CHANGED',
+      actorId: requesterId,
+      targetType: 'WorkspaceMembership',
+      targetId: targetUserId,
+      metadata: { oldRole: previous.role, newRole: role },
+    }).catch(() => {});
   }
 
   async removeMember(
@@ -273,22 +302,71 @@ export class WorkspaceService {
     targetUserId: string,
   ): Promise<void> {
     await this.access.assertMinRole(requesterId, workspaceId, WorkspaceRole.ADMIN);
-    await this.assertNotLastOwnerChange(workspaceId, targetUserId, null);
+    const previous = await this.assertNotLastOwnerChange(workspaceId, targetUserId, null);
 
     await this.prisma.workspaceMembership.delete({
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
     });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId,
+      action: 'MEMBER_REMOVED',
+      actorId: requesterId,
+      targetType: 'WorkspaceMembership',
+      targetId: targetUserId,
+      metadata: { role: previous.role },
+    }).catch(() => {});
+  }
+
+  // Sprint 5F (Audit Log) - ADMIN+-only, same role threshold as this
+  // codebase's other governance/security surfaces (Milestone 5C-B's Ops
+  // Dashboard precedent). Cursor-paginated, same shape as
+  // VideosService.findAll - can grow unbounded over a workspace's lifetime.
+  async listAuditLog(
+    userId: string,
+    workspaceId: string,
+    { cursor, limit }: { cursor?: string; limit: number },
+  ): Promise<AuditLogListDto> {
+    await this.access.assertMinRole(userId, workspaceId, WorkspaceRole.ADMIN);
+
+    const entries = await this.prisma.auditLogEntry.findMany({
+      where: { workspaceId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { actor: { select: { email: true } } },
+    });
+
+    const hasMore = entries.length > limit;
+    const page = hasMore ? entries.slice(0, limit) : entries;
+
+    return {
+      entries: page.map(
+        (e): AuditLogEntryDto => ({
+          id: e.id,
+          action: e.action as unknown as AuditLogEntryDto['action'],
+          actorEmail: e.actor.email,
+          targetType: e.targetType,
+          targetId: e.targetId,
+          metadata: e.metadata as Record<string, unknown> | null,
+          createdAt: e.createdAt.toISOString(),
+        }),
+      ),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
   }
 
   // Guards against leaving a Workspace with zero OWNERs - `newRole: null`
   // means "the member is being removed entirely," any other value means
   // "the member's role is changing to this." Both collapse to the same
-  // check: would this leave the OWNER count at zero?
+  // check: would this leave the OWNER count at zero? Returns the
+  // pre-change membership row so callers (updateMemberRole/removeMember)
+  // can log the OLD role to the audit log without a second query.
   private async assertNotLastOwnerChange(
     workspaceId: string,
     targetUserId: string,
     newRole: WorkspaceRole | null,
-  ): Promise<void> {
+  ) {
     const target = await this.prisma.workspaceMembership.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
     });
@@ -296,7 +374,7 @@ export class WorkspaceService {
       throw new NotFoundException('This user is not a member of this workspace');
     }
     if (target.role !== WorkspaceRole.OWNER || newRole === WorkspaceRole.OWNER) {
-      return;
+      return target;
     }
     const ownerCount = await this.prisma.workspaceMembership.count({
       where: { workspaceId, role: WorkspaceRole.OWNER },
@@ -304,6 +382,7 @@ export class WorkspaceService {
     if (ownerCount <= 1) {
       throw new BadRequestException('A workspace must always have at least one OWNER');
     }
+    return target;
   }
 
   private async findInviteByRawToken(rawToken: string) {

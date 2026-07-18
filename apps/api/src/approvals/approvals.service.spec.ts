@@ -43,6 +43,7 @@ describe('ApprovalsService', () => {
     video: { findUniqueOrThrow: jest.Mock };
     notification: { create: jest.Mock };
     notificationPreference: { findUnique: jest.Mock };
+    auditLogEntry: { create: jest.Mock };
     $transaction: jest.Mock;
   };
   let workspaceAccess: {
@@ -68,6 +69,7 @@ describe('ApprovalsService', () => {
       video: { findUniqueOrThrow: jest.fn().mockResolvedValue(BASE_VIDEO) },
       notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+      auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn(),
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
@@ -190,6 +192,17 @@ describe('ApprovalsService', () => {
           data: expect.objectContaining({ userId: 'requester-1', type: 'APPROVAL' }),
         }),
       );
+      // Sprint 5F (Audit Log).
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'APPROVAL_DECIDED',
+          actorId: 'reviewer-1',
+          targetType: 'Approval',
+          targetId: 'approval-1',
+          metadata: expect.objectContaining({ status: 'APPROVED' }),
+        }),
+      });
       expect(result.id).toBe('approval-1');
     });
 

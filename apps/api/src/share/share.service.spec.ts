@@ -9,6 +9,7 @@ describe('ShareService', () => {
     shareLink: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock; update: jest.Mock };
     video: { findUniqueOrThrow: jest.Mock };
     clip: { findUnique: jest.Mock };
+    auditLogEntry: { create: jest.Mock };
   };
   let workspaceAccess: { assertVideoAccess: jest.Mock; assertMinRole: jest.Mock };
 
@@ -22,6 +23,7 @@ describe('ShareService', () => {
       },
       video: { findUniqueOrThrow: jest.fn() },
       clip: { findUnique: jest.fn() },
+      auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
     };
     workspaceAccess = {
       assertVideoAccess: jest.fn().mockResolvedValue({ id: 'video-1', workspaceId: 'ws-1' }),
@@ -58,6 +60,16 @@ describe('ShareService', () => {
         }),
       });
       expect(result.url).toMatch(/^https:\/\/app\.speedora\.test\/share\/[a-f0-9]{64}$/);
+      // Sprint 5F (Audit Log).
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'SHARE_LINK_CREATED',
+          actorId: 'user-1',
+          targetType: 'ShareLink',
+          targetId: 'link-1',
+        }),
+      });
       expect(result).toMatchObject({
         id: 'link-1',
         videoId: 'video-1',
@@ -117,6 +129,16 @@ describe('ShareService', () => {
       expect(prisma.shareLink.update).toHaveBeenCalledWith({
         where: { id: 'link-1' },
         data: { revokedAt: expect.any(Date) },
+      });
+      // Sprint 5F (Audit Log).
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'SHARE_LINK_REVOKED',
+          actorId: 'user-1',
+          targetType: 'ShareLink',
+          targetId: 'link-1',
+        }),
       });
     });
 

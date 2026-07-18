@@ -1,6 +1,7 @@
 'use client';
 
 import { WorkspaceRole } from '@speedora/shared';
+import Link from 'next/link';
 import { useState } from 'react';
 import useSWR from 'swr';
 import {
@@ -101,6 +102,15 @@ export function WorkspaceMembersDialog() {
         <DialogHeader>
           <DialogTitle>{workspace ? `Members - ${workspace.name}` : 'Members'}</DialogTitle>
         </DialogHeader>
+
+        {isAdmin && activeWorkspaceId && (
+          <Link
+            href={`/workspaces/${activeWorkspaceId}/audit-log`}
+            className="font-body text-xs text-signal-cyan underline underline-offset-2"
+          >
+            Lihat Audit Log
+          </Link>
+        )}
 
         {workspace && workspace.members.length > 0 && (
           <div className="max-h-40 space-y-1.5 overflow-y-auto">

@@ -5,7 +5,7 @@ import { NotificationDeliveryProducer } from '../queue/notification-delivery.pro
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import { WORKSPACE_ROLE_RANK, WorkspaceAccessService } from '../workspace/workspace-access.service';
-import { recordNotification } from '@speedora/database';
+import { recordAuditLog, recordNotification } from '@speedora/database';
 import type { DecideApprovalDto } from './dto/decide-approval.dto';
 import type { RequestApprovalDto } from './dto/request-approval.dto';
 
@@ -159,6 +159,17 @@ export class ApprovalsService {
     });
 
     await this.notifyDecision(video, approval, userId, dto.status);
+
+    // Sprint 5F (Audit Log) - best-effort, same posture as every other
+    // recordAuditLog call site.
+    await recordAuditLog(this.prisma, {
+      workspaceId: video.workspaceId,
+      action: 'APPROVAL_DECIDED',
+      actorId: userId,
+      targetType: 'Approval',
+      targetId: approvalId,
+      metadata: { status: dto.status, videoId: video.id, clipId: approval.clipId },
+    }).catch(() => {});
 
     return this.reloadDto(approvalId);
   }

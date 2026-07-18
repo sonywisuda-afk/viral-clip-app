@@ -15,6 +15,7 @@ export * from './types/share';
 export * from './types/comment';
 export * from './types/approval';
 export * from './types/clip-version';
+export * from './types/audit-log';
 export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';

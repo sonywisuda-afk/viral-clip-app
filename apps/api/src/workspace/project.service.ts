@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { WorkspaceRole } from '@speedora/database';
+import { recordAuditLog, WorkspaceRole } from '@speedora/database';
 import type { ProjectDto } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from './workspace-access.service';
@@ -35,6 +35,16 @@ export class ProjectService {
   async create(userId: string, workspaceId: string, name: string): Promise<ProjectDto> {
     await this.access.assertMinRole(userId, workspaceId, WorkspaceRole.EDITOR);
     const project = await this.prisma.project.create({ data: { workspaceId, name } });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId,
+      action: 'PROJECT_CREATED',
+      actorId: userId,
+      targetType: 'Project',
+      targetId: project.id,
+      metadata: { name },
+    }).catch(() => {});
+
     return toDto(project);
   }
 
@@ -72,5 +82,14 @@ export class ProjectService {
     const project = await this.findOrThrow(projectId);
     await this.access.assertMinRole(userId, project.workspaceId, WorkspaceRole.ADMIN);
     await this.prisma.project.delete({ where: { id: projectId } });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: project.workspaceId,
+      action: 'PROJECT_DELETED',
+      actorId: userId,
+      targetType: 'Project',
+      targetId: projectId,
+      metadata: { name: project.name },
+    }).catch(() => {});
   }
 }

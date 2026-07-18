@@ -25,6 +25,8 @@ describe('VideosService', () => {
     notification: { create: jest.Mock };
     notificationPreference: { findUnique: jest.Mock };
     project: { findUnique: jest.Mock };
+    folder: { findUnique: jest.Mock };
+    auditLogEntry: { create: jest.Mock };
     $transaction: jest.Mock;
   };
   let workspaceAccess: {
@@ -59,6 +61,8 @@ describe('VideosService', () => {
       notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       project: { findUnique: jest.fn() },
+      folder: { findUnique: jest.fn() },
+      auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
       // id before writing its first VideoStatusEvent) and the array form
@@ -1149,10 +1153,12 @@ describe('VideosService', () => {
   });
 
   describe('remove', () => {
-    it('deletes the video row and cleans up the source + rendered clip objects', async () => {
+    it('deletes the video row, cleans up storage, and records an audit log entry', async () => {
       prisma.video.findUnique.mockResolvedValue({
         id: 'video-1',
         ownerId: 'user-1',
+        workspaceId: 'ws-1',
+        title: 'My video',
         sourceUrl: 'videos/abc.mp4',
         clips: [{ outputUrl: 'renders/clip-1.mp4' }, { outputUrl: null }],
       });
@@ -1163,6 +1169,16 @@ describe('VideosService', () => {
       // Source + the one rendered clip; the unrendered clip (null outputUrl)
       // contributes no key.
       expect(storage.deleteObjects).toHaveBeenCalledWith(['videos/abc.mp4', 'renders/clip-1.mp4']);
+      // Sprint 5F (Audit Log).
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'VIDEO_DELETED',
+          actorId: 'user-1',
+          targetType: 'Video',
+          targetId: 'video-1',
+        }),
+      });
     });
 
     it('throws NotFoundException and deletes nothing for a missing video', async () => {
@@ -1184,6 +1200,85 @@ describe('VideosService', () => {
       await expect(service.remove('video-1', 'user-1')).rejects.toThrow(NotFoundException);
       expect(prisma.video.delete).not.toHaveBeenCalled();
       expect(storage.deleteObjects).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('move', () => {
+    it('moves a video to a new project within the same workspace and records an audit log entry', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        workspaceId: 'ws-1',
+        projectId: null,
+        folderId: null,
+        title: 'My video',
+      });
+      prisma.project.findUnique.mockResolvedValue({ id: 'project-1', workspaceId: 'ws-1' });
+      prisma.video.update.mockResolvedValue({
+        id: 'video-1',
+        workspaceId: 'ws-1',
+        projectId: 'project-1',
+        folderId: null,
+      });
+
+      const result = await service.move('video-1', 'user-1', { projectId: 'project-1' });
+
+      expect(prisma.video.update).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { workspaceId: 'ws-1', projectId: 'project-1', folderId: null },
+      });
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'VIDEO_MOVED',
+          actorId: 'user-1',
+          targetType: 'Video',
+          targetId: 'video-1',
+          metadata: expect.objectContaining({
+            fromWorkspaceId: 'ws-1',
+            toWorkspaceId: 'ws-1',
+            toProjectId: 'project-1',
+            toFolderId: null,
+          }),
+        }),
+      });
+      expect(result.projectId).toBe('project-1');
+    });
+
+    it('requires EDITOR+ in the destination workspace when moving across workspaces', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        workspaceId: 'ws-1',
+        projectId: null,
+        folderId: null,
+        title: 'My video',
+      });
+      prisma.video.update.mockResolvedValue({ id: 'video-1', workspaceId: 'ws-2' });
+
+      await service.move('video-1', 'user-1', { workspaceId: 'ws-2' });
+
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'EDITOR');
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-2', 'EDITOR');
+    });
+
+    it('throws BadRequestException when projectId does not belong to the target workspace', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        workspaceId: 'ws-1',
+        projectId: null,
+        folderId: null,
+      });
+      prisma.project.findUnique.mockResolvedValue({ id: 'project-1', workspaceId: 'other-ws' });
+
+      await expect(
+        service.move('video-1', 'user-1', { projectId: 'project-1' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.video.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a missing video', async () => {
+      prisma.video.findUnique.mockResolvedValue(null);
+
+      await expect(service.move('missing', 'user-1', {})).rejects.toThrow(NotFoundException);
     });
   });
 });

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { WorkspaceRole } from '@speedora/database';
+import { recordAuditLog, WorkspaceRole } from '@speedora/database';
 import type { FolderDto } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from './workspace-access.service';
@@ -66,6 +66,16 @@ export class FolderService {
     const folder = await this.prisma.folder.create({
       data: { projectId, name: input.name, parentId: input.parentId ?? null },
     });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: project.workspaceId,
+      action: 'FOLDER_CREATED',
+      actorId: userId,
+      targetType: 'Folder',
+      targetId: folder.id,
+      metadata: { name: input.name, projectId },
+    }).catch(() => {});
+
     return toDto(folder);
   }
 
@@ -113,5 +123,14 @@ export class FolderService {
     const project = await this.findProjectOrThrow(folder.projectId);
     await this.access.assertMinRole(userId, project.workspaceId, WorkspaceRole.ADMIN);
     await this.prisma.folder.delete({ where: { id: folderId } });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: project.workspaceId,
+      action: 'FOLDER_DELETED',
+      actorId: userId,
+      targetType: 'Folder',
+      targetId: folderId,
+      metadata: { name: folder.name },
+    }).catch(() => {});
   }
 }

@@ -29,6 +29,7 @@ describe('ClipsService', () => {
       findMany: jest.Mock;
       findUnique: jest.Mock;
     };
+    auditLogEntry: { create: jest.Mock };
     $transaction: jest.Mock;
   };
   let socialAccounts: { findOwnedOrThrow: jest.Mock };
@@ -54,6 +55,7 @@ describe('ClipsService', () => {
         findMany: jest.fn(),
         findUnique: jest.fn(),
       },
+      auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn(),
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
@@ -1088,17 +1090,29 @@ describe('ClipsService', () => {
   });
 
   describe('remove', () => {
-    it('deletes the clip row and cleans up its rendered output object', async () => {
+    it('deletes the clip row, cleans up its rendered output object, and records an audit log entry', async () => {
       prisma.clip.findUnique.mockResolvedValue({
         id: 'clip-1',
+        videoId: 'video-1',
         outputUrl: 'renders/clip-1.mp4',
-        video: { ownerId: 'user-1' },
+        hookText: 'Hook',
+        video: { ownerId: 'user-1', workspaceId: 'ws-1' },
       });
 
       await service.remove('clip-1', 'user-1');
 
       expect(prisma.clip.delete).toHaveBeenCalledWith({ where: { id: 'clip-1' } });
       expect(storage.deleteObjects).toHaveBeenCalledWith(['renders/clip-1.mp4']);
+      // Sprint 5F (Audit Log).
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'CLIP_DELETED',
+          actorId: 'user-1',
+          targetType: 'Clip',
+          targetId: 'clip-1',
+        }),
+      });
     });
 
     it('skips storage cleanup for a clip that never finished rendering', async () => {

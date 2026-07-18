@@ -5,6 +5,7 @@ import type {
   AnalyticsPerformanceVideosDto,
   ApprovalDto,
   ApprovalListDto,
+  AuditLogListDto,
   BrandKitDto,
   Clip,
   ClipExplainabilityDto,
@@ -601,6 +602,19 @@ export async function createWorkspace(name: string): Promise<WorkspaceDto> {
 export async function getWorkspace(id: string): Promise<WorkspaceDetailDto> {
   const res = await apiFetch(`/workspaces/${id}`);
   return parseJsonOrThrow<WorkspaceDetailDto>(res);
+}
+
+// Sprint 5F (Audit Log) - ADMIN+-only server-side.
+export async function listWorkspaceAuditLog(
+  workspaceId: string,
+  params?: { cursor?: string; limit?: number },
+): Promise<AuditLogListDto> {
+  const query = new URLSearchParams();
+  if (params?.cursor) query.set('cursor', params.cursor);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  const res = await apiFetch(`/workspaces/${workspaceId}/audit-log${qs ? `?${qs}` : ''}`);
+  return parseJsonOrThrow<AuditLogListDto>(res);
 }
 
 export async function createWorkspaceInvite(

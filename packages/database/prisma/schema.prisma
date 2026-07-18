@@ -169,6 +169,8 @@ model User {
   approvalEvents           ApprovalEvent[]
   // Sprint 5E (Version Compare & History)
   clipVersionsCreated      ClipVersion[]
+  // Sprint 5F (Audit Log)
+  auditLogEntries          AuditLogEntry[]
 }
 
 model Video {
@@ -1209,10 +1211,11 @@ model Workspace {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  members  WorkspaceMembership[]
-  projects Project[]
-  videos   Video[]
-  invites  PendingInvite[]
+  members        WorkspaceMembership[]
+  projects       Project[]
+  videos         Video[]
+  invites        PendingInvite[]
+  auditLogEntries AuditLogEntry[]
 
   @@index([ownerId])
 }
@@ -1575,4 +1578,58 @@ model ClipVersion {
 
   @@unique([clipId, versionNumber])
   @@index([clipId, versionNumber])
+}
+
+// Sprint 5F (Audit Log). Deliberately a THIRD, separate model from
+// ActivityEvent and Notification, not a rename/extension of either -
+// ActivityEvent is a personal "what happened to my stuff" feed (Dashboard's
+// Activity Timeline, userId-scoped, a handful of creator-facing types);
+// Notification is "what was delivered to me" (has read-state, delivery
+// channels); AuditLogEntry is a workspace-scoped governance/security record
+// ("who changed what shared state, and when"), readable only by ADMIN+
+// (see ApprovalsController's own role-gating precedent) - closer in spirit
+// to Milestone 5C-B's role-gated Ops Dashboard than to either of the other
+// two feeds. targetType/targetId are free-form (not a real FK) since the
+// target row (a Comment, a WorkspaceMembership, a Video) may since have
+// been deleted - same "metadata survives the thing it describes" reasoning
+// ActivityEvent.metadata's own comment gives for a deleted video/clip.
+//
+// Scoped to the governance-relevant actions an admin would actually audit
+// for security/compliance (membership/role changes, invites, project/
+// folder/video/clip deletion, share link lifecycle, approval decisions) -
+// deliberately NOT every comment/reaction/edit, which would make this log
+// noisy without adding real audit value (comments already have their own
+// thread history; ClipVersion already captures render history with its own
+// createdBy/createdAt).
+enum AuditAction {
+  MEMBER_ROLE_CHANGED
+  MEMBER_REMOVED
+  INVITE_CREATED
+  INVITE_ACCEPTED
+  PROJECT_CREATED
+  PROJECT_DELETED
+  FOLDER_CREATED
+  FOLDER_DELETED
+  VIDEO_MOVED
+  VIDEO_DELETED
+  CLIP_DELETED
+  SHARE_LINK_CREATED
+  SHARE_LINK_REVOKED
+  APPROVAL_DECIDED
+}
+
+model AuditLogEntry {
+  id          String      @id @default(cuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  action      AuditAction
+  actorId     String
+  actor       User        @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  targetType  String
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, action])
 }
