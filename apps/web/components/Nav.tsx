@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import type { UserDto } from '../lib/api';
 import { cn } from '../lib/utils';
 import { NotificationBell } from './NotificationBell';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 const LINKS = [
   { href: '/upload', label: 'Upload' },
@@ -49,6 +50,7 @@ export function Nav({ user, onLogout }: { user: UserDto; onLogout: () => void })
         })}
       </nav>
       <div className="flex items-center gap-3 font-body text-sm">
+        <WorkspaceSwitcher />
         <NotificationBell />
         <span className="text-muted-foreground">
           <span className="hidden sm:inline">Signed in as </span>

@@ -98,18 +98,27 @@ describe('MailService', () => {
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid login'));
   });
 
-  describe('sendTeamInviteEmail', () => {
-    it('logs the invite instead of sending when SMTP_HOST is not configured', async () => {
+  describe('sendWorkspaceInviteEmail', () => {
+    const acceptUrl = 'https://app.test/invites/abc123/accept';
+
+    it('logs the invite (including the accept link) instead of sending when SMTP_HOST is not configured', async () => {
       delete process.env.SMTP_HOST;
       const service = await freshMailService();
       const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation();
 
-      await service.sendTeamInviteEmail('friend@example.com', 'owner@example.com', 'EDITOR');
+      await service.sendWorkspaceInviteEmail(
+        'friend@example.com',
+        'owner@example.com',
+        'Acme',
+        'EDITOR',
+        acceptUrl,
+      );
 
       expect(sendMailMock).not.toHaveBeenCalled();
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('owner@example.com invited friend@example.com as EDITOR'),
+        expect.stringContaining('owner@example.com invited friend@example.com to "Acme" as EDITOR'),
       );
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(acceptUrl));
     });
 
     it('sends a real email via nodemailer when SMTP_HOST is configured', async () => {
@@ -117,15 +126,21 @@ describe('MailService', () => {
       process.env.SMTP_FROM = 'no-reply@example.com';
       const service = await freshMailService();
 
-      await service.sendTeamInviteEmail('friend@example.com', 'owner@example.com', 'VIEWER');
+      await service.sendWorkspaceInviteEmail(
+        'friend@example.com',
+        'owner@example.com',
+        'Acme',
+        'VIEWER',
+        acceptUrl,
+      );
 
       expect(sendMailMock).toHaveBeenCalledWith(
         expect.objectContaining({
           from: 'no-reply@example.com',
           to: 'friend@example.com',
-          subject: expect.stringContaining('owner@example.com'),
-          text: expect.stringContaining('VIEWER'),
-          html: expect.stringContaining('VIEWER'),
+          subject: expect.stringContaining('Acme'),
+          text: expect.stringContaining(acceptUrl),
+          html: expect.stringContaining(acceptUrl),
         }),
       );
     });
@@ -137,7 +152,13 @@ describe('MailService', () => {
       const errorSpy = jest.spyOn((service as any).logger, 'error').mockImplementation();
 
       await expect(
-        service.sendTeamInviteEmail('friend@example.com', 'owner@example.com', 'OWNER'),
+        service.sendWorkspaceInviteEmail(
+          'friend@example.com',
+          'owner@example.com',
+          'Acme',
+          'OWNER',
+          acceptUrl,
+        ),
       ).resolves.toBeUndefined();
 
       expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Invalid login'));

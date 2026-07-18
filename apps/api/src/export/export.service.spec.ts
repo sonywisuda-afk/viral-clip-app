@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ExportType } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import { ExportService } from './export.service';
 
 describe('ExportService', () => {
@@ -10,6 +11,7 @@ describe('ExportService', () => {
     video: { findUnique: jest.Mock };
     exportJob: { create: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock };
   };
+  let workspaceAccess: { assertMinRole: jest.Mock };
   let exportGenerateQueue: { add: jest.Mock };
 
   beforeEach(() => {
@@ -17,16 +19,21 @@ describe('ExportService', () => {
       video: { findUnique: jest.fn() },
       exportJob: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
     };
+    // Default: access granted - WorkspaceAccessService has its own
+    // dedicated spec for role-rank logic; this file only verifies
+    // ExportService's own orchestration around it.
+    workspaceAccess = { assertMinRole: jest.fn().mockResolvedValue('OWNER') };
     exportGenerateQueue = { add: jest.fn() };
     service = new ExportService(
       prisma as unknown as PrismaService,
+      workspaceAccess as unknown as WorkspaceAccessService,
       exportGenerateQueue as unknown as Queue,
     );
   });
 
   describe('create', () => {
     it('creates a PENDING job and enqueues export-generate with just the job id', async () => {
-      prisma.video.findUnique.mockResolvedValue({ id: 'video-1', ownerId: 'user-1' });
+      prisma.video.findUnique.mockResolvedValue({ id: 'video-1', workspaceId: 'ws-1' });
       const createdAt = new Date('2026-07-17T00:00:00.000Z');
       prisma.exportJob.create.mockResolvedValue({
         id: 'job-1',
@@ -61,8 +68,9 @@ describe('ExportService', () => {
       expect(exportGenerateQueue.add).not.toHaveBeenCalled();
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
-      prisma.video.findUnique.mockResolvedValue({ id: 'video-1', ownerId: 'someone-else' });
+    it('throws NotFoundException when the requester has no workspace access to the video', async () => {
+      prisma.video.findUnique.mockResolvedValue({ id: 'video-1', workspaceId: 'ws-1' });
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
 
       await expect(service.create('user-1', { videoId: 'video-1' })).rejects.toThrow(
         NotFoundException,

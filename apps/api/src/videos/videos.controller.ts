@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Param,
   ParseFilePipeBuilder,
+  Patch,
   Post,
   Query,
   Res,
@@ -25,6 +26,7 @@ import type { SafeUser } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { withUtf8Bom } from '../common/csv.util';
 import { ImportYoutubeDto } from './dto/import-youtube.dto';
+import { MoveVideoDto } from './dto/move-video.dto';
 import { UploadVideoDto } from './dto/upload-video.dto';
 import { VideosService } from './videos.service';
 
@@ -73,6 +75,7 @@ export class VideosController {
       user.id,
       file,
       dto.transcriptionProvider ?? TranscriptionProvider.GROQ,
+      dto.workspaceId,
     );
   }
 
@@ -87,6 +90,7 @@ export class VideosController {
       user.id,
       dto.url,
       dto.transcriptionProvider ?? TranscriptionProvider.GROQ,
+      dto.workspaceId,
     );
   }
 
@@ -95,8 +99,9 @@ export class VideosController {
     @CurrentUser() user: SafeUser,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Query('workspaceId') workspaceId?: string,
   ) {
-    return this.videosService.findAll(user.id, { cursor, limit: parseLimit(limit) });
+    return this.videosService.findAll(user.id, { cursor, limit: parseLimit(limit), workspaceId });
   }
 
   @Get(':id')
@@ -108,6 +113,18 @@ export class VideosController {
   @HttpCode(204)
   async remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     await this.videosService.remove(id, user.id);
+  }
+
+  // Sprint 5A (Collaboration Foundation) - move a video between
+  // workspaces/projects/folders (e.g. drag-and-drop in the frontend's
+  // Project/Folder sidebar).
+  @Patch(':id/move')
+  move(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: MoveVideoDto,
+  ): Promise<Video> {
+    return this.videosService.move(id, user.id, dto);
   }
 
   // Streams the raw source video (not a rendered clip) for the timeline

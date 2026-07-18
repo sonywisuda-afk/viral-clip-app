@@ -58,7 +58,12 @@ describe('VideosController', () => {
 
       await controller.upload(user, file, {});
 
-      expect(videosService.upload).toHaveBeenCalledWith('user-1', file, TranscriptionProvider.GROQ);
+      expect(videosService.upload).toHaveBeenCalledWith(
+        'user-1',
+        file,
+        TranscriptionProvider.GROQ,
+        undefined,
+      );
     });
 
     it('forwards an explicit transcriptionProvider choice (OPENAI) unchanged', async () => {
@@ -70,6 +75,20 @@ describe('VideosController', () => {
         'user-1',
         file,
         TranscriptionProvider.OPENAI,
+        undefined,
+      );
+    });
+
+    it('forwards an explicit workspaceId (Sprint 5A, Collaboration Foundation) unchanged', async () => {
+      const file = { buffer: Buffer.from('x') } as Express.Multer.File;
+
+      await controller.upload(user, file, { workspaceId: 'ws-1' });
+
+      expect(videosService.upload).toHaveBeenCalledWith(
+        'user-1',
+        file,
+        TranscriptionProvider.GROQ,
+        'ws-1',
       );
     });
   });
@@ -102,6 +121,7 @@ describe('VideosController', () => {
         'user-1',
         'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         TranscriptionProvider.GROQ,
+        undefined,
       );
     });
 
@@ -115,6 +135,21 @@ describe('VideosController', () => {
         'user-1',
         'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         TranscriptionProvider.OPENAI,
+        undefined,
+      );
+    });
+
+    it('forwards an explicit workspaceId (Sprint 5A, Collaboration Foundation) unchanged', () => {
+      controller.importYoutube(user, {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        workspaceId: 'ws-1',
+      });
+
+      expect(videosService.importFromYoutube).toHaveBeenCalledWith(
+        'user-1',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        TranscriptionProvider.GROQ,
+        'ws-1',
       );
     });
   });

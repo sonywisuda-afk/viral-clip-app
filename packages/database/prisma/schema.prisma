@@ -150,6 +150,12 @@ model User {
   notifications            Notification[]
   notificationPreferences  NotificationPreference[]
   notificationWebhooks     NotificationWebhook[]
+  // Sprint 5A (Collaboration Foundation) - ownedWorkspaces is "created by"
+  // display metadata only; workspaceMemberships is the real source of
+  // access (see WorkspaceMembership below). Every User has at least one
+  // workspaceMemberships row (their own isPersonal workspace, role OWNER).
+  ownedWorkspaces          Workspace[]               @relation("WorkspaceCreator")
+  workspaceMemberships     WorkspaceMembership[]
 }
 
 model Video {
@@ -309,6 +315,23 @@ model Video {
   diarizationFeatures   Json?
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
+  // Sprint 5A (Collaboration Foundation) - every Video belongs to exactly
+  // one Workspace (nullable only transiently during the backfill
+  // migration - see the migration's own README; schema.prisma always
+  // reflects the target/final state, not the intermediate one). ownerId
+  // above is retained unchanged as "who uploaded this" - access control
+  // now reads workspaceId + the requester's WorkspaceMembership role
+  // instead, see apps/api/src/workspace/workspace-access.service.ts.
+  // projectId/folderId are optional - a video can live directly in a
+  // Workspace with no Project, matching Figma's "files can live outside
+  // any project" behavior. folderId implies projectId is also set,
+  // enforced at the service layer (Folder always belongs to one Project).
+  workspaceId           String
+  workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId             String?
+  project               Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  folderId              String?
+  folder                Folder?               @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   transcriptSegments TranscriptSegment[]
   clips              Clip[]
@@ -317,6 +340,9 @@ model Video {
   exportJobs         ExportJob[]
 
   @@index([ownerId])
+  @@index([workspaceId])
+  @@index([projectId])
+  @@index([folderId])
 }
 
 // Audit trail for Video.status transitions (Fase 3 - DB+JSON-contract
@@ -1110,27 +1136,131 @@ model AlertState {
   updatedAt   DateTime @updatedAt
 }
 
-// Sprint 1-2's Invite Member quick action. Deliberately minimal per explicit
-// product direction: no Team/Membership schema, no shared video/clip
-// access, no workspace switching, no role enforcement - `role` is captured
-// from the modal's selector and stored for display only, not read by any
-// permission check anywhere. No status/accept flow either - this is a
-// one-way "we sent an email" log, not a real invitation lifecycle.
-enum PendingInviteRole {
+// Sprint 5A (Collaboration Foundation) - the single permission-rank enum
+// for everything workspace-scoped (membership, PendingInvite, and every
+// future Collaboration feature - Comments/Approval/Review Mode all gate on
+// this same rank rather than inventing their own). Rank order, highest to
+// lowest: OWNER > ADMIN > EDITOR > REVIEWER > VIEWER - see
+// apps/api/src/workspace/workspace-access.service.ts for the rank table.
+// Deliberately NOT the same enum as UserRole above - UserRole is a single
+// global flag on User (ops-dashboard access, see Milestone 5C-B);
+// WorkspaceRole is per-membership and can differ for the same user across
+// different workspaces.
+enum WorkspaceRole {
   OWNER
+  ADMIN
   EDITOR
+  REVIEWER
   VIEWER
 }
 
+// Sprint 5A - closes the gap the old PendingInvite comment used to
+// describe ("no Team/Membership schema, no shared video/clip access, no
+// workspace switching, no role enforcement"). Every User gets exactly one
+// isPersonal workspace at signup/backfill (role OWNER) so every Video has
+// exactly one workspaceId from day one and access control has a single
+// path. ownerId is retained as "who created this workspace" display
+// metadata only - WorkspaceMembership is the sole source of truth for
+// access. No separate Organization tier above this - deliberately folded
+// in for now, no multi-workspace-per-org billing/need exists anywhere in
+// this app yet (same "smallest viable" posture as Brand Kit's fields
+// living directly on User instead of a new settings system).
+model Workspace {
+  id         String   @id @default(cuid())
+  name       String
+  isPersonal Boolean  @default(false)
+  ownerId    String
+  owner      User     @relation("WorkspaceCreator", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  members  WorkspaceMembership[]
+  projects Project[]
+  videos   Video[]
+  invites  PendingInvite[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMembership {
+  id          String        @id @default(cuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole
+  createdAt   DateTime      @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+}
+
+// Sprint 5A - an organizational grouping of Videos within a Workspace.
+model Project {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  folders Folder[]
+  videos  Video[]
+
+  @@index([workspaceId])
+}
+
+// Sprint 5A - nestable within a Project (parentId self-relation). A
+// Folder always belongs to exactly one Project (never directly to a
+// Workspace) - Video.folderId therefore implies Video.projectId is also
+// set, enforced at the service layer, not the schema (same convention as
+// this codebase's other cross-field invariants, e.g. ExportJob's
+// type/videoId mutual exclusion).
+model Folder {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    Folder?  @relation("FolderChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[] @relation("FolderChildren")
+  name      String
+  createdAt DateTime @default(now())
+
+  videos Video[]
+
+  @@index([projectId])
+  @@index([parentId])
+}
+
+// Sprint 5A - replaces the old one-way "we sent an email" log this model
+// used to be (see git history for the prior PendingInviteRole-based
+// shape). Now a real invitation lifecycle scoped to one Workspace:
+// tokenHash follows the same "hash at rest, never store the raw token"
+// convention as User.resetPasswordTokenHash - the raw token only ever
+// exists in the emailed accept link; POST /invites/:token/accept looks it
+// up, creates the matching WorkspaceMembership, and flips status to
+// ACCEPTED. role reuses WorkspaceRole directly rather than keeping a
+// second role enum in sync with it.
+enum PendingInviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+}
+
 model PendingInvite {
-  id        String            @id @default(cuid())
-  inviterId String
-  inviter   User              @relation(fields: [inviterId], references: [id], onDelete: Cascade)
-  email     String
-  role      PendingInviteRole
-  createdAt DateTime          @default(now())
+  id          String              @id @default(cuid())
+  inviterId   String
+  inviter     User                @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  role        WorkspaceRole
+  status      PendingInviteStatus @default(PENDING)
+  tokenHash   String              @unique
+  createdAt   DateTime            @default(now())
 
   @@index([inviterId, createdAt])
+  @@index([workspaceId, status])
 }
 
 // Sprint 03c (Export Center roadmap) - tracks one async report-generation

@@ -6,6 +6,7 @@ import {
   recordVideoStatusEvent,
   updateVideoStatus,
   VideoStatus,
+  WorkspaceRole,
   type Prisma,
   type Video,
 } from '@speedora/database';
@@ -28,6 +29,7 @@ import { NotificationDeliveryProducer } from '../queue/notification-delivery.pro
 import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
+import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import { buildClipMetadataCsv, toClipMetadataInput } from './clip-metadata.util';
 import { buildSrtCaptions, buildTranscriptTxt, buildVttCaptions } from './transcript-export.util';
 import { buildVideoReportCsv, buildVideoReportInput } from './video-report.util';
@@ -99,6 +101,7 @@ export class VideosService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly payments: PaymentsService,
+    private readonly workspaceAccess: WorkspaceAccessService,
     private readonly notificationPublisher: NotificationPublisherService,
     private readonly notificationDeliveryProducer: NotificationDeliveryProducer,
     @InjectQueue(QueueName.IMPORT_YOUTUBE)
@@ -122,6 +125,7 @@ export class VideosService {
     ownerId: string,
     file: Express.Multer.File,
     provider: TranscriptionProvider,
+    workspaceId?: string,
   ): Promise<Video> {
     // Cheap check before ever touching storage - fails fast rather than
     // wasting a (potentially large) upload on a request that's going to be
@@ -134,12 +138,25 @@ export class VideosService {
       }
     }
 
+    // Sprint 5A (Collaboration Foundation) - an explicit workspaceId
+    // (EDITOR+ required) lets a member upload directly into a shared
+    // workspace; omitted defaults to the uploader's own personal workspace,
+    // preserving every pre-5A caller's behavior exactly.
+    let targetWorkspaceId: string;
+    if (workspaceId) {
+      await this.workspaceAccess.assertMinRole(ownerId, workspaceId, WorkspaceRole.EDITOR);
+      targetWorkspaceId = workspaceId;
+    } else {
+      targetWorkspaceId = await this.workspaceAccess.getPersonalWorkspaceId(ownerId);
+    }
+
     const { sourceUrl } = await this.storage.saveVideo(file);
 
     const video = await this.prisma.$transaction(async (tx) => {
       const created = await tx.video.create({
         data: {
           ownerId,
+          workspaceId: targetWorkspaceId,
           sourceUrl,
           transcriptionProvider: provider,
           // originalname/buffer.length are both already in memory - multer's
@@ -211,6 +228,7 @@ export class VideosService {
     ownerId: string,
     url: string,
     provider: TranscriptionProvider,
+    workspaceId?: string,
   ): Promise<Video> {
     if (provider === TranscriptionProvider.OPENAI) {
       const { available } = await this.payments.getAvailability(ownerId);
@@ -219,10 +237,21 @@ export class VideosService {
       }
     }
 
+    // Same "explicit workspaceId requires EDITOR+, omitted defaults to the
+    // requester's personal workspace" convention as upload() above.
+    let targetWorkspaceId: string;
+    if (workspaceId) {
+      await this.workspaceAccess.assertMinRole(ownerId, workspaceId, WorkspaceRole.EDITOR);
+      targetWorkspaceId = workspaceId;
+    } else {
+      targetWorkspaceId = await this.workspaceAccess.getPersonalWorkspaceId(ownerId);
+    }
+
     const video = await this.prisma.$transaction(async (tx) => {
       const created = await tx.video.create({
         data: {
           ownerId,
+          workspaceId: targetWorkspaceId,
           sourceUrl: '',
           importSourceUrl: url,
           status: VideoStatus.IMPORTING,
@@ -300,9 +329,25 @@ export class VideosService {
   // previously-returned video id; `limit+1` is fetched so the extra row
   // (never returned) tells us whether there's a next page without a second
   // count query.
-  async findAll(ownerId: string, { cursor, limit }: { cursor?: string; limit: number }) {
+  // Sprint 5A (Collaboration Foundation) - scoped by workspace, not owner:
+  // an explicit workspaceId (any membership, VIEWER+) lists that shared
+  // workspace's videos; omitted defaults to the requester's own personal
+  // workspace, which for every user who has never created/joined a team
+  // workspace is exactly the same set of videos this returned before.
+  async findAll(
+    requesterId: string,
+    { cursor, limit, workspaceId }: { cursor?: string; limit: number; workspaceId?: string },
+  ) {
+    let targetWorkspaceId: string;
+    if (workspaceId) {
+      await this.workspaceAccess.assertMinRole(requesterId, workspaceId, WorkspaceRole.VIEWER);
+      targetWorkspaceId = workspaceId;
+    } else {
+      targetWorkspaceId = await this.workspaceAccess.getPersonalWorkspaceId(requesterId);
+    }
+
     const videos = await this.prisma.video.findMany({
-      where: { ownerId },
+      where: { workspaceId: targetWorkspaceId },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -334,9 +379,10 @@ export class VideosService {
       include: { clips: true, transcriptSegments: true },
     });
 
-    if (!video || video.ownerId !== requesterId) {
+    if (!video) {
       throw new NotFoundException(`Video ${id} not found`);
     }
+    await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.EDITOR);
     if (video.status !== VideoStatus.FAILED) {
       throw new BadRequestException('Only a failed video can be retried');
     }
@@ -420,11 +466,13 @@ export class VideosService {
       include: { clips: CLIPS_WITH_PUBLISH_RECORDS },
     });
 
-    // Same "not found" for a missing video and someone else's video, so a
-    // client can't use this endpoint to probe which video IDs exist.
-    if (!video || video.ownerId !== requesterId) {
+    // Same "not found" whether the video is missing or the requester has no
+    // workspace membership, so a client can't use this endpoint to probe
+    // which video IDs exist.
+    if (!video) {
       throw new NotFoundException(`Video ${id} not found`);
     }
+    await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.VIEWER);
 
     return this.mapVideoWithClips(video);
   }
@@ -433,11 +481,11 @@ export class VideosService {
   // only needs the object key, not the full clips/status shape findOne()
   // returns.
   async findSourceOrThrow(id: string, requesterId: string): Promise<{ sourceUrl: string }> {
-    const video = await this.prisma.video.findUnique({ where: { id } });
-
-    if (!video || video.ownerId !== requesterId) {
-      throw new NotFoundException(`Video ${id} not found`);
-    }
+    const video = await this.workspaceAccess.assertVideoAccess(
+      requesterId,
+      id,
+      WorkspaceRole.VIEWER,
+    );
 
     return { sourceUrl: video.sourceUrl };
   }
@@ -451,11 +499,11 @@ export class VideosService {
     id: string,
     requesterId: string,
   ): Promise<{ thumbnailUrl: string | null }> {
-    const video = await this.prisma.video.findUnique({ where: { id } });
-
-    if (!video || video.ownerId !== requesterId) {
-      throw new NotFoundException(`Video ${id} not found`);
-    }
+    const video = await this.workspaceAccess.assertVideoAccess(
+      requesterId,
+      id,
+      WorkspaceRole.VIEWER,
+    );
 
     // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 1) -
     // prefer the highlightScore-ranked cover clip's thumbnail when one has
@@ -470,11 +518,11 @@ export class VideosService {
     id: string,
     requesterId: string,
   ): Promise<{ animatedThumbnailUrl: string | null }> {
-    const video = await this.prisma.video.findUnique({ where: { id } });
-
-    if (!video || video.ownerId !== requesterId) {
-      throw new NotFoundException(`Video ${id} not found`);
-    }
+    const video = await this.workspaceAccess.assertVideoAccess(
+      requesterId,
+      id,
+      WorkspaceRole.VIEWER,
+    );
 
     return { animatedThumbnailUrl: video.animatedThumbnailUrl };
   }
@@ -486,11 +534,11 @@ export class VideosService {
     id: string,
     requesterId: string,
   ): Promise<{ hoverPreviewUrl: string | null }> {
-    const video = await this.prisma.video.findUnique({ where: { id } });
-
-    if (!video || video.ownerId !== requesterId) {
-      throw new NotFoundException(`Video ${id} not found`);
-    }
+    const video = await this.workspaceAccess.assertVideoAccess(
+      requesterId,
+      id,
+      WorkspaceRole.VIEWER,
+    );
 
     return { hoverPreviewUrl: video.hoverPreviewUrl };
   }
@@ -507,11 +555,11 @@ export class VideosService {
     requesterId: string,
     index: number,
   ): Promise<{ frameKey: string | null }> {
-    const video = await this.prisma.video.findUnique({ where: { id } });
-
-    if (!video || video.ownerId !== requesterId) {
-      throw new NotFoundException(`Video ${id} not found`);
-    }
+    const video = await this.workspaceAccess.assertVideoAccess(
+      requesterId,
+      id,
+      WorkspaceRole.VIEWER,
+    );
 
     const frameKeys = toSharedStoryboardFrameKeys(video.storyboardFrameUrls);
     return { frameKey: frameKeys[index] ?? null };
@@ -519,20 +567,23 @@ export class VideosService {
 
   // Permanently deletes a video, its clips/transcript/publish records (all
   // via onDelete: Cascade in the schema), and the objects they own in
-  // storage (the source plus every rendered clip). Same ownership-based 404
-  // as every other per-video endpoint so it can't be used to probe or delete
-  // someone else's video. Storage cleanup is best-effort (see
-  // StorageService.deleteObjects) - the DB row going away is what actually
-  // makes the video "gone" from the user's perspective.
+  // storage (the source plus every rendered clip). Same workspace-role-based
+  // 404/403 as every other per-video endpoint so it can't be used to probe
+  // or delete a video outside the requester's access - ADMIN+ specifically
+  // (not just EDITOR) since this is destructive and irreversible. Storage
+  // cleanup is best-effort (see StorageService.deleteObjects) - the DB row
+  // going away is what actually makes the video "gone" from the user's
+  // perspective.
   async remove(id: string, requesterId: string): Promise<void> {
     const video = await this.prisma.video.findUnique({
       where: { id },
       include: { clips: { select: { outputUrl: true } } },
     });
 
-    if (!video || video.ownerId !== requesterId) {
+    if (!video) {
       throw new NotFoundException(`Video ${id} not found`);
     }
+    await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.ADMIN);
 
     const storageKeys = [
       video.sourceUrl,
@@ -541,6 +592,61 @@ export class VideosService {
 
     await this.prisma.video.delete({ where: { id } });
     await this.storage.deleteObjects(storageKeys);
+  }
+
+  // Sprint 5A (Collaboration Foundation) - PATCH /videos/:id/move.
+  // Requires EDITOR+ in the video's current workspace (must already be able
+  // to edit it) and, when the workspace itself is changing, EDITOR+ in the
+  // destination workspace too (must be allowed to add content there).
+  // Fields not present in `target` are left unchanged - `null` clears
+  // projectId/folderId (moving back to the workspace root), `undefined`
+  // (an omitted key) means "don't touch this field."
+  async move(
+    id: string,
+    requesterId: string,
+    target: { workspaceId?: string; projectId?: string | null; folderId?: string | null },
+  ): Promise<Video> {
+    const video = await this.prisma.video.findUnique({ where: { id } });
+    if (!video) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+    await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.EDITOR);
+
+    const targetWorkspaceId = target.workspaceId ?? video.workspaceId;
+    if (targetWorkspaceId !== video.workspaceId) {
+      await this.workspaceAccess.assertMinRole(
+        requesterId,
+        targetWorkspaceId,
+        WorkspaceRole.EDITOR,
+      );
+    }
+
+    const targetProjectId = target.projectId !== undefined ? target.projectId : video.projectId;
+    const targetFolderId = target.folderId !== undefined ? target.folderId : video.folderId;
+
+    if (targetProjectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: targetProjectId } });
+      if (!project || project.workspaceId !== targetWorkspaceId) {
+        throw new BadRequestException('projectId must belong to the target workspace');
+      }
+    }
+    if (targetFolderId) {
+      const folder = await this.prisma.folder.findUnique({ where: { id: targetFolderId } });
+      if (!folder || folder.projectId !== targetProjectId) {
+        throw new BadRequestException(
+          'folderId must belong to projectId within the target workspace',
+        );
+      }
+    }
+
+    return this.prisma.video.update({
+      where: { id },
+      data: {
+        workspaceId: targetWorkspaceId,
+        projectId: targetProjectId,
+        folderId: targetFolderId,
+      },
+    });
   }
 
   // Separate from findOne()/mapVideoWithClips() on purpose - transcript
@@ -553,9 +659,10 @@ export class VideosService {
       include: { transcriptSegments: { orderBy: { start: 'asc' } } },
     });
 
-    if (!video || video.ownerId !== requesterId) {
+    if (!video) {
       throw new NotFoundException(`Video ${id} not found`);
     }
+    await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.VIEWER);
 
     return video.transcriptSegments.map((segment) => ({
       start: segment.start,

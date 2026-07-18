@@ -7,12 +7,11 @@ import { Button } from '@/components/ui/button';
 import { dashboardExportCsvUrl } from '@/lib/api';
 
 // Code-split (Product Experience performance pass) - the Dialog/Radix
-// content (and the Server Action it now calls) is only needed once a user
-// actually clicks "Invite Member", not on every dashboard load. `ssr: false`
-// since it's a client-only interactive dialog with no meaningful
-// server-rendered fallback state.
-const InviteMemberDialog = dynamic(
-  () => import('./InviteMemberDialog').then((mod) => mod.InviteMemberDialog),
+// content is only needed once a user actually clicks "Invite Member", not
+// on every dashboard load. `ssr: false` since it's a client-only
+// interactive dialog with no meaningful server-rendered fallback state.
+const WorkspaceMembersDialog = dynamic(
+  () => import('./WorkspaceMembersDialog').then((mod) => mod.WorkspaceMembersDialog),
   {
     ssr: false,
     loading: () => (
@@ -23,13 +22,13 @@ const InviteMemberDialog = dynamic(
   },
 );
 
-// "Create Project" is deliberately an alias for the same upload flow as
-// "Upload Video" - there is no Project grouping entity in this schema
-// (videos are the top-level unit), so this button exists for
-// discoverability/Opus-Clip-familiarity, not a new backend concept. Both
-// link to /upload (the actual authenticated upload flow), not / (the public
-// marketing landing page) - linking to / from inside the dashboard used to
-// eject the user out of their own session's context entirely.
+// "Create Project" is still an alias for the same upload flow as "Upload
+// Video", not wired to Sprint 5A's new real Project entity
+// (packages/database's Project model + POST /workspaces/:id/projects) -
+// building a Project/Folder picker into the upload flow is out of scope for
+// this pass (a dedicated Project/Folder sidebar UI is the deferred next
+// step, see the Sprint 5A plan). Both link to /upload (the actual
+// authenticated upload flow), not / (the public marketing landing page).
 export function QuickActions() {
   return (
     <div className="flex flex-wrap gap-2">
@@ -45,7 +44,7 @@ export function QuickActions() {
           Create Project
         </Link>
       </Button>
-      <InviteMemberDialog />
+      <WorkspaceMembersDialog />
       <Button variant="outline" asChild>
         <a href={dashboardExportCsvUrl()}>
           <Download className="mr-2 h-4 w-4" aria-hidden="true" />

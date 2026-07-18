@@ -20,6 +20,9 @@ describe('AuthService', () => {
       delete: jest.Mock;
     };
     video: { findMany: jest.Mock };
+    workspace: { create: jest.Mock };
+    workspaceMembership: { create: jest.Mock };
+    $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock };
   let mailService: { sendPasswordResetEmail: jest.Mock };
@@ -35,6 +38,12 @@ describe('AuthService', () => {
         delete: jest.fn().mockResolvedValue({}),
       },
       video: { findMany: jest.fn().mockResolvedValue([]) },
+      // Sprint 5A (Collaboration Foundation) - register() creates a
+      // personal Workspace + OWNER membership in the same transaction as
+      // the User row.
+      workspace: { create: jest.fn() },
+      workspaceMembership: { create: jest.fn() },
+      $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     jwtService = { sign: jest.fn() };
     mailService = { sendPasswordResetEmail: jest.fn() };
@@ -58,12 +67,21 @@ describe('AuthService', () => {
         password: 'hashed-password',
         role: 'CREATOR',
       });
+      prisma.workspace.create.mockResolvedValue({ id: 'ws-1' });
 
       const result = await service.register('a@example.com', 'plaintext');
 
       expect(bcrypt.hash).toHaveBeenCalledWith('plaintext', 10);
       expect(prisma.user.create).toHaveBeenCalledWith({
         data: { email: 'a@example.com', password: 'hashed-password' },
+      });
+      // Sprint 5A (Collaboration Foundation) - every new User gets exactly
+      // one isPersonal Workspace (role OWNER) in the same transaction.
+      expect(prisma.workspace.create).toHaveBeenCalledWith({
+        data: { name: 'Personal', isPersonal: true, ownerId: 'user-1' },
+      });
+      expect(prisma.workspaceMembership.create).toHaveBeenCalledWith({
+        data: { workspaceId: 'ws-1', userId: 'user-1', role: 'OWNER' },
       });
       expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
     });

@@ -19,8 +19,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RedisPubSubModule } from './redis-pubsub/redis-pubsub.module';
 import { SearchModule } from './search/search.module';
 import { SocialModule } from './social/social.module';
-import { TeamModule } from './team/team.module';
 import { VideosModule } from './videos/videos.module';
+import { WorkspaceModule } from './workspace/workspace.module';
 
 @Module({
   imports: [
@@ -46,7 +46,7 @@ import { VideosModule } from './videos/videos.module';
     OpsAiModule,
     DashboardModule,
     SearchModule,
-    TeamModule,
+    WorkspaceModule,
     ExportModule,
     BrandKitModule,
     NotificationsModule,

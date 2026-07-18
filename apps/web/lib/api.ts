@@ -41,6 +41,10 @@ import type {
   UserRole,
   Video,
   VideoWithClips,
+  WorkspaceDetailDto,
+  WorkspaceDto,
+  WorkspaceListDto,
+  WorkspaceRole,
 } from '@speedora/shared';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -241,10 +245,12 @@ export async function getVideoTranscript(id: string): Promise<TranscriptSegment[
 export async function listVideos(params?: {
   cursor?: string;
   limit?: number;
+  workspaceId?: string;
 }): Promise<PaginatedVideos> {
   const query = new URLSearchParams();
   if (params?.cursor) query.set('cursor', params.cursor);
   if (params?.limit) query.set('limit', String(params.limit));
+  if (params?.workspaceId) query.set('workspaceId', params.workspaceId);
   const qs = query.toString();
   const res = await apiFetch(`/videos${qs ? `?${qs}` : ''}`);
   return parseJsonOrThrow<PaginatedVideos>(res);
@@ -565,12 +571,96 @@ export async function search(query: string): Promise<SearchResultsDto> {
   return parseJsonOrThrow<SearchResultsDto>(res);
 }
 
-// Invite Member quick action - now a Server Action (see
-// app/dashboard/actions.ts's inviteMemberAction), not a browser POST.
+// Sprint 5A (Collaboration Foundation) - replaces the old Sprint 1-2
+// "Invite Member" stub (listTeamInvites/POST /team/invites, now retired)
+// with a real Workspace/Membership/Invite API.
+export async function listWorkspaces(): Promise<WorkspaceListDto> {
+  const res = await apiFetch('/workspaces');
+  return parseJsonOrThrow<WorkspaceListDto>(res);
+}
 
-export async function listTeamInvites(): Promise<{ invites: PendingInviteDto[] }> {
-  const res = await apiFetch('/team/invites');
+export async function createWorkspace(name: string): Promise<WorkspaceDto> {
+  const res = await apiFetch('/workspaces', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return parseJsonOrThrow<WorkspaceDto>(res);
+}
+
+export async function getWorkspace(id: string): Promise<WorkspaceDetailDto> {
+  const res = await apiFetch(`/workspaces/${id}`);
+  return parseJsonOrThrow<WorkspaceDetailDto>(res);
+}
+
+export async function createWorkspaceInvite(
+  workspaceId: string,
+  email: string,
+  role: WorkspaceRole,
+): Promise<PendingInviteDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/invites`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, role }),
+  });
+  return parseJsonOrThrow<PendingInviteDto>(res);
+}
+
+export async function listWorkspaceInvites(
+  workspaceId: string,
+): Promise<{ invites: PendingInviteDto[] }> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/invites`);
   return parseJsonOrThrow<{ invites: PendingInviteDto[] }>(res);
+}
+
+export async function updateWorkspaceMemberRole(
+  workspaceId: string,
+  userId: string,
+  role: WorkspaceRole,
+): Promise<void> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/members/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal mengubah role anggota');
+  }
+}
+
+export async function removeWorkspaceMember(workspaceId: string, userId: string): Promise<void> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/members/${userId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus anggota');
+  }
+}
+
+export interface InvitePreviewDto {
+  email: string;
+  role: WorkspaceRole;
+  workspaceName: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REVOKED';
+}
+
+// Deliberately unauthenticated on the server side (see InvitesController) -
+// a brand-new user without an account yet still needs to see "you've been
+// invited to X as Editor" before signing up.
+export async function previewInvite(token: string): Promise<InvitePreviewDto> {
+  const res = await apiFetch(`/invites/${token}`);
+  return parseJsonOrThrow<InvitePreviewDto>(res);
+}
+
+export async function acceptInvite(token: string): Promise<WorkspaceDto> {
+  const res = await apiFetch(`/invites/${token}/accept`, { method: 'POST' });
+  return parseJsonOrThrow<WorkspaceDto>(res);
 }
 
 // Export Center (Sprint 03e). Sync formats (03b) - not fetched, used

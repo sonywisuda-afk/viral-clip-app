@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { QueueName } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import { ExportController } from './export.controller';
 import { ExportService } from './export.service';
 
@@ -24,6 +25,7 @@ describe('Export module integration (Controller + Service via real DI)', () => {
     exportJob: { create: jest.Mock; findUnique: jest.Mock; findMany: jest.Mock };
   };
   let queue: { add: jest.Mock };
+  let workspaceAccess: { assertMinRole: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -31,12 +33,14 @@ describe('Export module integration (Controller + Service via real DI)', () => {
       exportJob: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
     };
     queue = { add: jest.fn() };
+    workspaceAccess = { assertMinRole: jest.fn().mockResolvedValue('OWNER') };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [ExportController],
       providers: [
         ExportService,
         { provide: PrismaService, useValue: prisma },
+        { provide: WorkspaceAccessService, useValue: workspaceAccess },
         { provide: getQueueToken(QueueName.EXPORT_GENERATE), useValue: queue },
       ],
     }).compile();
@@ -45,7 +49,7 @@ describe('Export module integration (Controller + Service via real DI)', () => {
   });
 
   it('POST /export creates a job, enqueues export-generate, and returns the DTO', async () => {
-    prisma.video.findUnique.mockResolvedValue({ id: 'video-1', ownerId: 'user-1' });
+    prisma.video.findUnique.mockResolvedValue({ id: 'video-1', workspaceId: 'ws-1' });
     const createdAt = new Date('2026-07-17T00:00:00.000Z');
     prisma.exportJob.create.mockResolvedValue({
       id: 'job-1',

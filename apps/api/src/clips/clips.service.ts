@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PublishStatus, type CaptionStyle, type Prisma } from '@speedora/database';
+import { PublishStatus, WorkspaceRole, type CaptionStyle, type Prisma } from '@speedora/database';
 import {
   filterSegmentsForClip,
   PUBLISH_RETRY_OPTIONS,
@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { SocialAccountsService } from '../social/social.service';
 import { StorageService } from '../storage/storage.service';
+import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import {
   toSharedActiveSpeakerSamples,
   toSharedAudioFeatures,
@@ -69,6 +70,7 @@ export class ClipsService {
     private readonly prisma: PrismaService,
     private readonly socialAccounts: SocialAccountsService,
     private readonly storage: StorageService,
+    private readonly workspaceAccess: WorkspaceAccessService,
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
     @InjectQueue(QueueName.PUBLISH_CLIP)
     private readonly publishClipQueue: Queue<PublishClipJobData>,
@@ -81,28 +83,35 @@ export class ClipsService {
   // every caller up the chain.
   private static readonly CLIP_WITH_VIDEO = { include: { video: true } } as const;
 
-  // Same "not found" for a missing clip and someone else's clip, so a
-  // client can't use this endpoint to probe which clip IDs exist.
+  // Same "not found" for a missing clip and someone with insufficient
+  // workspace access, so a client can't use this endpoint to probe which
+  // clip IDs exist. minRole defaults to VIEWER (every read-only call site
+  // below relies on that default); mutating call sites (update/remove/
+  // render/publish/reschedule) pass a higher minRole explicitly - see
+  // WorkspaceAccessService for the rank table.
   async findOwnedOrThrow(
     id: string,
     requesterId: string,
+    minRole: WorkspaceRole = WorkspaceRole.VIEWER,
   ): Promise<Prisma.ClipGetPayload<typeof ClipsService.CLIP_WITH_VIDEO>> {
     const clip = await this.prisma.clip.findUnique({
       where: { id },
       ...ClipsService.CLIP_WITH_VIDEO,
     });
 
-    if (!clip || clip.video.ownerId !== requesterId) {
+    if (!clip) {
       throw new NotFoundException(`Clip ${id} not found`);
     }
+    await this.workspaceAccess.assertMinRole(requesterId, clip.video.workspaceId, minRole);
     return clip;
   }
 
   async findRenderedOrThrow(
     id: string,
     requesterId: string,
+    minRole: WorkspaceRole = WorkspaceRole.VIEWER,
   ): Promise<Prisma.ClipGetPayload<typeof ClipsService.CLIP_WITH_VIDEO>> {
-    const clip = await this.findOwnedOrThrow(id, requesterId);
+    const clip = await this.findOwnedOrThrow(id, requesterId, minRole);
     if (!clip.outputUrl) {
       throw new NotFoundException(`Clip ${id} has not finished rendering yet`);
     }
@@ -200,7 +209,7 @@ export class ClipsService {
   // machine) and is never recomputed from the current clip count, so
   // removing one clip here has no bearing on it.
   async remove(id: string, requesterId: string): Promise<void> {
-    const clip = await this.findOwnedOrThrow(id, requesterId);
+    const clip = await this.findOwnedOrThrow(id, requesterId, WorkspaceRole.ADMIN);
 
     await this.prisma.clip.delete({ where: { id } });
     if (clip.outputUrl) {
@@ -218,7 +227,7 @@ export class ClipsService {
   // switching caption presets doesn't burn FFmpeg compute on every
   // intermediate value.
   async update(id: string, requesterId: string, input: UpdateClipDto) {
-    const clip = await this.findOwnedOrThrow(id, requesterId);
+    const clip = await this.findOwnedOrThrow(id, requesterId, WorkspaceRole.EDITOR);
     const startTime = input.startTime ?? clip.startTime;
     const endTime = input.endTime ?? clip.endTime;
     const captionStyle = input.captionStyle ?? clip.captionStyle;
@@ -244,7 +253,7 @@ export class ClipsService {
   // renders/<clipId>.mp4 key, so nothing there needs to know this is a
   // "re-render" rather than the first one).
   async render(id: string, requesterId: string) {
-    const clip = await this.findOwnedOrThrow(id, requesterId);
+    const clip = await this.findOwnedOrThrow(id, requesterId, WorkspaceRole.EDITOR);
 
     const segments = await this.prisma.transcriptSegment.findMany({
       where: { videoId: clip.videoId },
@@ -291,7 +300,7 @@ export class ClipsService {
   // SCHEDULED and apps/worker's schedule-publish-clip poller enqueues it
   // (moving it to QUEUED) once scheduledAt arrives.
   async publish(id: string, requesterId: string, input: PublishClipDto) {
-    const clip = await this.findRenderedOrThrow(id, requesterId);
+    const clip = await this.findRenderedOrThrow(id, requesterId, WorkspaceRole.EDITOR);
     // Throws NotFoundException if the account doesn't exist or belongs to
     // someone else - same ownership check pattern as findOwnedOrThrow.
     await this.socialAccounts.findOwnedOrThrow(input.socialAccountId, requesterId);
@@ -329,7 +338,7 @@ export class ClipsService {
   // in-flight or completed upload, so it's deliberately not cancellable
   // past SCHEDULED.
   async cancelScheduledPublish(id: string, recordId: string, requesterId: string): Promise<void> {
-    await this.findOwnedOrThrow(id, requesterId);
+    await this.findOwnedOrThrow(id, requesterId, WorkspaceRole.EDITOR);
 
     const { count } = await this.prisma.publishRecord.deleteMany({
       where: { id: recordId, clipId: id, status: PublishStatus.SCHEDULED },
@@ -349,7 +358,7 @@ export class ClipsService {
     requesterId: string,
     newScheduledAt: string,
   ) {
-    await this.findOwnedOrThrow(id, requesterId);
+    await this.findOwnedOrThrow(id, requesterId, WorkspaceRole.EDITOR);
 
     const parsed = new Date(newScheduledAt);
     if (parsed.getTime() <= Date.now()) {

@@ -43,23 +43,10 @@ export interface DashboardStatsDto {
   premiumCreditsThisMonth: number;
 }
 
-// Mirrors PendingInviteRole in packages/database's Prisma schema. Captured
-// from the Invite Member modal's Role selector and stored for display only
-// - no permission check anywhere reads this field (see schema.prisma's
-// comment on PendingInvite for the full "why" - explicitly out of scope for
-// this pass: no shared access, no workspace switching, no role enforcement).
-export enum PendingInviteRole {
-  OWNER = 'OWNER',
-  EDITOR = 'EDITOR',
-  VIEWER = 'VIEWER',
-}
-
-export interface PendingInviteDto {
-  id: string;
-  email: string;
-  role: PendingInviteRole;
-  createdAt: string;
-}
+// PendingInviteRole/PendingInviteDto moved to ./workspace as part of
+// Sprint 5A (Collaboration Foundation) - the invite flow is now a real,
+// Workspace-scoped lifecycle (see WorkspaceRole/PendingInviteDto there),
+// not the display-only stub this used to back.
 
 export interface SearchVideoResult {
   videoId: string;

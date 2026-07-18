@@ -7,6 +7,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 import type { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
 import type { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import type { StorageService } from '../storage/storage.service';
+import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import { VideosService } from './videos.service';
 
 describe('VideosService', () => {
@@ -24,6 +25,12 @@ describe('VideosService', () => {
     notification: { create: jest.Mock };
     notificationPreference: { findUnique: jest.Mock };
     $transaction: jest.Mock;
+  };
+  let workspaceAccess: {
+    assertMinRole: jest.Mock;
+    assertVideoAccess: jest.Mock;
+    getPersonalWorkspaceId: jest.Mock;
+    getRole: jest.Mock;
   };
   let storage: { saveVideo: jest.Mock; deleteObjects: jest.Mock };
   let payments: { getAvailability: jest.Mock; consumeCredit: jest.Mock };
@@ -60,6 +67,18 @@ describe('VideosService', () => {
     prisma.$transaction.mockImplementation((arg: unknown) =>
       typeof arg === 'function' ? arg(prisma) : Promise.all(arg as Promise<unknown>[]),
     );
+    // Default: every access check succeeds (an OWNER of a personal
+    // workspace 'workspace-1') - WorkspaceAccessService has its own
+    // dedicated spec covering role-rank logic, so these tests only need to
+    // verify VideosService's own orchestration around it. Individual tests
+    // override assertMinRole/assertVideoAccess to reject where they need to
+    // exercise the "no access" path.
+    workspaceAccess = {
+      assertMinRole: jest.fn().mockResolvedValue('OWNER'),
+      assertVideoAccess: jest.fn(),
+      getPersonalWorkspaceId: jest.fn().mockResolvedValue('workspace-1'),
+      getRole: jest.fn().mockResolvedValue('OWNER'),
+    };
     storage = { saveVideo: jest.fn(), deleteObjects: jest.fn().mockResolvedValue(undefined) };
     payments = {
       getAvailability: jest.fn().mockResolvedValue({ available: true }),
@@ -75,6 +94,7 @@ describe('VideosService', () => {
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
       payments as unknown as PaymentsService,
+      workspaceAccess as unknown as WorkspaceAccessService,
       notificationPublisher as unknown as NotificationPublisherService,
       notificationDeliveryProducer as unknown as NotificationDeliveryProducer,
       importYoutubeQueue as unknown as Queue,
@@ -107,6 +127,7 @@ describe('VideosService', () => {
       expect(prisma.video.create).toHaveBeenCalledWith({
         data: {
           ownerId: 'user-1',
+          workspaceId: 'workspace-1',
           sourceUrl: 'videos/abc.mp4',
           transcriptionProvider: TranscriptionProvider.GROQ,
           title: 'my-video.mp4',
@@ -221,6 +242,7 @@ describe('VideosService', () => {
       expect(prisma.video.create).toHaveBeenCalledWith({
         data: {
           ownerId: 'user-1',
+          workspaceId: 'workspace-1',
           sourceUrl: '',
           importSourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
           status: VideoStatus.IMPORTING,
@@ -337,7 +359,7 @@ describe('VideosService', () => {
       const result = await service.findAll('user-1', { limit: 20 });
 
       expect(prisma.video.findMany).toHaveBeenCalledWith({
-        where: { ownerId: 'user-1' },
+        where: { workspaceId: 'workspace-1' },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 21,
         include: {
@@ -510,22 +532,22 @@ describe('VideosService', () => {
       await expect(service.findOne('missing', 'user-1')).rejects.toThrow(NotFoundException);
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
+    it('throws NotFoundException when the requester has no workspace access', async () => {
       prisma.video.findUnique.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'someone-else',
+        workspaceId: 'ws-other',
         clips: [],
       });
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
 
       await expect(service.findOne('video-1', 'user-1')).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('findSourceOrThrow', () => {
-    it('returns just the sourceUrl when the video belongs to the requester', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+    it('returns just the sourceUrl when the requester has access', async () => {
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         sourceUrl: 'videos/abc.mp4',
       });
 
@@ -534,32 +556,19 @@ describe('VideosService', () => {
       expect(result).toEqual({ sourceUrl: 'videos/abc.mp4' });
     });
 
-    it('throws NotFoundException when the video does not exist', async () => {
-      prisma.video.findUnique.mockResolvedValue(null);
+    it('throws NotFoundException when the video does not exist or the requester has no access', async () => {
+      workspaceAccess.assertVideoAccess.mockRejectedValue(new NotFoundException());
 
       await expect(service.findSourceOrThrow('missing', 'user-1')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('throws NotFoundException when the video belongs to a different user', async () => {
-      prisma.video.findUnique.mockResolvedValue({
-        id: 'video-1',
-        ownerId: 'someone-else',
-        sourceUrl: 'videos/abc.mp4',
-      });
-
-      await expect(service.findSourceOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
   describe('findThumbnailOrThrow', () => {
-    it('returns just the thumbnailUrl when the video belongs to the requester', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+    it('returns just the thumbnailUrl when the requester has access', async () => {
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         thumbnailUrl: 'thumbnails/video-1.jpg',
       });
 
@@ -569,9 +578,8 @@ describe('VideosService', () => {
     });
 
     it('returns a null thumbnailUrl (not a throw) when extraction has not produced one yet', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         thumbnailUrl: null,
       });
 
@@ -580,12 +588,8 @@ describe('VideosService', () => {
       expect(result).toEqual({ thumbnailUrl: null });
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
-      prisma.video.findUnique.mockResolvedValue({
-        id: 'video-1',
-        ownerId: 'someone-else',
-        thumbnailUrl: 'thumbnails/video-1.jpg',
-      });
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      workspaceAccess.assertVideoAccess.mockRejectedValue(new NotFoundException());
 
       await expect(service.findThumbnailOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
@@ -594,10 +598,9 @@ describe('VideosService', () => {
   });
 
   describe('findAnimatedThumbnailOrThrow', () => {
-    it('returns just the animatedThumbnailUrl when the video belongs to the requester', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+    it('returns just the animatedThumbnailUrl when the requester has access', async () => {
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         animatedThumbnailUrl: 'animated-thumbnails/video-1.webp',
       });
 
@@ -607,9 +610,8 @@ describe('VideosService', () => {
     });
 
     it('returns a null animatedThumbnailUrl (not a throw) when extraction has not produced one yet', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         animatedThumbnailUrl: null,
       });
 
@@ -618,12 +620,8 @@ describe('VideosService', () => {
       expect(result).toEqual({ animatedThumbnailUrl: null });
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
-      prisma.video.findUnique.mockResolvedValue({
-        id: 'video-1',
-        ownerId: 'someone-else',
-        animatedThumbnailUrl: 'animated-thumbnails/video-1.webp',
-      });
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      workspaceAccess.assertVideoAccess.mockRejectedValue(new NotFoundException());
 
       await expect(service.findAnimatedThumbnailOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
@@ -632,10 +630,9 @@ describe('VideosService', () => {
   });
 
   describe('findHoverPreviewOrThrow', () => {
-    it('returns just the hoverPreviewUrl when the video belongs to the requester', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+    it('returns just the hoverPreviewUrl when the requester has access', async () => {
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         hoverPreviewUrl: 'hover-previews/video-1.webp',
       });
 
@@ -645,9 +642,8 @@ describe('VideosService', () => {
     });
 
     it('returns a null hoverPreviewUrl (not a throw) when extraction has not produced one yet', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         hoverPreviewUrl: null,
       });
 
@@ -656,12 +652,8 @@ describe('VideosService', () => {
       expect(result).toEqual({ hoverPreviewUrl: null });
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
-      prisma.video.findUnique.mockResolvedValue({
-        id: 'video-1',
-        ownerId: 'someone-else',
-        hoverPreviewUrl: 'hover-previews/video-1.webp',
-      });
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      workspaceAccess.assertVideoAccess.mockRejectedValue(new NotFoundException());
 
       await expect(service.findHoverPreviewOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
@@ -671,9 +663,8 @@ describe('VideosService', () => {
 
   describe('findStoryboardFrameOrThrow', () => {
     it('returns the raw key at the requested index', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         storyboardFrameUrls: ['storyboards/video-1-0.webp', 'storyboards/video-1-1.webp'],
       });
 
@@ -683,9 +674,8 @@ describe('VideosService', () => {
     });
 
     it('returns a null frameKey (not a throw) when the index is out of range', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         storyboardFrameUrls: ['storyboards/video-1-0.webp'],
       });
 
@@ -695,9 +685,8 @@ describe('VideosService', () => {
     });
 
     it('returns a null frameKey when no storyboard has been extracted yet', async () => {
-      prisma.video.findUnique.mockResolvedValue({
+      workspaceAccess.assertVideoAccess.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'user-1',
         storyboardFrameUrls: null,
       });
 
@@ -706,12 +695,8 @@ describe('VideosService', () => {
       expect(result).toEqual({ frameKey: null });
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
-      prisma.video.findUnique.mockResolvedValue({
-        id: 'video-1',
-        ownerId: 'someone-else',
-        storyboardFrameUrls: ['storyboards/video-1-0.webp'],
-      });
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      workspaceAccess.assertVideoAccess.mockRejectedValue(new NotFoundException());
 
       await expect(service.findStoryboardFrameOrThrow('video-1', 'user-1', 0)).rejects.toThrow(
         NotFoundException,
@@ -750,12 +735,12 @@ describe('VideosService', () => {
       );
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
+    it('throws NotFoundException when the requester has no workspace access', async () => {
       prisma.video.findUnique.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'someone-else',
         transcriptSegments: [],
       });
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
 
       await expect(service.findTranscriptOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
@@ -830,8 +815,9 @@ describe('VideosService', () => {
       });
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
-      prisma.video.findUnique.mockResolvedValue({ ...videoRow, ownerId: 'someone-else' });
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      prisma.video.findUnique.mockResolvedValue(videoRow);
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
 
       await expect(service.getVideoReportJson('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
@@ -929,14 +915,14 @@ describe('VideosService', () => {
       await expect(service.retry('missing', 'user-1')).rejects.toThrow(NotFoundException);
     });
 
-    it('throws NotFoundException when the video belongs to a different user', async () => {
+    it('throws NotFoundException when the requester has no workspace access', async () => {
       prisma.video.findUnique.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'someone-else',
         status: VideoStatus.FAILED,
         clips: [],
         transcriptSegments: [],
       });
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
 
       await expect(service.retry('video-1', 'user-1')).rejects.toThrow(NotFoundException);
     });
@@ -1146,13 +1132,13 @@ describe('VideosService', () => {
       expect(storage.deleteObjects).not.toHaveBeenCalled();
     });
 
-    it("throws NotFoundException for another user's video (no delete, no enumeration)", async () => {
+    it('throws NotFoundException when the requester has no workspace access (no delete, no enumeration)', async () => {
       prisma.video.findUnique.mockResolvedValue({
         id: 'video-1',
-        ownerId: 'someone-else',
         sourceUrl: 'videos/abc.mp4',
         clips: [],
       });
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
 
       await expect(service.remove('video-1', 'user-1')).rejects.toThrow(NotFoundException);
       expect(prisma.video.delete).not.toHaveBeenCalled();

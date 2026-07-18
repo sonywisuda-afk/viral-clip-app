@@ -1,11 +1,5 @@
 import { cookies } from 'next/headers';
-import type {
-  DashboardActivityDto,
-  DashboardStatsDto,
-  PaginatedVideos,
-  PendingInviteDto,
-  PendingInviteRole,
-} from '@speedora/shared';
+import type { DashboardActivityDto, DashboardStatsDto, PaginatedVideos } from '@speedora/shared';
 import { API_URL, parseJsonOrThrow, type UserDto } from './api';
 
 // Product Experience performance pass (Dashboard <1s) - Server Component-only
@@ -56,19 +50,4 @@ export async function getServerDashboardStats(): Promise<DashboardStatsDto> {
 export async function getServerDashboardActivity(): Promise<DashboardActivityDto> {
   const res = await serverApiFetch('/dashboard/activity');
   return parseJsonOrThrow<DashboardActivityDto>(res);
-}
-
-// Used by app/dashboard/actions.ts's Server Action - same POST /team/invites
-// call as lib/api.ts's sendTeamInvite, just cookie-forwarded instead of
-// browser-credentialed.
-export async function postServerTeamInvite(
-  email: string,
-  role: PendingInviteRole,
-): Promise<PendingInviteDto> {
-  const res = await serverApiFetch('/team/invites', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, role }),
-  });
-  return parseJsonOrThrow<PendingInviteDto>(res);
 }

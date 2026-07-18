@@ -63,18 +63,24 @@ export class MailService {
     }
   }
 
-  // Sprint 1-2 (Dashboard Redesign) - Invite Member quick action. Same
-  // SMTP-optional posture as sendPasswordResetEmail above: a missing
-  // SMTP_HOST logs the invite instead of failing the request, and a real
-  // send failure is logged, not rethrown, since TeamService's own response
-  // to the inviter ("Invitation sent!") is best-effort by explicit product
-  // decision - no accept flow exists on the other end for a bounced send to
-  // even matter to.
-  async sendTeamInviteEmail(to: string, inviterEmail: string, role: string): Promise<void> {
+  // Sprint 5A (Collaboration Foundation) - replaces sendTeamInviteEmail
+  // (Sprint 1-2's one-way "log it" stub). Same SMTP-optional posture as
+  // sendPasswordResetEmail: a missing SMTP_HOST logs the invite (including
+  // the accept link) instead of failing the request, and a real send
+  // failure is logged, not rethrown, since WorkspaceService's own response
+  // to the inviter is best-effort - the PendingInvite row and its real
+  // accept flow already exist regardless of whether this email lands.
+  async sendWorkspaceInviteEmail(
+    to: string,
+    inviterEmail: string,
+    workspaceName: string,
+    role: string,
+    acceptUrl: string,
+  ): Promise<void> {
     if (!process.env.SMTP_HOST) {
       this.logger.warn(
-        `SMTP_HOST is not configured - team invite email not sent. ` +
-          `${inviterEmail} invited ${to} as ${role}.`,
+        `SMTP_HOST is not configured - workspace invite email not sent. ` +
+          `${inviterEmail} invited ${to} to "${workspaceName}" as ${role}. Accept link: ${acceptUrl}`,
       );
       return;
     }
@@ -83,12 +89,12 @@ export class MailService {
       await getTransporter().sendMail({
         from: process.env.SMTP_FROM ?? 'no-reply@speedora.local',
         to,
-        subject: `${inviterEmail} invited you to Speedora`,
-        text: `${inviterEmail} invited you to join their Speedora workspace as ${role}.`,
-        html: `<p>${inviterEmail} invited you to join their Speedora workspace as <strong>${role}</strong>.</p>`,
+        subject: `${inviterEmail} invited you to "${workspaceName}" on Speedora`,
+        text: `${inviterEmail} invited you to join "${workspaceName}" on Speedora as ${role}.\n\nAccept the invite: ${acceptUrl}`,
+        html: `<p>${inviterEmail} invited you to join <strong>${workspaceName}</strong> on Speedora as <strong>${role}</strong>.</p><p><a href="${acceptUrl}">Accept the invite</a></p>`,
       });
     } catch (error) {
-      this.logger.error(`Failed to send team invite email to ${to}: ${error}`);
+      this.logger.error(`Failed to send workspace invite email to ${to}: ${error}`);
     }
   }
 }

@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { ExportJob } from '@speedora/database';
+import { WorkspaceRole, type ExportJob } from '@speedora/database';
 import {
   ExportType,
   QueueName,
@@ -9,12 +9,14 @@ import {
 } from '@speedora/shared';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import type { CreateExportDto } from './dto/create-export.dto';
 
 @Injectable()
 export class ExportService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly workspaceAccess: WorkspaceAccessService,
     @InjectQueue(QueueName.EXPORT_GENERATE)
     private readonly exportGenerateQueue: Queue<ExportGenerateJobData>,
   ) {}
@@ -47,11 +49,12 @@ export class ExportService {
 
     const video = await this.prisma.video.findUnique({
       where: { id: dto.videoId },
-      select: { id: true, ownerId: true },
+      select: { id: true, workspaceId: true },
     });
-    if (!video || video.ownerId !== userId) {
+    if (!video) {
       throw new NotFoundException(`Video ${dto.videoId} not found`);
     }
+    await this.workspaceAccess.assertMinRole(userId, video.workspaceId, WorkspaceRole.VIEWER);
 
     const job = await this.prisma.exportJob.create({
       data: { userId, videoId: dto.videoId, type },

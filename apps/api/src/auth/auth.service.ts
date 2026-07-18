@@ -40,8 +40,23 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
-    const user = await this.prisma.user.create({
-      data: { email, password: passwordHash },
+    // Sprint 5A (Collaboration Foundation) - every User gets exactly one
+    // isPersonal Workspace (role OWNER) at creation time, same "every User
+    // has one from day one" invariant the migration backfilled for
+    // pre-existing rows. WorkspaceAccessService.getPersonalWorkspaceId()
+    // (video upload/import, the main video list) depends on this
+    // unconditionally - never lazily created on first use.
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { email, password: passwordHash },
+      });
+      const workspace = await tx.workspace.create({
+        data: { name: 'Personal', isPersonal: true, ownerId: created.id },
+      });
+      await tx.workspaceMembership.create({
+        data: { workspaceId: workspace.id, userId: created.id, role: 'OWNER' },
+      });
+      return created;
     });
 
     return { id: user.id, email: user.email, role: user.role };

@@ -1,5 +1,11 @@
 import { isYoutubeUrl, TranscriptionProvider } from '@speedora/shared';
-import { IsEnum, IsOptional, registerDecorator, type ValidationOptions } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  registerDecorator,
+  type ValidationOptions,
+} from 'class-validator';
 
 // Custom rather than @IsUrl() - this needs to reject any non-YouTube URL
 // (Vimeo, a direct .mp4 link, etc.), not just validate general URL shape.
@@ -34,4 +40,10 @@ export class ImportYoutubeDto {
   @IsOptional()
   @IsEnum(TranscriptionProvider)
   transcriptionProvider?: TranscriptionProvider;
+
+  // Sprint 5A (Collaboration Foundation) - same "omitted defaults to the
+  // requester's personal workspace" convention as UploadVideoDto.
+  @IsOptional()
+  @IsString()
+  workspaceId?: string;
 }
