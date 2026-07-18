@@ -8,6 +8,7 @@ import type {
   BrandKitDto,
   Clip,
   ClipExplainabilityDto,
+  ClipVersionListDto,
   CommentAttachmentDto,
   CommentDto,
   CommentListDto,
@@ -995,6 +996,27 @@ export async function resubmitApproval(id: string, note?: string): Promise<Appro
     body: JSON.stringify({ note }),
   });
   return parseJsonOrThrow<ApprovalDto>(res);
+}
+
+// Sprint 5E (Version Compare & History).
+export async function listClipVersions(clipId: string): Promise<ClipVersionListDto> {
+  const res = await apiFetch(`/clips/${clipId}/versions`);
+  return parseJsonOrThrow<ClipVersionListDto>(res);
+}
+
+export async function restoreClipVersion(clipId: string, versionId: string): Promise<Clip> {
+  const res = await apiFetch(`/clips/${clipId}/versions/${versionId}/restore`, {
+    method: 'POST',
+  });
+  return parseJsonOrThrow<Clip>(res);
+}
+
+export function clipVersionDownloadUrl(url: string): string {
+  return `${API_URL}${url}`;
+}
+
+export function clipVersionThumbnailUrl(url: string): string {
+  return `${API_URL}${url}`;
 }
 
 export { API_URL };

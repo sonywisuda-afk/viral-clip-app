@@ -9,6 +9,7 @@ import { Nav } from '../../../../components/Nav';
 import { TimelineEditor } from '../../../../components/TimelineEditor';
 import { ApprovalPanel } from '../../../../components/editor/ApprovalPanel';
 import { CommentsPanel } from '../../../../components/editor/CommentsPanel';
+import { VersionHistoryPanel } from '../../../../components/editor/VersionHistoryPanel';
 import { VideoAnalysisDashboard } from '../../../../components/editor/VideoAnalysisDashboard';
 import { getVideo, getVideoTranscript } from '../../../../lib/api';
 import { useTimelineStore } from '../../../../lib/timelineStore';
@@ -102,6 +103,7 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
                 </div>
                 <VideoAnalysisDashboard />
                 <TimelineEditor videoId={params.id} />
+                <VersionHistoryPanel />
                 <ApprovalPanel videoId={params.id} />
                 <CommentsPanel videoId={params.id} />
               </div>

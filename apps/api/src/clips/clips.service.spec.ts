@@ -23,6 +23,13 @@ describe('ClipsService', () => {
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
     };
+    clipVersion: {
+      count: jest.Mock;
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+    };
+    $transaction: jest.Mock;
   };
   let socialAccounts: { findOwnedOrThrow: jest.Mock };
   let storage: { deleteObjects: jest.Mock };
@@ -40,7 +47,16 @@ describe('ClipsService', () => {
         updateMany: jest.fn(),
         findUniqueOrThrow: jest.fn(),
       },
+      // Sprint 5E (Version Compare & History).
+      clipVersion: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      $transaction: jest.fn(),
     };
+    prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
     socialAccounts = { findOwnedOrThrow: jest.fn() };
     storage = { deleteObjects: jest.fn().mockResolvedValue(undefined) };
     // Default: access granted - WorkspaceAccessService has its own
@@ -619,6 +635,25 @@ describe('ClipsService', () => {
 
       const result = await service.render('clip-1', 'user-1');
 
+      // Sprint 5E (Version Compare & History) - the pre-render state is
+      // snapshotted before the live row is cleared.
+      expect(prisma.clipVersion.count).toHaveBeenCalledWith({ where: { clipId: 'clip-1' } });
+      expect(prisma.clipVersion.create).toHaveBeenCalledWith({
+        data: {
+          clipId: 'clip-1',
+          versionNumber: 1,
+          startTime: 10,
+          endTime: 20,
+          outputUrl: 'renders/clip-1.mp4',
+          outputSizeBytes: undefined,
+          thumbnailUrl: undefined,
+          captionStyle: CaptionStyle.KARAOKE,
+          hookText: 'Wait for it...',
+          hashtags: ['viral', 'fyp'],
+          viralityScore: 80,
+          createdById: 'user-1',
+        },
+      });
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
         data: { outputUrl: null },
@@ -716,6 +751,110 @@ describe('ClipsService', () => {
 
       await expect(service.render('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
       expect(renderClipQueue.add).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listVersions / restoreVersion / version download+thumbnail (Sprint 5E)', () => {
+    const ownedClip = { id: 'clip-1', video: { ownerId: 'user-1' } };
+    const versionRow = {
+      id: 'version-1',
+      clipId: 'clip-1',
+      versionNumber: 1,
+      startTime: 5,
+      endTime: 15,
+      outputUrl: 'renders/clip-1-v1.mp4',
+      outputSizeBytes: 1000,
+      thumbnailUrl: 'thumbnails/clip-1-v1.webp',
+      captionStyle: CaptionStyle.DEFAULT,
+      hookText: 'old hook',
+      hashtags: ['old'],
+      viralityScore: 70,
+      createdAt: new Date('2026-01-01'),
+      createdBy: { email: 'editor@example.com' },
+    };
+
+    describe('listVersions', () => {
+      it('requires VIEWER+ access and maps versions to DTOs newest-first', async () => {
+        prisma.clip.findUnique.mockResolvedValue(ownedClip);
+        prisma.clipVersion.findMany.mockResolvedValue([versionRow]);
+
+        const result = await service.listVersions('user-1', 'clip-1');
+
+        expect(prisma.clipVersion.findMany).toHaveBeenCalledWith({
+          where: { clipId: 'clip-1' },
+          orderBy: { versionNumber: 'desc' },
+          include: { createdBy: { select: { email: true } } },
+        });
+        expect(result.versions[0]).toMatchObject({
+          id: 'version-1',
+          versionNumber: 1,
+          downloadUrl: '/clips/clip-1/versions/version-1/download',
+          thumbnailUrl: '/clips/clip-1/versions/version-1/thumbnail',
+          createdByEmail: 'editor@example.com',
+        });
+      });
+    });
+
+    describe('restoreVersion', () => {
+      it('copies trim/caption/hook/hashtags back onto the live clip, not outputUrl', async () => {
+        prisma.clip.findUnique.mockResolvedValue(ownedClip);
+        prisma.clipVersion.findUnique.mockResolvedValue(versionRow);
+        prisma.clip.update.mockResolvedValue({ ...ownedClip, publishRecords: [] });
+
+        await service.restoreVersion('user-1', 'clip-1', 'version-1');
+
+        expect(prisma.clip.update).toHaveBeenCalledWith({
+          where: { id: 'clip-1' },
+          data: {
+            startTime: 5,
+            endTime: 15,
+            captionStyle: CaptionStyle.DEFAULT,
+            hookText: 'old hook',
+            hashtags: ['old'],
+          },
+          ...PUBLISH_RECORDS_INCLUDE,
+        });
+      });
+
+      it('throws NotFoundException when the version does not belong to this clip', async () => {
+        prisma.clip.findUnique.mockResolvedValue(ownedClip);
+        prisma.clipVersion.findUnique.mockResolvedValue({ ...versionRow, clipId: 'other-clip' });
+
+        await expect(service.restoreVersion('user-1', 'clip-1', 'version-1')).rejects.toThrow(
+          NotFoundException,
+        );
+      });
+    });
+
+    describe('getVersionOutputOrThrow', () => {
+      it('returns the raw output key when present', async () => {
+        prisma.clip.findUnique.mockResolvedValue(ownedClip);
+        prisma.clipVersion.findUnique.mockResolvedValue(versionRow);
+
+        await expect(
+          service.getVersionOutputOrThrow('user-1', 'clip-1', 'version-1'),
+        ).resolves.toEqual({ outputUrl: 'renders/clip-1-v1.mp4' });
+      });
+
+      it('throws NotFoundException when the version never finished rendering', async () => {
+        prisma.clip.findUnique.mockResolvedValue(ownedClip);
+        prisma.clipVersion.findUnique.mockResolvedValue({ ...versionRow, outputUrl: null });
+
+        await expect(
+          service.getVersionOutputOrThrow('user-1', 'clip-1', 'version-1'),
+        ).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('getVersionThumbnailOrThrow', () => {
+      it('returns the raw thumbnail key when present', async () => {
+        prisma.clip.findUnique.mockResolvedValue(ownedClip);
+        prisma.clipVersion.findUnique.mockResolvedValue(versionRow);
+
+        await expect(
+          service.getVersionThumbnailOrThrow('user-1', 'clip-1', 'version-1'),
+        ).resolves.toEqual({ thumbnailUrl: 'thumbnails/clip-1-v1.webp' });
+      });
     });
   });
 

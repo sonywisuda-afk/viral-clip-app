@@ -1,12 +1,20 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PublishStatus, WorkspaceRole, type CaptionStyle, type Prisma } from '@speedora/database';
+import {
+  PublishStatus,
+  WorkspaceRole,
+  type CaptionStyle,
+  type ClipVersion,
+  type Prisma,
+} from '@speedora/database';
 import {
   filterSegmentsForClip,
   PUBLISH_RETRY_OPTIONS,
   QueueName,
   sanitizeHashtags,
   type ClipExplainabilityDto,
+  type ClipVersionDto,
+  type ClipVersionListDto,
   type PublishClipJobData,
   type PublishRecord,
   type RenderClipJobData,
@@ -63,6 +71,28 @@ import {
 } from '../videos/transcript-segment.util';
 import type { PublishClipDto } from './dto/publish-clip.dto';
 import type { UpdateClipDto } from './dto/update-clip.dto';
+
+function toVersionDto(version: ClipVersion & { createdBy: { email: string } }): ClipVersionDto {
+  return {
+    id: version.id,
+    clipId: version.clipId,
+    versionNumber: version.versionNumber,
+    startTime: version.startTime,
+    endTime: version.endTime,
+    downloadUrl: version.outputUrl
+      ? `/clips/${version.clipId}/versions/${version.id}/download`
+      : null,
+    thumbnailUrl: version.thumbnailUrl
+      ? `/clips/${version.clipId}/versions/${version.id}/thumbnail`
+      : null,
+    captionStyle: version.captionStyle as unknown as ClipVersionDto['captionStyle'],
+    hookText: version.hookText,
+    hashtags: version.hashtags,
+    viralityScore: version.viralityScore,
+    createdByEmail: version.createdBy.email,
+    createdAt: version.createdAt.toISOString(),
+  };
+}
 
 @Injectable()
 export class ClipsService {
@@ -259,17 +289,41 @@ export class ClipsService {
       where: { videoId: clip.videoId },
     });
 
-    // Cleared before enqueueing, not left stale, so two things stay true
-    // while the re-render is in flight: apps/web's existing "Rendering..."
-    // fallback (shown whenever a clip's downloadUrl is null) kicks in for
-    // free, and if this render-clip job fails, VideosService.retry's
-    // "clips without outputUrl need render-clip" check finds this clip
-    // again instead of thinking it's still fine. Also bumps updatedAt,
-    // which apps/web polls to detect when the re-render finishes.
-    const cleared = await this.prisma.clip.update({
-      where: { id },
-      data: { outputUrl: null },
-      include: { publishRecords: { include: { socialAccount: true } } },
+    // Sprint 5E (Version Compare & History) + cleared-before-enqueueing, in
+    // one transaction: the pre-render state is snapshotted into ClipVersion
+    // (see that model's own comment) right before it's overwritten, so
+    // nothing between the snapshot and the clear can be lost to a race.
+    // Clearing (not left stale) keeps two things true while the re-render
+    // is in flight: apps/web's existing "Rendering..." fallback (shown
+    // whenever a clip's downloadUrl is null) kicks in for free, and if
+    // this render-clip job fails, VideosService.retry's "clips without
+    // outputUrl need render-clip" check finds this clip again instead of
+    // thinking it's still fine. Also bumps updatedAt, which apps/web polls
+    // to detect when the re-render finishes.
+    const cleared = await this.prisma.$transaction(async (tx) => {
+      const versionCount = await tx.clipVersion.count({ where: { clipId: id } });
+      await tx.clipVersion.create({
+        data: {
+          clipId: id,
+          versionNumber: versionCount + 1,
+          startTime: clip.startTime,
+          endTime: clip.endTime,
+          outputUrl: clip.outputUrl,
+          outputSizeBytes: clip.outputSizeBytes,
+          thumbnailUrl: clip.thumbnailUrl,
+          captionStyle: clip.captionStyle,
+          hookText: clip.hookText,
+          hashtags: clip.hashtags,
+          viralityScore: clip.viralityScore,
+          createdById: requesterId,
+        },
+      });
+
+      return tx.clip.update({
+        where: { id },
+        data: { outputUrl: null },
+        include: { publishRecords: { include: { socialAccount: true } } },
+      });
     });
 
     await this.renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -289,6 +343,77 @@ export class ClipsService {
     });
 
     return this.toDto(cleared);
+  }
+
+  async listVersions(userId: string, clipId: string): Promise<ClipVersionListDto> {
+    await this.findOwnedOrThrow(clipId, userId, WorkspaceRole.VIEWER);
+    const versions = await this.prisma.clipVersion.findMany({
+      where: { clipId },
+      orderBy: { versionNumber: 'desc' },
+      include: { createdBy: { select: { email: true } } },
+    });
+    return { versions: versions.map(toVersionDto) };
+  }
+
+  // Metadata-only - copies a past version's trim/caption/hook/hashtags back
+  // onto the live Clip row, but deliberately does NOT touch outputUrl: the
+  // old rendered bytes aren't guaranteed to still exist in storage (and
+  // even if they do, they're stale the instant startTime/endTime differ
+  // from what's live). The caller re-renders separately (a normal render()
+  // call) once they're happy with the restored settings, same two-step
+  // "edit, then explicitly re-render" flow ClipsService.update() already
+  // has for any other metadata change.
+  async restoreVersion(userId: string, clipId: string, versionId: string) {
+    await this.findOwnedOrThrow(clipId, userId, WorkspaceRole.EDITOR);
+    const version = await this.findVersionOrThrow(clipId, versionId);
+
+    const updated = await this.prisma.clip.update({
+      where: { id: clipId },
+      data: {
+        startTime: version.startTime,
+        endTime: version.endTime,
+        captionStyle: version.captionStyle,
+        hookText: version.hookText,
+        hashtags: version.hashtags,
+      },
+      include: { publishRecords: { include: { socialAccount: true } } },
+    });
+
+    return this.toDto(updated);
+  }
+
+  async getVersionOutputOrThrow(
+    userId: string,
+    clipId: string,
+    versionId: string,
+  ): Promise<{ outputUrl: string }> {
+    await this.findOwnedOrThrow(clipId, userId, WorkspaceRole.VIEWER);
+    const version = await this.findVersionOrThrow(clipId, versionId);
+    if (!version.outputUrl) {
+      throw new NotFoundException(`Version ${versionId} has no rendered output`);
+    }
+    return { outputUrl: version.outputUrl };
+  }
+
+  async getVersionThumbnailOrThrow(
+    userId: string,
+    clipId: string,
+    versionId: string,
+  ): Promise<{ thumbnailUrl: string }> {
+    await this.findOwnedOrThrow(clipId, userId, WorkspaceRole.VIEWER);
+    const version = await this.findVersionOrThrow(clipId, versionId);
+    if (!version.thumbnailUrl) {
+      throw new NotFoundException(`Version ${versionId} has no thumbnail`);
+    }
+    return { thumbnailUrl: version.thumbnailUrl };
+  }
+
+  private async findVersionOrThrow(clipId: string, versionId: string): Promise<ClipVersion> {
+    const version = await this.prisma.clipVersion.findUnique({ where: { id: versionId } });
+    if (!version || version.clipId !== clipId) {
+      throw new NotFoundException(`Version ${versionId} not found`);
+    }
+    return version;
   }
 
   // Manual "publish now" (Fase 6b), or a scheduled future publish (Fase 6c)

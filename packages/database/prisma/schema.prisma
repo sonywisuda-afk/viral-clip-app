@@ -167,6 +167,8 @@ model User {
   requestedApprovals       Approval[]                @relation("ApprovalRequester")
   reviewedApprovals        Approval[]                @relation("ApprovalReviewer")
   approvalEvents           ApprovalEvent[]
+  // Sprint 5E (Version Compare & History)
+  clipVersionsCreated      ClipVersion[]
 }
 
 model Video {
@@ -784,6 +786,7 @@ model Clip {
   jobExecutions  JobExecution[]
   comments       Comment[]
   approvals      Approval[]
+  versions       ClipVersion[]
 
   @@index([videoId])
 }
@@ -1535,4 +1538,41 @@ model ApprovalEvent {
   createdAt  DateTime       @default(now())
 
   @@index([approvalId, createdAt])
+}
+
+// Sprint 5E (Version Compare & History). render-clip.worker.ts overwrites
+// Clip.outputUrl/thumbnailUrl/etc. in place on every re-render with zero
+// history - this is what actually preserves it. A row is snapshotted by
+// ClipsService.render() right before it clears the live Clip row and
+// enqueues the new render job, so a ClipVersion always represents "what
+// this clip looked like right before this specific re-render" - the CURRENT
+// state always lives on the Clip row itself, never duplicated into a
+// ClipVersion until it's about to be superseded. versionNumber is
+// sequential per clip (1, 2, 3...), assigned as
+// (existing ClipVersion count for this clip) + 1. Deliberately a snapshot
+// of render/trim-relevant fields only (startTime/endTime/captionStyle/
+// hookText/hashtags/outputUrl/outputSizeBytes/thumbnailUrl/viralityScore) -
+// not the deep per-clip AI signal columns (facialFeatures, ocrTracks,
+// etc.), which are frozen pipeline output tied to the CURRENT render, not
+// something a Version Compare view needs to diff.
+model ClipVersion {
+  id              String       @id @default(cuid())
+  clipId          String
+  clip            Clip         @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  versionNumber   Int
+  startTime       Float
+  endTime         Float
+  outputUrl       String?
+  outputSizeBytes Int?
+  thumbnailUrl    String?
+  captionStyle    CaptionStyle
+  hookText        String?
+  hashtags        String[]
+  viralityScore   Float
+  createdById     String
+  createdBy       User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+
+  @@unique([clipId, versionNumber])
+  @@index([clipId, versionNumber])
 }

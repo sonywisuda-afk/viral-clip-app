@@ -174,10 +174,61 @@ export class ClipsController {
   }
 
   // Explicit re-render action, separate from PATCH so dragging a trim
-  // handle doesn't burn FFmpeg compute on every intermediate value.
+  // handle doesn't burn FFmpeg compute on every intermediate value. Also
+  // where Sprint 5E's ClipVersion snapshot gets created - see
+  // ClipsService.render().
   @Post(':id/render')
   render(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.clipsService.render(id, user.id);
+  }
+
+  // Sprint 5E (Version Compare & History).
+  @Get(':id/versions')
+  listVersions(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.listVersions(user.id, id);
+  }
+
+  @Post(':id/versions/:versionId/restore')
+  restoreVersion(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+  ) {
+    return this.clipsService.restoreVersion(user.id, id, versionId);
+  }
+
+  @Get(':id/versions/:versionId/download')
+  async downloadVersion(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Res() res: Response,
+  ) {
+    const { outputUrl } = await this.clipsService.getVersionOutputOrThrow(user.id, id, versionId);
+    const stream = await getObjectStream(outputUrl);
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="clip-${id}-v${versionId}.mp4"`);
+    stream.pipe(res);
+  }
+
+  @Get(':id/versions/:versionId/thumbnail')
+  async versionThumbnail(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('versionId') versionId: string,
+    @Res() res: Response,
+  ) {
+    const { thumbnailUrl } = await this.clipsService.getVersionThumbnailOrThrow(
+      user.id,
+      id,
+      versionId,
+    );
+    const stream = await getObjectStream(thumbnailUrl);
+
+    res.setHeader('Content-Type', thumbnailContentType(thumbnailUrl));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
   }
 
   // Permanently deletes one clip - not the parent video or its sibling
