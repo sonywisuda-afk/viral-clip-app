@@ -1,7 +1,9 @@
 # Queue (BullMQ)
 
 BullMQ backed by Redis. Redis is queue + cache only — Postgres is the durable source of truth (see
-`database.md`). All queues are defined in `apps/worker/src/queues.ts`.
+`database.md`). All queues are defined in `apps/worker/src/queues.ts`. See `worker-architecture.md`
+for how this queue layer, the atomic-write Snapshot pattern, and stage-inferred retry compose into
+one flow — this doc covers queue/retry mechanics in isolation.
 
 ## Pipeline queues (self-chained inside `apps/worker`)
 

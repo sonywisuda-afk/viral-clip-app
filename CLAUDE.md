@@ -63,10 +63,15 @@ pattern itself and its "add a new module" checklist.
 | Doc | Covers |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Full pipeline, state machine, job design, storage, auth, the JSON-contract pattern, AI signal flow |
+| [`docs/data-ownership.md`](docs/data-ownership.md) | Entity relationship map (`User`/`Workspace`/`WorkspaceMembership`/`SocialAccount`/`Campaign`/`PublishRecord`/both snapshot models) — the two coexisting scoping models (direct ownership vs. workspace membership) and why both exist |
 | [`docs/coding-standards.md`](docs/coding-standards.md) | Conventions: module checklist, extraction discipline, "scale honesty", data-shape conventions, the recurring TS2742 pitfall |
 | [`docs/backend.md`](docs/backend.md) | `apps/api` — auth, endpoints, Publish Center (YouTube/TikTok/Instagram), payments |
+| [`docs/analytics-architecture.md`](docs/analytics-architecture.md) | Flow-level view of Sprint 6A-6K: Publish → Snapshot → Aggregation → Visualization → Insight → Prediction — how a clip's real performance becomes a dashboard number, a narrative, and a projection |
+| [`docs/conversion-architecture.md`](docs/conversion-architecture.md) | Sprint 6K's Tracked Link → Redirect → Bot Filter → Dedup → Click Event → Conversion Count → Dashboard flow — and why "conversion" here means click count, not a purchase/signup event |
+| [`docs/capability-matrix.md`](docs/capability-matrix.md) | The two per-platform capability registries (publish vs. read/analytics) reproduced as reference tables, plus an "adding a new platform" checklist |
 | [`docs/frontend.md`](docs/frontend.md) | `apps/web` — routes, Timeline Editor, Dashboard, OCR Review UI, processing UX |
 | [`docs/worker.md`](docs/worker.md) | `apps/worker` — job handlers, the full `render-clip` pipeline, Smart Reframe, captions, B-roll |
+| [`docs/worker-architecture.md`](docs/worker-architecture.md) | Flow-level companion to `worker.md`: Queue → Worker → Snapshot → Retry → Failure isolation — why the pipeline's atomic-write Snapshot pattern is what makes stage-inferred retry possible |
 | [`docs/queue.md`](docs/queue.md) | BullMQ queue design, self-chaining, retry semantics |
 | [`docs/database.md`](docs/database.md) | Prisma schema overview, `Clip`'s AI-signal columns, retry inference |
 | [`docs/prisma.md`](docs/prisma.md) | Prisma-specific conventions, `Prisma.JsonNull`, the TS2742 pitfall in detail |
@@ -85,6 +90,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/audio.md`](docs/ai/audio.md) | Loudness/RMS/speaking-rate, Speaker Diarization, Vocal Emotion Detection |
 | [`docs/ai/ocr.md`](docs/ai/ocr.md) | On-screen text detection, tracking, classification, evaluation tooling, Review UI |
 | [`docs/ai/fusion.md`](docs/ai/fusion.md) | The Fusion Engine — current pipeline, weights, prediction/recommendation |
+| [`docs/ai/fusion-to-insight.md`](docs/ai/fusion-to-insight.md) | Fusion Engine → Explainability → Analytics → Insight → Prediction — disambiguates the three unrelated things called "prediction" in this codebase (the Fusion Engine's own frozen bucket, Sprint 6J's per-owner regression, and the paused Fusion Engine v3) and draws the write-once-model vs. read-time-interpretation line |
 | [`docs/ai/fusion-v3.md`](docs/ai/fusion-v3.md) | Fusion Engine v3 (Milestones 2A-B) — `packages/fusion-ml`'s ML abstractions/interfaces/mock implementations (2A), plus (2B) a real Prisma-backed dataset builder, real dataset/feature versioning, a real evaluation runner, and a real gradient-descent baseline linear model, orchestrated by `runFusionV3Pipeline()`; v2 remains the only engine in production, nothing here is wired into `render-clip.worker.ts` |
 | [`docs/ai/scoring.md`](docs/ai/scoring.md) | How `viralityScore`/`ClipScores`/`highlightScore` relate (they are three different systems) |
 | [`docs/ai/speaker-intelligence.md`](docs/ai/speaker-intelligence.md) | Speaker Intelligence roadmap (VAD, Active Speaker Detection, Face-Voice Association, Speaker Timeline/Scoring) — contracts-only status vs. what's already covered by Face/Audio/Gesture Intelligence |
@@ -236,6 +242,22 @@ High-level state of each major initiative (see the linked docs for what's actual
   stay in `apps/worker`). All done. This was also this codebase's first role concept
   (`UserRole` on `User`) — see `docs/backend.md`'s "AI Operations Dashboard" section and
   `docs/operations-runbook.md` for granting a role.
+- **Sprint 6A-6K** ("Opus-Clip-equivalent Analytics Dashboard") — a from-scratch expansion on top of
+  the M5A-C Analytics Dashboard above, all done: workspace-scoped Leaderboard (6D) and Campaign
+  Analytics (6E) siblings to the owner-scoped `/analytics/*` surface (see `data-ownership.md` for why
+  both scoping models coexist rather than one replacing the other), account-level Follower snapshots
+  (6F), a shared chart-component foundation (6C.5), a publish-time-of-day Heatmap (6H), a per-clip AI
+  Insight narrative comparing real outcomes against the Fusion Engine's own explainability (6I), a
+  per-owner heuristic engagement Prediction via closed-form linear regression — explicitly not a
+  trained model, and not the same thing as the Fusion Engine's own `predict.ts` bucket or the paused
+  Fusion Engine v3 (6J, see `ai/fusion-to-insight.md`), and Conversion (6K) — a from-scratch
+  Tracked-Link/click-tracking feature (`conversion-architecture.md`) where "conversion" means a
+  bot-filtered, deduplicated click count, not a purchase/signup event. `backend.md`'s endpoint list
+  predates this sprint and doesn't yet enumerate its routes; `analytics-architecture.md`/
+  `conversion-architecture.md` are the canonical reference for them until that's backfilled. (Sprint
+  6G has no corresponding artifact anywhere in the codebase — likely renumbered or merged into an
+  adjacent sub-sprint, not a gap in what shipped.) See `analytics-architecture.md`,
+  `conversion-architecture.md`, `capability-matrix.md`, `data-ownership.md`, `ai/fusion-to-insight.md`.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

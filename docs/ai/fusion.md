@@ -3,7 +3,10 @@
 `packages/fusion-engine` combines every AI Intelligence signal for one clip into a single
 explainable `highlightScore`. Pure/synchronous — no `deps`, no DB, no external calls (see
 `coding-standards.md`'s module pattern). This is the most actively-evolving part of the codebase;
-this doc describes the **current** (v2.1) pipeline, not its history.
+this doc describes the **current** (v2.1) pipeline, not its history. See `fusion-to-insight.md` for
+where this engine's own output ends and Sprint 6's downstream analytics/insight/prediction layer
+begins — in particular, this doc's own `predict.ts` (step 7 below) is one of three unrelated things
+called "prediction" in this codebase; don't conflate it with Sprint 6J's analytics-layer regression.
 
 ## Architectural note: this is not the file-based pipeline the original spec assumed
 

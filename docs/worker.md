@@ -3,7 +3,8 @@
 BullMQ job consumer. No HTTP server. Reads/writes Postgres directly via `@speedora/database`,
 reads/writes object storage via `@speedora/storage`, shells out to `ffmpeg`/Python subprocesses for
 CV/audio work. See `queue.md` for job orchestration and `coding-standards.md` for the JSON-contract
-adapter pattern every AI module here follows.
+adapter pattern every AI module here follows. See `worker-architecture.md` for the flow-level view
+(Queue → Worker → Snapshot → Retry → Failure isolation) this doc's per-handler detail sits under.
 
 ## Job handlers (`src/workers/*.worker.ts`)
 

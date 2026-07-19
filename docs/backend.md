@@ -2,7 +2,11 @@
 
 NestJS REST API. Never runs Whisper/FFmpeg synchronously in a request — all heavy work is
 delegated to `apps/worker` via BullMQ. See `architecture.md` for the overall pipeline and
-`queue.md` for job orchestration.
+`queue.md` for job orchestration. This doc's endpoint list predates Sprint 6A-6K — see
+`analytics-architecture.md`, `conversion-architecture.md`, and `capability-matrix.md` for the
+flow-level view of the routes added since (`/analytics/heatmap`, `/analytics/followers`,
+`/clips/:id/performance`, `/campaigns/:id/analytics`, `/workspaces/:id/analytics/*`, `/r/:slug`),
+not yet backfilled below.
 
 ## Modules
 
@@ -34,6 +38,34 @@ delegated to `apps/worker` via BullMQ. See `architecture.md` for the overall pip
   credits.
 - **Ops AI** (`src/ops-ai`) — Milestone 5C-B, `GET /ops/ai/{health,signals,distribution,
   correlation,calibration,drift,readiness}`. See "AI Operations Dashboard" below.
+
+## Pagination convention
+
+Stabilization Pass (API Contract Audit) resolution — an audit found the documented cursor
+convention (`?cursor`/`?limit` clamped 1-50 default 20 → `{ items, nextCursor }`) was followed by
+only 2 list endpoints (`GET /videos`, `GET /workspaces/:id/audit-log`) out of roughly 20, with the
+rest split between three different ad-hoc `limit` ceilings and several fully unbounded `findMany`
+calls. Rather than retrofit real cursor pagination onto every list (a frontend "load more" project
+disproportionate to a stabilization pass), the resolved, honest two-tier convention is:
+
+- **Cursor pagination** (`?cursor`/`?limit`, 1-50 clamped, default 20, → `{ <resource>, nextCursor }`
+  — the wrapper key is the resource name, e.g. `videos`/`entries`, not a generic `items`) for the
+  handful of genuinely high-cardinality, unbounded-growth lists: `GET /videos`,
+  `GET /workspaces/:id/audit-log`. `GET /videos/:videoId/comments` is the next candidate if a
+  video's comment count ever realistically approaches its new `take: 500` cap below.
+- **A clamped `limit` query param, no cursor** (1-50, sensible per-endpoint default) for lists that
+  are naturally small and browsed as a whole page, not paged through: `GET /dashboard/activity`,
+  `GET /notifications`, `GET /analytics/performance/{clips,videos}` (default 50 — a deliberately
+  higher default than the 20 elsewhere, since these are analytics tables meant to be scanned, not a
+  feed). `GET /workspaces/:workspaceId/analytics/leaderboard`'s 1-20 ceiling is a separate,
+  deliberate product decision ("Top 10 or Top 20"), not part of this convention.
+- **A hard `take` cap, no query param at all** for workspace-scoped management lists that are
+  low-cardinality in practice (a handful to low hundreds of rows per workspace) but had no bound
+  whatsoever before this pass: campaigns, recurring schedules, tracked links, workspaces-I'm-a-
+  member-of, pending invites, projects, folders, share links, approvals, and clip versions/
+  platform-copy history all now cap at `take: 200` (comments at `take: 500`, see above) as a
+  stopgap against unbounded growth, not a real pagination UI. If any of these ever needs real
+  paging, promote it to the cursor tier rather than raising the cap further.
 
 ## Ownership & security
 
