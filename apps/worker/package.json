@@ -12,6 +12,7 @@
     "export:dataset": "tsx src/scripts/export-training-dataset.ts",
     "report:dataset-health": "tsx src/scripts/generate-dataset-report.ts",
     "pipeline:fusion-v3": "tsx src/scripts/run-fusion-v3-pipeline.ts",
+    "verify:cross-feature": "tsx src/scripts/cross-feature-e2e/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",

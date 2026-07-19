@@ -44,6 +44,37 @@ delete) via a one-off script, run once and then deleted — not just written and
 This is separate from and in addition to the unit test suite; unit tests mock Prisma, this
 verification step doesn't.
 
+## Cross-feature E2E verification (Stabilization Pass, Area 3 — 2026-07-19)
+
+Every Sprint 6A-6K feature has unit tests, but all of them mock Prisma — until this pass, nothing
+proved the full chain (Upload → Processing → Publish → Snapshot → Overview → Trend → Campaign →
+Followers → Heatmap → Insight → Prediction → Tracked Link → Conversion) was coherent as one system
+against a real database. `pnpm --filter @speedora/worker verify:cross-feature`
+(`apps/worker/src/scripts/cross-feature-e2e/`) is a rerunnable tool (kept, not a delete-after-use
+script, following the same precedent as `generate-dataset-report.ts`/`run-fusion-v3-pipeline.ts`)
+that drives the real chain end-to-end via real HTTP calls to a running `apps/api` plus real worker
+logic, against the dev Postgres/Redis, then cascade-deletes everything it created.
+
+Verified for real, twice consecutively (second run proves cleanup leaves the DB exactly as it found
+it — no leftover-data collisions): all 6 explicitly-required failure scenarios — worker-failed-then-
+retry (real stage-inferred `VideosService.retry`), a platform that structurally doesn't support a
+metric (Threads has no `fetchFollowerCount` at all — real, unmodified gating, not simulated), an
+account that hasn't reconnected (TikTok's `syncStats` substituted to throw, proving the real
+per-record isolation in `sync-publish-stats.worker.ts`), a bot click (real `isBotUserAgent` +
+redirect, excluded from `clickCount`), publish without a campaign, and a campaign with zero
+publishes (graceful empty analytics, not an error).
+
+Two deliberate scope cuts, same "frozen AI pipeline" honesty this codebase already applies
+elsewhere: no real ffmpeg/ASR render or OAuth (clips/social accounts are seeded directly via Prisma
+at the point those pipelines would have finished, matching the Product Experience mandate's "AI
+pipeline frozen" posture), and no real BullMQ queue dispatch for the Snapshot/Followers phases —
+this dev environment already had a separate, real `apps/worker dev` process consuming the exact same
+queues, and racing it would have let its unsubstituted `platformRegistry` silently win the job
+instead of this script's fake one. `direct-sync.ts` reproduces
+`sync-publish-stats.worker.ts`/`sync-follower-count.worker.ts`'s query-plus-per-record-loop bodies
+exactly, calling the same real shared dependencies, so the per-record isolation logic under test
+still runs for real — only BullMQ's own dispatch plumbing is bypassed.
+
 ## Known, honestly-documented verification gaps
 
 Every module that shells out to `ffmpeg` (stderr parsing: `astats`, `showinfo`, `blackdetect`,
